@@ -15,7 +15,9 @@ assert.equal(httpStatus('boom'), undefined);
 assert.equal(httpStatus(null), undefined);
 
 // ── 영구 실패 — 버린다 ────────────────────────────────────────────────────
-for (const status of [400, 403, 404, 410, 422]) {
+// 409 = 서버가 단계 순서로 거절(앞 단계가 서버에 없음 · 이미 기록됨). 큐 안 순서는 queuedAt 이 지키므로 이 409 는
+// 다시 보내도 같다 — 남기면 큐 맨 앞에서 그 뒤 기록을 7일 동안 막는다(아래 flush (3) 이 잠근다).
+for (const status of [400, 403, 404, 409, 410, 422]) {
   assert.equal(isPermanentFailure(new HttpError('nope', status)), true, `${status} 가 재시도 대상이 됐다`);
 }
 
@@ -26,13 +28,6 @@ assert.equal(isPermanentFailure(new ServiceUnavailableError()), false);
 for (const status of [408, 429, 500, 502, 504]) {
   assert.equal(isPermanentFailure(new HttpError('later', status)), false, `${status} 를 버렸다`);
 }
-// 409 는 "단계 순서가 올바르지 않습니다" 다 — 우리 큐가 만든 오류이므로 버리면 안 된다.
-// 순서가 바로잡히면 다음 시도에 통과한다(안 되면 7일 컷오프가 걷어낸다).
-assert.equal(
-  isPermanentFailure(new HttpError('order', 409)),
-  false,
-  '409 를 버리면 우리가 만든 순서 오류로 멀쩡한 방문 기록을 지운다',
-);
 
 // 상태를 모르는 실패는 일시적으로 본다 — 모르면 재시도하는 쪽이 안전하다.
 assert.equal(isPermanentFailure(new Error('Failed to fetch')), false);
@@ -126,6 +121,37 @@ void (async () => {
     ['rated'],
     '전송 도중 들어온 기록이 되쓰기에서 사라졌다',
   );
+
+  // (3) 409(단계 순서 거절)는 그 항목만 버리고 뒤 기록은 그대로 보낸다 — 큐를 막지 않는다.
+  //     길안내 시작을 기록하지 않던 화면에서 수락한 추천의 '도착 확인' 이 맨 앞에 선 상황이다.
+  sent.length = 0;
+  const REC_ORPHAN = '33333333-3333-4333-8333-333333333333';
+  (apiClient as unknown as { patch: (p: string, b?: unknown) => Promise<unknown> }).patch =
+    async (path: string) => {
+      sent.push(path);
+      if (path.includes(REC_ORPHAN)) throw new HttpError('방문 결과 단계 순서가 올바르지 않습니다.', 409);
+      return {};
+    };
+  const warn = console.warn;
+  const warned: unknown[] = [];
+  console.warn = (...args: unknown[]) => { warned.push(args); };
+  try {
+    seed([
+      { recommendationId: REC_ORPHAN, stage: 'arrival_confirmed', queuedAt: Date.now() - 120_000 },
+      { recommendationId: REC_NEW, stage: 'navigation_started', queuedAt: Date.now() - 60_000 },
+      { recommendationId: REC_NEW, stage: 'arrival_confirmed', queuedAt: Date.now() - 30_000 },
+    ]);
+    await flushRecommendationOutcomes();
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(
+    sent.map((p) => p.split('/')[4]),
+    [REC_ORPHAN, REC_NEW, REC_NEW],
+    '409 항목 뒤의 기록이 전송되지 않았다 — 큐가 막혔다',
+  );
+  assert.deepEqual(queued(), [], '409 항목이 큐에 남았다 — 다음 회차에도 맨 앞에서 막는다');
+  assert.equal(warned.length, 1, '버린 항목을 로그로 남기지 않았다');
 
   console.log('recommendationOutcomes flush tests passed');
 })();

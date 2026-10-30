@@ -3,7 +3,7 @@
 import { useState, useEffect, useId, useRef, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, Coffee, RefreshCw, X, Camera } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, ChevronRight, Globe, Utensils, Coffee, RefreshCw, X, Camera } from 'lucide-react';
 import { apiClient, httpStatus, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
@@ -21,7 +21,7 @@ import { nextSheetState, sheetElastic, type SheetState } from '@/lib/sheetSnap';
 import { cardMenu, menuItems } from '@/lib/cardMenu';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
-import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
+import { congestionDisplay, formatEstimateTime, formatLastObserved, isBaselinePrediction } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
 import {
   candidateAreaCrowdLevel,
@@ -90,7 +90,7 @@ interface RecommendationCardFacility {
 
 /** 카드 머리에 둘 '지금 걸린 조건' 칩(계획 B2 9번) — ✕ 로 바로 푼다. */
 export interface CardCondition {
-  key: 'walk' | 'indoor' | 'barrierFree';
+  key: 'walk' | 'indoor' | 'barrierFree' | 'stroller';
   /** 칩 글자(예: '🚶 도보 10분 이내'). */
   label: string;
   /** 해제 버튼의 접근 이름에 넣을 조건 이름(이모지 없이). */
@@ -106,6 +106,11 @@ interface RecommendationCardProps {
   onDrive?: () => void;
   onReject: () => void;
   onPutOff?: () => void;
+  /**
+   * '대신 갈 곳 보기'(P1-5) — 사용자가 핀·검색·링크로 **직접 고른** 장소일 때만 부모가 넘긴다. 가려던 곳이 붐비면
+   * 그 둘레의 같은 종류 대안(/explore/recommend)으로 바로 간다. 추천 목록의 카드는 이미 대안이라 넘기지 않는다.
+   */
+  onSeeInstead?: () => void;
   spotScore?: number;
   preferencePercent?: number;
   /** 함께 보이는 후보들의 취향 일치율 — 모두 같은 숫자면 앞면 · 미리보기에서 말하지 않는다(faceTastePercent). */
@@ -158,6 +163,9 @@ interface RecommendationCardProps {
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   congestionSource?: 'measured' | 'predicted' | 'none';
+  // 'predicted' 의 출처(서버 판정 — model | industry_baseline). 없으면(구 서버) scoringMode 로 짐작한다
+  // (lib/congestionEstimate.isBaselinePrediction).
+  congestionPredictionBasis?: 'model' | 'industry_baseline' | null;
   // 위 혼잡 값이 '지금' 인지에 대한 **서버 판정**(백엔드 congestion_evidence.evidence_is_current).
   // false 면 이 카드는 추정을 '지금' 으로 칠하고 그 관측을 '마지막 관측 HH:MM' 으로 함께 보여 준다.
   // 카드가 스스로 판정하지 않는 이유는 lib/congestionEstimate.ts 머리말 참조.
@@ -230,6 +238,7 @@ export function RecommendationCard({
   onDrive,
   onReject,
   onPutOff,
+  onSeeInstead,
   spotScore,
   preferencePercent,
   tastePeers,
@@ -260,8 +269,10 @@ export function RecommendationCard({
   dataSource,
   openStatusAtArrival,
   congestionSource,
+  congestionPredictionBasis,
   congestionIsCurrent,
   congestionTimestamp,
+  scoringMode,
   congestionEstimate,
   showCompare = false,
   insteadReason,
@@ -441,6 +452,15 @@ export function RecommendationCard({
   // (그래도 그 관측은 lastObserved 로 남아 화면에서 사라지지 않는다).
   const shownCongestionLevel =
     display.mode === 'measured' || display.mode === 'predicted' ? display.level : null;
+  // 'predicted' 중 업종 시간대 기준선(P0-5 d) — 이 장소를 잰 값도, 모델이 낸 값도 아니다. 실측처럼 '혼잡도: 혼잡' 으로
+  // 칠하지 않고, 비교 헤더('A 혼잡 → B 여유')·신선도 표·얼굴 칩의 근거로도 쓰지 않는다. 다른 근거가 없을 때만
+  // '평소 이 시간: 등급' 점선 칩 하나로 '추천 근거 자세히' 안에 남긴다(퍼센트·'AI' 없이).
+  const baselineLevel = !localReport && display.mode === 'predicted'
+    && isBaselinePrediction({ congestionSource: displayCongestionSource, scoringMode, congestionPredictionBasis })
+    ? shownCongestionLevel
+    : null;
+  // 실측 또는 학습 모델 예측 — '지금' 칸에 등급색으로 칠해도 되는 값.
+  const observedLevel = baselineLevel === null ? shownCongestionLevel : null;
   const displayDataSource = localReport
     ? { source: 'user_report', lastUpdated: localReport.timestamp, isStale: false }
     : dataSource;
@@ -947,7 +967,7 @@ export function RecommendationCard({
   // 가정 시각이면 지도 핀과 같은 예측 값이 먼저다(부모가 그때는 지금 값을 넘기지 않는다).
   const forecastCrowdLevel = typeof forecastLevel === 'number' && Number.isFinite(forecastLevel) ? forecastLevel : null;
   const candidateCrowdGrade = resolveCandidateCrowd({
-    congestionLevel: forecastCrowdLevel ?? shownCongestionLevel,
+    congestionLevel: forecastCrowdLevel ?? observedLevel,
     estimateLevel: estimate?.level,
     areaDemandLevel: candidateAreaCrowdLevel({
       areaDemandLevel,
@@ -1006,13 +1026,13 @@ export function RecommendationCard({
   // ── 혼잡 칩(얼굴 · 미리보기) ───────────────────────────────────────────────────
   // 칩의 글자와 색 — 실측(꽉 찬 등급색) · 점선 추정 · 주변 붐빔 등급. 얼굴에 둘지는 showFaceCrowdChip:
   // '지금' 잰 값이거나 기준 명소보다 정말 덜 붐빌 때만(같은 지역 추정 등급은 근거 안에만 — 계획 B2 5번).
-  const areaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
+  const areaCrowdGrade = observedLevel === null && !estimate && typeof areaDemandLevel === 'number'
     ? candidateCrowdGrade
     : null;
   // 지금 혼잡이 방문객 제보에서 왔으면(2시간 안) 칩에 '누가·언제'를 함께 말한다 — 가기 전에 확인한 사람이 있다는 확신
   // (디벨롭 로드맵 2, 10-24). 지금까지는 '추천 근거 자세히' 안의 신선도 표에만 있었다.
   const visitorReportRel = (() => {
-    if (shownCongestionLevel === null || displayDataSource?.source !== 'user_report' || displayDataSource.isStale) return null;
+    if (observedLevel === null || displayDataSource?.source !== 'user_report' || displayDataSource.isStale) return null;
     const parts = relativeParts(displayDataSource.lastUpdated);
     if (!parts || parts.unit === 'day' || (parts.unit === 'hour' && parts.value >= 2)) return null;
     return parts.unit === 'now' ? t('freshness.justNow')
@@ -1040,19 +1060,22 @@ export function RecommendationCard({
       ? { grade: gradeKey(forecastCrowdLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastCrowdLevel, busyAt)}`) }), dashed: true }
       : ownerSeatChip
         ? ownerSeatChip
-      : shownCongestionLevel !== null
+      : observedLevel !== null
         ? {
-            grade: congestionKey(shownCongestionLevel),
+            grade: congestionKey(observedLevel),
             text: visitorReportRel
-              ? t('card.crowdByVisitor', { rel: visitorReportRel, label: congestionLabel(shownCongestionLevel) })
-              : `${t('card.congestion')}: ${congestionLabel(shownCongestionLevel)}`,
+              ? t('card.crowdByVisitor', { rel: visitorReportRel, label: congestionLabel(observedLevel) })
+              : `${t('card.congestion')}: ${congestionLabel(observedLevel)}`,
             dashed: false,
           }
         : estimate
           ? { grade: gradeKey(estimate.level, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) }), dashed: true }
           : areaCrowdGrade
             ? { grade: areaCrowdGrade, text: `${t('recommend.areaDemandForRanking')}: ${t(`congestion.${areaCrowdGrade}`)}`, dashed: false }
-            : null;
+            : baselineLevel !== null
+              // 업종 시간대 기준선 — 점선(잰 값이 아니다), 퍼센트·'AI' 없이 등급만.
+              ? { grade: gradeKey(baselineLevel, busyAt), text: t('card.baselineLevel', { label: t(`congestion.${gradeKey(baselineLevel, busyAt)}`) }), dashed: true }
+              : null;
   const measuredNow = !!localReport || display.mode === 'measured';
   const crowdChipRule = {
     measuredNow,
@@ -1102,7 +1125,7 @@ export function RecommendationCard({
   // ── 하나의 신선도 표(I10 one-stamp) — '추천 근거 자세히' 안에 한 개만 ─────────────────────────────
   const freshnessStamp = (() => {
     if (seatStatusFreshMinutes !== null) return `✅ ${t('card.seatConfirmed', { n: seatStatusFreshMinutes })}`;
-    if (shownCongestionLevel !== null && displayDataSource && !displayDataSource.isStale) {
+    if (observedLevel !== null && displayDataSource && !displayDataSource.isStale) {
       const parts = relativeParts(displayDataSource.lastUpdated);
       if (parts) {
         const rel =
@@ -1148,6 +1171,14 @@ export function RecommendationCard({
     haptic('selection');
     onReject();
   };
+  // '대신 갈 곳 보기' — 미리보기와 전체 카드가 같은 함수를 부른다(밀기 직후의 click 은 무시).
+  const handleSeeInsteadClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (justDraggedRef.current || !onSeeInstead) return;
+    haptic('selection');
+    onSeeInstead();
+  };
+  const seeInsteadAria = t('card.seeInsteadAria', { name: title });
 
   // 조건 칩(도보 N분 이내 · 실내 · 무장애) — 카드 머리, ✕ 로 바로 푼다.
   const conditionChips = conditions.length > 0 ? (
@@ -1334,14 +1365,29 @@ export function RecommendationCard({
               {t('card.accept')}
             </span>
           </motion.button>
-          <motion.button
-            type="button"
-            onClick={handleRejectClick}
-            aria-label={t('card.rejectAria')}
-            className="toss-pressable min-h-11 min-w-0 flex-1 break-keep rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold leading-tight text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            {t('card.reject')}
-          </motion.button>
+          {/* 직접 고른 장소면 두 번째 자리가 '대신 갈 곳 보기'(P1-5) — 그 장소를 고른 사람에게는 '다시 안볼래요' 보다
+              그대로 갈지 · 대안을 볼지가 먼저다. 세 버튼을 한 줄에 두면 좁은 폰에서 '바로 갈래요' 가 네 줄로 접힌다.
+              거절은 펼친 카드의 바닥 줄에 그대로 있다. */}
+          {onSeeInstead ? (
+            <motion.button
+              type="button"
+              onClick={handleSeeInsteadClick}
+              aria-label={seeInsteadAria}
+              data-testid="peek-see-instead"
+              className="toss-pressable min-h-11 min-w-0 flex-1 break-keep rounded-2xl border border-jade/40 bg-jade/10 px-2 py-2 text-xs font-bold leading-tight text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+            >
+              {t('waiting.seeInstead')}
+            </motion.button>
+          ) : (
+            <motion.button
+              type="button"
+              onClick={handleRejectClick}
+              aria-label={t('card.rejectAria')}
+              className="toss-pressable min-h-11 min-w-0 flex-1 break-keep rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold leading-tight text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              {t('card.reject')}
+            </motion.button>
+          )}
           </div>
           </div>
         </div>
@@ -1607,6 +1653,21 @@ export function RecommendationCard({
         <p className="text-[12px] font-medium leading-relaxed text-terracotta">
           {t('card.likelyClosedReason', { time: formatTime(arrivalTime) })}
         </p>
+      )}
+
+      {/* '대신 갈 곳 보기'(P1-5) — 직접 고른 장소에서만(부모가 넘길 때). 가려던 곳을 그대로 갈지, 그 둘레의 같은 종류
+          대안을 볼지가 이 카드의 첫 결정이라 첫 화면 안(혜택 칩 바로 아래)에 둔다. */}
+      {onSeeInstead && (
+        <button
+          type="button"
+          onClick={handleSeeInsteadClick}
+          aria-label={seeInsteadAria}
+          data-testid="see-instead"
+          className="toss-pressable flex min-h-11 w-full shrink-0 items-center justify-center gap-1 rounded-2xl border border-jade/40 bg-jade/10 px-3 py-2 text-[13px] font-bold text-jade transition-colors hover:bg-jade/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+        >
+          {t('waiting.seeInstead')}
+          <ChevronRight size={15} className="shrink-0" aria-hidden />
+        </button>
       )}
 
       {/* 7. 관광객 말의 '추천 이유'(베스트 추천 대비 차이) — 2·3번째 추천만. 1위의 이유는 가치 문장과 같은 말이라

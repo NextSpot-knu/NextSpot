@@ -10,9 +10,11 @@ import { join } from 'node:path';
 
 import {
   CROWDED_EVIDENCE_CUTOFF,
+  ELIGIBILITY_TIER_ORDER,
   EVIDENCE_TIER_BY_SCORING_MODE,
   WEAKEST_EVIDENCE_TIER,
   compareSpot,
+  eligibilityTierRank,
   cuisineIntentTags,
   cuisineMatch,
   evidenceTier,
@@ -134,6 +136,33 @@ assert.equal(recToSpot(rec).scoringMode, 'area_stats_rules');
 }
 
 console.log('recommender evidence-tier tests passed');
+
+// --- 영업·경로 근거 등급(서버 eligibility_tier)이 무엇보다 먼저다(P1-4) -----------------
+// 서버는 영업 확인 곳이 모자라면 약한 등급에서 채우고(fill_weaker_tiers) 등급 순으로 준다. 화면이 점수로만 다시 세우면
+// 더 가깝고 점수가 높은 '영업시간 미확인' 카드가 영업이 확인된 곳을 앞질러 1위에 선다.
+{
+  const card = (name: string, score: number, eligibilityTier?: string, informationConfidence?: string) => ({
+    name,
+    eligibilityTier,
+    informationConfidence,
+    spot: { score, preferencePercent: 50, expectedWait: 0, expectedTravel: 3, timeToService: 3, scoringMode: 'measured_rules' as const },
+  });
+  const verified = card('영업 확인 · 먼 곳', 40, 'verified_open_route', 'verified');
+  const estimatedRoute = card('영업 확인 · 경로 추정', 45, 'verified_open_estimated_route', 'verified');
+  const unconfirmedNear = card('영업 미확인 · 가까운 곳', 95, 'hours_confirmation_required_route', 'unknown');
+  const unconfirmedBoth = card('영업·경로 미확인', 99, 'hours_and_route_confirmation_required', 'unknown');
+  const ordered = [unconfirmedBoth, unconfirmedNear, estimatedRoute, verified].sort(compareSpot).map((c) => c.name);
+  assert.deepEqual(ordered, ['영업 확인 · 먼 곳', '영업 확인 · 경로 추정', '영업 미확인 · 가까운 곳', '영업·경로 미확인']);
+  assert.equal(eligibilityTierRank(unconfirmedNear), ELIGIBILITY_TIER_ORDER.hours_confirmation_required_route);
+  // 등급 이름이 없는 응답(구 서버)은 영업 확인 여부로, 둘 다 없는 로컬 후보는 영업 확인 곳으로 본다.
+  assert.equal(eligibilityTierRank({ informationConfidence: 'unknown' }), 2);
+  assert.equal(eligibilityTierRank({}), 0);
+  assert.equal(eligibilityTierRank({ eligibilityTier: 'something_new' }), 0, '모르는 등급 이름은 없는 것으로 본다');
+  // 같은 등급 안에서는 종전 규칙 그대로(근거 등급 → 점수).
+  assert.ok(compareSpot(card('높은 점수', 80, 'verified_open_route'), card('낮은 점수', 60, 'verified_open_route')) < 0);
+}
+
+console.log('recommender eligibility-tier tests passed');
 
 // --- 음식 종류 태그: camelCase(cuisineTags) 도 읽는다(계획 B2 · I09) -------------------
 // apiClient 는 features 안까지 camelCase 로 바꾼다. 예전에는 cuisine_tags 만 읽어 /main 의 모든 시설이 '태그 없음' 이었다.

@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => stubExternalServices(page));
 const CENTER = { lat: 35.8362, lng: 129.2095 }; // REGION.center — 위치 권한이 없으면 여기서 잰다
 const NORTH_M = (meters: number) => CENTER.lat + meters / 111_000;
 
-interface Place { id: string; name: string; type: string; meters: number; barrierFree?: boolean }
+interface Place { id: string; name: string; type: string; meters: number; barrierFree?: boolean; stroller?: string }
 
 function mapRow(place: Place) {
   return {
@@ -26,7 +26,8 @@ function mapRow(place: Place) {
     latitude: NORTH_M(place.meters),
     longitude: CENTER.lng,
     capacity: 30,
-    features: {},
+    // TourAPI '유모차 대여 정보' 원문(chk_babycarriage) — 👶 조건의 근거(P1-6).
+    features: place.stroller ? { chk_babycarriage: place.stroller } : {},
     barrier_free: place.barrierFree ?? null,
     congestion: null,
     operating_hours: { open: '24시간', closed: '연중무휴' },
@@ -53,12 +54,17 @@ function rec(place: Place) {
   };
 }
 
-interface ByTypeBody { facility_type: string; context?: { categories?: string[]; max_walk_minutes?: number | null } }
+interface ByTypeBody {
+  facility_type: string;
+  context?: { categories?: string[]; max_walk_minutes?: number | null; required_attributes?: string[] };
+}
 
 async function openMain(page: Page, places: Place[], options: {
   setupPrefs?: Record<string, unknown>;
   /** by-type 응답 — 기본은 그 유형의 첫 장소 하나. */
   respond?: (body: ByTypeBody) => Place[];
+  /** true 면 그 요청을 422 로 거절한다 — 'stroller' 를 모르는 옛 API 흉내(P1-6 배포 시차). */
+  reject?: (body: ByTypeBody) => boolean;
 } = {}): Promise<ByTypeBody[]> {
   const bodies: ByTypeBody[] = [];
   await stubMain(page, { facilities: places.map(mapRow), byType: () => [] });
@@ -70,6 +76,13 @@ async function openMain(page: Page, places: Place[], options: {
   await page.route('**/api/v1/recommendations/by-type', (route) => {
     const body = route.request().postDataJSON() as ByTypeBody;
     bodies.push(body);
+    if (options.reject?.(body)) {
+      return route.fulfill({
+        status: 422,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: [{ loc: ['body', 'context', 'required_attributes', 0], msg: 'Input should be indoor or accessible' }] }),
+      });
+    }
     const picks = options.respond
       ? options.respond(body)
       : places.filter((place) => place.type === body.facility_type).slice(0, 1);
@@ -142,15 +155,15 @@ test('♿ switches to the category that has barrier-free places, and an empty ch
   await openMain(page, places);
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
-  await expect(page.getByText('♿ 휠체어·유모차 편의가 확인된 관광지 2곳을 보여드려요')).toBeVisible();
+  await page.getByRole('button', { name: '♿ 휠체어' }).click();
+  await expect(page.getByText('♿ 휠체어 편의가 확인된 관광지 2곳을 보여드려요')).toBeVisible();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
 
   // ♿ 를 켠 채 무장애 확인 장소가 없는 칩으로 — '없어요' 대신 갈 칩을 고르는 카드 하나.
   await page.getByRole('button', { name: '음식점', exact: true }).click();
   const suggestion = page.getByTestId('category-suggestion');
   await expect(suggestion).toBeVisible({ timeout: 25_000 });
-  await expect(suggestion).toContainText('♿ 휠체어·유모차 편의가 확인된 곳은 이쪽에 있어요');
+  await expect(suggestion).toContainText('♿ 휠체어 편의가 확인된 곳은 이쪽에 있어요');
   await expect(page.getByText(/없어요/)).toHaveCount(0);
   await suggestion.getByRole('button', { name: '관광지 2곳 보기' }).click();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
@@ -168,10 +181,10 @@ test('♿ with barrier-free pins only beyond walking range moves to their catego
   await openMain(page, places);
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
+  await page.getByRole('button', { name: '♿ 휠체어' }).click();
   const suggestion = page.getByTestId('category-suggestion');
   await expect(suggestion).toBeVisible({ timeout: 25_000 });
-  await expect(suggestion).toContainText('♿ 휠체어·유모차 편의가 확인된 1곳이 지도에 있어요');
+  await expect(suggestion).toContainText('♿ 휠체어 편의가 확인된 1곳이 지도에 있어요');
   await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
   await expect(page.getByTestId('recommendation-card')).toHaveCount(0);
   await expect(page.getByText(/없어요/)).toHaveCount(0);
@@ -192,13 +205,101 @@ test('♿ whose category the server leaves empty still opens the barrier-free pl
   });
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
-  await expect(page.getByText('♿ 휠체어·유모차 편의가 확인된 관광지 1곳을 보여드려요')).toBeVisible();
+  await page.getByRole('button', { name: '♿ 휠체어' }).click();
+  await expect(page.getByText('♿ 휠체어 편의가 확인된 관광지 1곳을 보여드려요')).toBeVisible();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
-  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '휠체어·유모차 조건 해제' })).toBeVisible();
+  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '휠체어 조건 해제' })).toBeVisible();
   await expect(page.getByTestId('category-suggestion')).toHaveCount(0);
   // 카드의 '다시 안볼래요' 버튼과 별개로 카테고리 전환을 확인한다.
   await expect(page.getByText(/(?<!관심 )없어요/)).toHaveCount(0);
+});
+
+// P1-6 — 👶 유모차는 ♿ 휠체어와 따로 켠다. 켜면 서버에 'stroller' 조건이 실려 가고, 지금 칩에 유모차 편의가 확인된 곳이
+// 없으면 그런 곳이 있는 칩으로 옮겨 그 사실을 말한다. 휠체어 확인만 있는 곳은 유모차 조건을 채우지 못한다.
+test('👶 is its own condition: it moves to the category with stroller-friendly places and asks the server for it', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const places: Place[] = [
+    { id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200, barrierFree: true },
+    { id: 'u1', name: '신라 역사관', type: 'culture', meters: 400, stroller: '가능' },
+  ];
+  const bodies = await openMain(page, places);
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
+
+  await page.getByRole('button', { name: '👶 유모차' }).click();
+  await expect(page.getByText('👶 유모차 편의가 확인된 문화시설 1곳을 보여드려요')).toBeVisible();
+  await expect(cardHeading(page, '신라 역사관')).toBeVisible({ timeout: 25_000 });
+  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '유모차 조건 해제' })).toBeVisible();
+  await expect.poll(() => bodies.some((body) => JSON.stringify(body.context ?? {}).includes('"stroller"'))).toBe(true);
+});
+
+// 배포 시차(P1-6 · 라운드 2): 웹이 먼저 배포되면 'stroller' 를 모르는 옛 API 가 422 를 준다. 빈 카드·오류로 끝내지 않고
+// 그 조건만 빼고 한 번 다시 묻고(결과는 화면이 유모차 판정으로 거른다), 같은 세션의 다음 요청은 처음부터 빼고 묻는다.
+test('👶 against an API that rejects "stroller" retries once without it and keeps the card', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const places: Place[] = [
+    { id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200 },
+    { id: 'u0', name: '가까운 미술관', type: 'culture', meters: 150 },
+    { id: 'u1', name: '신라 역사관', type: 'culture', meters: 400, stroller: '가능' },
+  ];
+  const asksStroller = (body: ByTypeBody) => (body.context?.required_attributes ?? []).includes('stroller');
+  const bodies = await openMain(page, places, {
+    reject: asksStroller,
+    respond: (body) => places.filter((place) => place.type === body.facility_type),
+  });
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
+
+  await page.getByRole('button', { name: '👶 유모차' }).click();
+  await expect(cardHeading(page, '신라 역사관')).toBeVisible({ timeout: 25_000 });
+  // 지도 카드의 요청만 센다 — 대기 보드 프리페치(api-client prefetchDemoHotPaths)는 여행 조건 없이 같은 경로를 부른다.
+  const culture = () => bodies.filter((body) => body.facility_type === 'culture' && body.context);
+  expect(culture().filter(asksStroller)).toHaveLength(1); // 한 번 거절당하고
+  expect(culture().some((body) => !asksStroller(body))).toBe(true); // 빼고 다시 물었다
+
+  // 다른 칩에 다녀와도 다시 422 를 받지 않는다 — 이 세션은 처음부터 빼고 묻는다.
+  await page.getByRole('button', { name: '음식점', exact: true }).click();
+  await page.getByRole('button', { name: '문화시설', exact: true }).click();
+  await expect(cardHeading(page, '신라 역사관')).toBeVisible({ timeout: 25_000 });
+  await expect.poll(() => culture().length).toBeGreaterThan(2);
+  expect(bodies.filter(asksStroller)).toHaveLength(1);
+});
+
+// ♿ 와 같은 규칙(라운드 2): 👶 를 켰는데 카드에 오를 곳이 없으면(전부 걸어갈 거리 밖) 빈 지도로 두지 않고 핀이 있는 칩으로
+// 옮겨 '지도에 N곳' 과 '지도에서 보기' 를 말한다.
+test('👶 with stroller-friendly pins only beyond walking range says where they are', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const places: Place[] = [
+    { id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200 },
+    { id: 'u1', name: '먼 어린이 박물관', type: 'culture', meters: 3_000, stroller: '가능' }, // 도보 20분(1,333m) 밖
+  ];
+  await openMain(page, places);
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
+
+  await page.getByRole('button', { name: '👶 유모차' }).click();
+  const suggestion = page.getByTestId('category-suggestion');
+  await expect(suggestion).toBeVisible({ timeout: 25_000 });
+  await expect(suggestion).toContainText('👶 유모차 편의가 확인된 1곳이 지도에 있어요');
+  await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
+  await expect(page.getByTestId('recommendation-card')).toHaveCount(0);
+});
+
+// 👶 를 설정 화면에서 켜 두었는데 유모차 편의가 확인된 곳이 하나도 없다 — 칩도 카드도 없는 빈 지도 대신 그 사실과
+// '유모차 조건 끄기' 를 준다. 끄면 카드가 바로 돌아온다.
+test('👶 from setup with no stroller-friendly place anywhere says so and offers to turn it off', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page, [{ id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200 }], {
+    setupPrefs: {
+      version: 2, categories: ['restaurant'], requiredAttributes: ['stroller'], excludeVisited: false, visitedFacilityIds: [],
+    },
+  });
+  const suggestion = page.getByTestId('category-suggestion');
+  await expect(suggestion).toBeVisible({ timeout: 25_000 });
+  await expect(suggestion.getByTestId('stroller-none')).toHaveText('👶 유모차 편의가 확인된 곳을 아직 찾지 못했어요');
+  await suggestion.getByRole('button', { name: '유모차 조건 끄기' }).click();
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 });
 
 for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 }]) {
@@ -217,6 +318,8 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     } else {
       await expect(page.getByRole('button', { name: /히트맵/ })).toBeVisible();
     }
-    await expect(page.getByRole('button', { name: /휠체어·유모차|무장애|배리어프리/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /휠체어|무장애|배리어프리/ })).toHaveCount(0);
+    // 유모차 대여 정보도 없으면 👶 칩도 없다(P1-6 — 늘 빈 지도가 되는 칩은 두지 않는다).
+    await expect(page.getByRole('button', { name: /유모차/ })).toHaveCount(0);
   });
 }

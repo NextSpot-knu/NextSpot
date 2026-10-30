@@ -8,6 +8,15 @@
 
 const SYNTHETIC_PREFIX = 'mock-';
 
+/**
+ * 서버 recommendations 표에 실제로 있는 추천 id 인가 — 비었거나 합성 id('mock-…')면 아니다.
+ * /main 의 수락은 이 id 를 함께 보내야 서버가 노출된 그 추천을 수락으로 바꾸고 취향을 반영한다(P1-1).
+ * 합성 id 를 보내면 서버는 찾지 못한다(404) — 그때는 종전처럼 시설 id 만 보낸다.
+ */
+export function isServerRecommendationId(id: string | null | undefined): id is string {
+  return typeof id === 'string' && id.trim().length > 0 && !id.startsWith(SYNTHETIC_PREFIX);
+}
+
 interface HasRecommendationId {
   recommendationId: string;
   facility?: { id?: string | null } | null;

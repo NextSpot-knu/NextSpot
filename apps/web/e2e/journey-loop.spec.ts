@@ -249,6 +249,11 @@ test('unknown hours require Kakao confirmation before navigation', async ({ page
   await mockRecommendationPage(page, { unknownHours: true });
   await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
 
+  // 지도 카드와 같은 안내를 단다 — 영업시간을 모르는 카페라는 사실을 누르기 전에 말한다. '영업시간 미확인' 칩은 없다(계획 A4).
+  await expect(page.getByTestId('alt-hours-hint').first())
+    .toHaveText('출발 전에 카카오맵에서 영업시간을 먼저 보여 드려요.', { timeout: 25_000 });
+  await expect(page.getByText(/영업시간 미확인/)).toHaveCount(0);
+
   await page.getByRole('button', { name: '바로 갈래요 (도보 길안내)', exact: true }).first().click();
   await expect(page.getByText('카카오맵에서 지금 영업 중인지 확인하셨나요?')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened))

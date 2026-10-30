@@ -685,9 +685,13 @@ test('a pin outside the list opens as 선택한 장소, a search hit too, and a 
     await page.waitForTimeout(300);
     await expect(card(page).getByTestId('card-rank')).toHaveText('선택한 장소');
   }
+  // 직접 고른 장소에는 '대신 갈 곳 보기'(P1-5) — 가려던 곳 대신 고를 곳으로 가는 입구다.
+  await expect(card(page).getByTestId('see-instead')).toHaveText('대신 갈 곳 보기');
   await page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.click('경주 향교'));
   await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
   await expect(card(page).getByTestId('card-rank')).toHaveText('2번째 추천');
+  // 추천 목록의 카드는 이미 대안이다 — 그 입구를 두지 않는다.
+  await expect(card(page).getByTestId('see-instead')).toHaveCount(0);
   // 검색으로 찾은 우리 DB 장소는 Enter 로 카드가 된다(I84) — 글자마다 카드를 바꾸지 않는다(리뷰 10-07).
   const search = page.getByPlaceholder('경주 장소·메뉴·분위기 검색');
   await search.fill('월정교');
@@ -702,17 +706,24 @@ test('a pin outside the list opens as 선택한 장소, a search hit too, and a 
   await expect(card(page).getByRole('heading', { name: '황남 쌈밥' })).toBeVisible();
   await expect(page.getByRole('button', { name: '음식점', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(card(page).getByTestId('card-rank')).toHaveText('선택한 장소');
+  // 검색으로 연 장소의 '대신 갈 곳 보기' → 그 장소를 원래 장소로, 같은 종류(음식점)를 묻는 대안 화면.
+  await card(page).getByTestId('see-instead').click();
+  await expect(page).toHaveURL(/\/explore\/recommend\?facilityId=[^&]+&lat=[^&]+&lng=[^&]+&type=restaurant&from=pick/, { timeout: 30_000 });
 });
 
-test('다시 안볼래요 opens the next recommendation and updates the taste profile', async ({ page }) => {
+// 거절은 지금 취향을 바꾸지 않는다 — 나의 실험실에서 이유를 답해야(취향 때문일 때만) 반영된다(P0-5 c). 예전에는 여기서
+// '취향 프로필에 반영했어요' 라고 말했다. 이제는 그 사실과 실험실로 가는 '보기' 를 알린다.
+test('다시 안볼래요 opens the next recommendation and points to My Lab instead of claiming a taste update', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   await openMain(page);
   await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
   await card(page).getByRole('button', { name: '이 장소 다시 안볼래요' }).click();
-  await expect(page.getByText('취향 프로필에 반영했어요')).toBeVisible();
-  await expect(page.getByRole('button', { name: '보기', exact: true })).toBeVisible();
+  await expect(page.getByText('취향 때문이라면 나의 실험실에서 이유를 알려 주세요. 그때 취향 프로필에 반영돼요')).toBeVisible();
+  await expect(page.getByText('취향 프로필에 반영했어요')).toHaveCount(0);
   await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
+  await page.getByRole('button', { name: '보기', exact: true }).click();
+  await expect(page).toHaveURL(/\/mypage\/lab/, { timeout: 30_000 });
 });
 
 test('contract: /main?place=<id> opens that place as 선택한 장소 in its own category', async ({ page }) => {

@@ -28,6 +28,7 @@ import { roleRequestEntryState } from '@/lib/accountRoles';
 import { consoleLinks } from '@/lib/consoleLinks';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
+import { readImpactSummary } from '@/lib/impactSummary';
 // '내 문의' 배지의 읽음 판정 — 이 기기 기준(그 한계는 seen.ts 주석에 적어 뒀다).
 import { countUnseenReplies } from './inquiries/seen';
 import { clearUserScopedData } from '@/lib/userData';
@@ -39,7 +40,7 @@ import { AccountSection } from '@/components/AccountSection';
 import ImpactSummaryCard from '@/components/ImpactSummaryCard';
 import { useT } from '@/lib/i18n/I18nProvider';
 
-// 2026년 최저시급(고용노동부 고시, 원/시간) — '아낀 시간'을 기회비용으로 환산하는 기준.
+// 2026년 최저시급(고용노동부 고시, 원/시간) — '줄인 예상 대기'를 기회비용으로 환산하는 기준.
 // 화면에도 '최저시급 기준'을 명시한다(정직성 — 임의 환산이 아님을 알림).
 const MIN_WAGE_KRW_PER_HOUR = 10320;
 
@@ -200,8 +201,9 @@ export default function MyPage() {
     try { setVisitCount(getVisitCount()); } catch { /* localStorage 차단 무시 */ }
   }, []);
 
-  // 아낀 대기 시간(분) — 임팩트 API의 누적 집계(수락 추천들의 대기 절약 합, score_breakdown 실저장값).
-  // 백엔드 미가용/무세션이면 타일을 숨긴다(null 유지 — 가짜 0 적립을 보여주지 않는 정직성).
+  // 줄인 예상 대기(분) — 임팩트 API의 누적 집계(원래 장소와 고른 곳의 대기 예측이 둘 다 있는 수락만, score_breakdown
+  // 실저장값). 백엔드 미가용/무세션이면 null 이고, 0 이어도 배너를 그리지 않는다(P0-5 b) — /main 수락에는 그 비교가 없어
+  // 늘 0 이었고, 그 0 에 '지금부터 아낀 시간이 쌓입니다' 같은 약속 문구가 붙었다.
   // 첫 실패는 익명 세션 부트스트랩 레이스일 수 있어 2.5초 유예 1회 재시도(waiting/impact 와 동일 패턴).
   const [waitSaved, setWaitSaved] = useState<number | null>(null);
   useEffect(() => {
@@ -210,7 +212,7 @@ export default function MyPage() {
     const load = async () => {
       try {
         const d = await apiClient.get('/api/v1/impact/summary');
-        if (alive) setWaitSaved(Math.max(0, Math.round(Number(d?.waitSavedMinutes) || 0)));
+        if (alive) setWaitSaved(readImpactSummary(d).waitSavedMinutes);
       } catch {
         if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
       }
@@ -528,8 +530,8 @@ export default function MyPage() {
                   </button>
                 </div>
 
-                {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장 + 방문(방문 확인 루프)
-                    + 아낀 시간(임팩트 API 누적, 로드 성공 시에만 3열로 확장 — 실패 시 가짜 0 미노출). */}
+                {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장 + 방문(방문 확인 루프).
+                    줄인 예상 대기는 아래 배너가 값이 있을 때만 말한다(실패·0 이면 그리지 않는다). */}
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -548,27 +550,24 @@ export default function MyPage() {
                   </div>
                 </div>
 
-                {/* 아낀 시간 가치 배너 — 절약 시간을 기회비용(최저시급 환산)으로 번역해 체감시킨다.
-                    환산 기준은 화면에 명시(정직성). 탭하면 임팩트 카드 상세로.
-                    0분이어도 숨기지 않는다(PM 지시): 신규 사용자에게 배너 자체가 '쓸수록 시간이 줄어든다'는
-                    가치 제안이다. 다만 0분에 기회비용(0원)을 환산해 보여주면 무의미하므로 격려 문구로 대체한다.
-                    ⚠️ null(임팩트 API 실패)일 때만 숨긴다 — 근거 없는 0 적립을 지어내지 않는 정직성. */}
-                {waitSaved !== null && (
+                {/* 줄인 예상 대기 배너 — 원래 가려던 곳보다 예상 대기가 짧은 곳을 고른 분을 기회비용(최저시급 환산)으로
+                    번역한다. 환산 기준은 화면에 명시. 탭하면 임팩트 카드 상세로.
+                    값이 있을 때만 그린다(P0-5 b). 예전에는 0분이어도 '지금부터 아낀 시간이 쌓입니다' 로 남겼는데(당시 PM
+                    지시), /main 수락에는 원래 장소와의 대기 비교가 없어 거의 모두에게 근거 없는 0 과 약속 문구가 붙었다. */}
+                {waitSaved !== null && waitSaved > 0 && (
                   <button
                     type="button"
                     onClick={() => router.push('/mypage/impact')}
-                    aria-label={waitSaved > 0 ? t('mypage.savedBanner', { n: waitSaved }) : t('mypage.savedBannerZero')}
+                    aria-label={t('mypage.savedBanner', { n: waitSaved })}
                     className="w-full mt-3 bg-gradient-to-r from-gold/15 via-hanji-deep/60 to-jade/10 border border-gold/30 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:from-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     <Hourglass size={22} className="text-gold-deep shrink-0" />
                     <span className="min-w-0">
                       <span className="block text-sm font-bold text-muk leading-snug">
-                        {waitSaved > 0 ? t('mypage.savedBanner', { n: waitSaved }) : t('mypage.savedBannerZero')}
+                        {t('mypage.savedBanner', { n: waitSaved })}
                       </span>
                       <span className="block text-[11px] text-muk-soft mt-0.5">
-                        {waitSaved > 0
-                          ? t('mypage.savedValue', { won: (Math.round((waitSaved * MIN_WAGE_KRW_PER_HOUR) / 60 / 10) * 10).toLocaleString() })
-                          : t('mypage.savedValueZero')}
+                        {t('mypage.savedValue', { won: (Math.round((waitSaved * MIN_WAGE_KRW_PER_HOUR) / 60 / 10) * 10).toLocaleString() })}
                       </span>
                     </span>
                   </button>

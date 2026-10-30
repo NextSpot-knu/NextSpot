@@ -157,6 +157,30 @@ export interface ScorableFacility {
 interface SpotRankable {
   name?: string | null;
   spot?: Spot | null;
+  /** 서버의 영업·경로 근거 등급(RecommendItem.eligibility_tier). 로컬 후보에는 없다. */
+  eligibilityTier?: string | null;
+  /** 서버가 등급에서 낸 영업 확인 여부('verified' = 0·1등급, 'unknown' = 2·3등급). */
+  informationConfidence?: string | null;
+}
+
+// 서버 영업·경로 근거 등급 — 작을수록 근거가 강하다. 백엔드 travel_context.RECOMMENDATION_ELIGIBILITY_LABELS 와
+// 같은 순서다. 서버는 영업 확인 곳이 모자랄 때 약한 등급에서 채우고(fill_weaker_tiers) **등급 순으로** 정렬해 준다 —
+// 화면이 점수만으로 다시 세우면 더 가까운 '영업시간 미확인' 카드가 확인된 곳을 앞질러 1위에 선다.
+export const ELIGIBILITY_TIER_ORDER: Readonly<Record<string, number>> = {
+  verified_open_route: 0,
+  verified_open_estimated_route: 1,
+  hours_confirmation_required_route: 2,
+  hours_and_route_confirmation_required: 3,
+};
+
+/**
+ * 카드의 영업 근거 등급 순위. 등급이 있으면 그 값, 없고 영업 확인 여부만 'unknown' 이면 미확인 등급(2),
+ * 둘 다 없으면 0 — 로컬 후보(즉시 카드·폴백)는 영업이 확인된 곳만 쓰고(isRecommendationOpen) 데모 시설은 등급이 없다.
+ */
+export function eligibilityTierRank(item: { eligibilityTier?: string | null; informationConfidence?: string | null }): number {
+  const tier = item.eligibilityTier ? ELIGIBILITY_TIER_ORDER[item.eligibilityTier] : undefined;
+  if (typeof tier === "number") return tier;
+  return item.informationConfidence === "unknown" ? ELIGIBILITY_TIER_ORDER.hours_confirmation_required_route : 0;
 }
 
 // 음식 의도 키워드 → 관련 cuisine_tag 토큰. 의도와 시설 cuisine_tags 매칭으로 선호%를 결정한다.
@@ -469,6 +493,11 @@ export function scoreFacility(facility: ScorableFacility | null | undefined, opt
 }
 
 export function compareSpot(a: SpotRankable, b: SpotRankable): number {
+  // 00. 영업·경로 근거 등급(서버 eligibility_tier) — 무엇보다 먼저 본다. 서버가 (등급, SPOT 정렬 키) 순으로 주는
+  //     목록을 화면이 점수로만 다시 세우면, 채워 넣은 '영업시간 미확인' 카드가 가깝다는 이유로 1위가 된다.
+  const aEligibility = eligibilityTierRank(a);
+  const bEligibility = eligibilityTierRank(b);
+  if (aEligibility !== bEligibility) return aEligibility - bEligibility;
   const at = a.spot,
     bt = b.spot;
   if (!at || !bt) return (a.name || "").localeCompare(b.name || "", "ko-KR");

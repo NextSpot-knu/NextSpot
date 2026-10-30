@@ -183,6 +183,32 @@ export function congestionDisplay(
 }
 
 /**
+ * 'predicted' 값이 **업종 시간대 기준선**인가 — 학습된 모델의 예측이 아닌 것(P0-5 d).
+ *
+ * 서버는 실측·모델·추정이 모두 없는 후보에 업종의 일반적인 시각·요일 곡선(spot/industry_baseline)을 'predicted' 로
+ * 얹는다(recommendations.build_candidate_evidence 4번). 그 장소를 잰 값도, 모델이 계산한 값도 아니라서 화면이
+ * 'AI 예측 85%' 로 말하면 틀린 말이 된다 — 퍼센트 없이 등급만, '시간대 패턴' 이라는 이름으로 보여 준다.
+ *
+ * 1순위 표식은 서버가 주는 congestionPredictionBasis('model' | 'industry_baseline')다 — 서버가 그 값을 어디서 얻었는지
+ * 직접 말한다. 이 필드가 없을 때(필드를 모르는 구 서버)만 scoringMode 로 짐작한다: 모델 예측이면 그 숫자가 순위를
+ * 만들어 'model' 이 붙는다(spot/score.py — 모델이 값을 낼 때만 'model'). 그 표식이 없는 'predicted' 는 기준선으로 본다 —
+ * 모르면 AI 라고 말하지 않는 쪽이다. 점수 공식 이름은 혼잡 값의 출처를 말하려고 만든 필드가 아니라서 짐작일 뿐이다 —
+ * 서버 표식이 있으면 그것만 따른다.
+ * 위 congestionDisplay 의 mode 는 그대로 'predicted' 다(대기 보드의 대기 추정 입력을 바꾸지 않는다). 이름만 바꾼다.
+ */
+export function isBaselinePrediction(input: {
+  congestionSource?: string | null;
+  scoringMode?: string | null;
+  congestionPredictionBasis?: string | null;
+}): boolean {
+  if (input.congestionSource !== 'predicted') return false;
+  const basis = input.congestionPredictionBasis;
+  if (basis === 'industry_baseline') return true;
+  if (basis === 'model') return false;
+  return input.scoringMode !== 'model';
+}
+
+/**
  * 추정 피드(GET /congestion/estimates) 응답 → {facilityId: 원본 추정}. 모양이 어긋나면 빈 객체.
  *
  * 값 하나하나는 여기서 검증하지 않는다 — 신선도(60분)는 **그릴 때의 시각**으로 봐야 하므로

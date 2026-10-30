@@ -15,6 +15,44 @@ CAT3_CAFE = "A05020900"
 # (2026-09-29 실측: 법정동 목록에만 나오는 경주 카페 13곳 전부 cat3 공란 + FD05) cat3 가 비었을 때만 이것으로 본다.
 LCLS2_CAFE = "FD05"
 
+# 문화시설(14) 소분류(cat3) 중 **건물 안에서 보는 곳** — 비 오는 날 '실내만' 조건의 근거다.
+# 박물관·기념관·전시관·컨벤션센터·미술관/화랑·문화원·외국문화원·도서관·대형서점·영화관.
+# 같은 중분류(A0206)라도 넣지 않은 것: 공연장(A02060600 — 야외 공연장이 같은 분류다), 문화전수시설(A02061100 —
+# 마당·공방이 딸린 곳이 많다), 어학당·학교(A02061300·A02061400 — 방문지가 아니다). 이름('박물관')으로는 판정하지
+# 않는다 — '야외 전시장'·'유적 전시관 터' 처럼 이름만 실내인 곳이 있어서다. 신분류(lclsSystm) 코드는 실측으로
+# 확인하기 전이라 쓰지 않는다 — cat3 가 빈 행은 실내 근거가 없는 것으로 남는다(travel_context 의 fail-closed).
+INDOOR_CULTURE_CAT3 = frozenset({
+    "A02060100",  # 박물관
+    "A02060200",  # 기념관
+    "A02060300",  # 전시관
+    "A02060400",  # 컨벤션센터
+    "A02060500",  # 미술관/화랑
+    "A02060700",  # 문화원
+    "A02060800",  # 외국문화원
+    "A02060900",  # 도서관
+    "A02061000",  # 대형서점
+    "A02061200",  # 영화관
+})
+# features.indoor 를 이 분류로 세웠다는 근거 표시 — 카카오·LocalData 음식점의 'fixed_food_establishment' 와 같은 자리다.
+INDOOR_CULTURE_EVIDENCE = "tourapi_culture_class"
+
+# TourAPI '가능/불가' 류 자유 글(주차·유모차·반려동물) 판정. 웹 lib/restDate.ts 의 parseAvailability 와 **같은 식**이다
+# (공유 사례: tests/fixtures/opening_hours_parity.json). 불가 쪽을 먼저 본다 — '대여 불가' 는 '대여' 를 담고 있어도 불가다.
+_AVAILABILITY_NO_RE = re.compile(r"불가|없음|무료?없")
+_AVAILABILITY_YES_RE = re.compile(r"가능|있음|허용")
+
+
+def parse_availability_text(value: object) -> Optional[bool]:
+    """'가능'·'있음' 이면 True, '불가'·'없음' 이면 False, 그 밖(빈 값·'Y'·자유 문장)은 None(모름)."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if _AVAILABILITY_NO_RE.search(text):
+        return False
+    if _AVAILABILITY_YES_RE.search(text):
+        return True
+    return None
+
 # TourAPI 에는 수용인원(capacity) 정보가 없다 — SPOT 산식/데모용 합성 기본값(타입별 추정치).
 CAPACITY_DEFAULTS = {
     "restaurant": 40,
@@ -131,6 +169,16 @@ def transform_poi(item: Any) -> Optional[dict]:
     except (TypeError, ValueError):
         return None
 
+    # 실내로 분류된 문화시설(박물관·미술관 등)만 실내 근거를 단다. 분류가 실내가 아니거나 비었으면 키를 넣지
+    # 않는다 — '모름' 을 False(야외)로 적지 않고, 기존 값(사람이 확인한 indoor_verified 등)도 덮지 않는다.
+    # 사람이 '야외' 로 바로잡을 때는 indoor_verified=false 를 쓴다 — travel_context 가 그 값을 먼저 보므로 이
+    # 밤 적재가 다시 실내로 돌려놓지 못한다.
+    indoor_marker = (
+        {"indoor": True, "indoor_evidence": INDOOR_CULTURE_EVIDENCE}
+        if facility_type == "culture" and item.get("cat3") in INDOOR_CULTURE_CAT3
+        else {}
+    )
+
     return {
         "name": name,
         "type": facility_type,
@@ -154,6 +202,7 @@ def transform_poi(item: Any) -> Optional[dict]:
             # 목록 대표 사진(firstimage)의 공공누리 유형(Type1 출처표시 · Type3 출처표시+변경금지 등). 사진이 없으면
             # 빈 값이 온다. 화면 표기(유형별 출처)를 나중에 붙일 수 있게 적재만 해 둔다.
             "firstimage_cpyrht_div_cd": str(item.get("cpyrhtDivCd") or "").strip() or None,
+            **indoor_marker,
         },
     }
 
@@ -244,6 +293,10 @@ def extract_intro_extra_features(intro_item: Any, content_type_id: int) -> dict:
       - 관광지(12) accomcount → features.accom_count (숫자 파싱, 실패 시 원문 문자열)
       - rest_date_raw: operating_hours.closed 와 동일 원문을 features 에도 중복 보존해
         향후 '오늘 휴무' 파서(§1-2)가 참조할 수 있게 한다.
+      - stroller: chk_babycarriage(유모차 대여 정보) 원문이 '가능' 이면 True, 그 밖이면 null.
+        휠체어 접근(barrier_free·accessible_verified)과 **다른 칸**이다 — 유모차 대여가 된다고 휠체어로 다닐 수
+        있다는 뜻이 아니고, 그 반대도 아니다. False 는 적지 않는다: 이 칸은 '대여' 정보라 '없음'(대여 없음)이
+        유모차로 못 간다는 뜻이 아니다. null 은 전날 적은 True 를 지우고 판정이 원문을 다시 읽게 한다.
     """
     if not isinstance(intro_item, dict):
         return {}
@@ -254,6 +307,9 @@ def extract_intro_extra_features(intro_item: Any, content_type_id: int) -> dict:
         value = str(intro_item.get(src_field) or "").strip()
         if value:
             features[dest_key] = value
+
+    if "chk_babycarriage" in features:
+        features["stroller"] = True if parse_availability_text(features["chk_babycarriage"]) is True else None
 
     if ctid == 12:
         accom_count = _parse_accom_count(intro_item.get("accomcount"))

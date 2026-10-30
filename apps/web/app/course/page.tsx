@@ -25,7 +25,10 @@ import {
   assumedAtIsoForPreset,
   getStoredAssumedPreset,
   setStoredAssumedPreset,
+  postWithTravelContext,
 } from "@/lib/api-client";
+// 유모차 조건을 모르는 옛 API 와의 배포 시차에서 정류지를 같은 판정으로 거른다(P1-6).
+import { keepStrollerFriendlyCourse } from "@/lib/strollerSupport";
 import { displayableEstimate, formatEstimateTime } from "@/lib/congestionEstimate";
 import { displayWalkingMinutes } from "@/lib/recommender";
 // 정류지 56px 사진(TourAPI) — 없거나 깨지면 장소 표지(I38).
@@ -496,26 +499,37 @@ function CourseContent() {
       // 스테이징이 없어서, **새 화면이 먼저 뜨는 구간이 실제로 존재한다.** 그 구간에서 코스가
       // 통째로 실패하면 장애가 '갈 곳 없음' 으로 보인다(이 라우터가 가장 피하려는 종류의 거짓말).
       let plan: CoursePlan;
+      // 유모차 조건을 모르는 옛 API(배포 시차)면 빼고 다시 묻는다 — 그때는 아래에서 같은 판정으로 정류지를 거른다
+      // (lib/strollerSupport). 코스가 통째로 422 로 실패하지 않게.
+      let strollerDropped = false;
+      const postPlan = async <T,>(path: string): Promise<T> => {
+        const result = await postWithTravelContext<T>(path, body, { timeoutMs: 60000 });
+        strollerDropped = strollerDropped || result.strollerDropped;
+        return result.data;
+      };
       try {
-        plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
+        plan = await postPlan<CoursePlan>("/api/v1/courses/plan");
       } catch (planErr) {
         const planErrStatus = httpStatus(planErr);
         if (planErrStatus === 503 || planErrStatus === 429) {
           // 유휴 직후 첫 호출의 콜드 경로(JWKS 캐시·풀 연결) 일시 503 — 2초 뒤 딱 한 번 조용히
           // 재시도(스톰 아님). 여기서도 실패하면 기존 에러 상태(재시도 버튼)로 떨어진다.
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
+          plan = await postPlan<CoursePlan>("/api/v1/courses/plan");
         } else if (planErrStatus !== 404) {
           throw planErr;
         } else {
-          const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 60000 });
+          const legacy = await postPlan<CourseStop[]>("/api/v1/courses/recommend");
           // planId 가 빈 문자열이면 '판정할 근거가 없다' 는 뜻이다 — 아래에서 토스트를 띄우지 않는다.
           plan = { stops: Array.isArray(legacy) ? legacy : [], slotOutcomes: [], planId: "" };
         }
       }
       if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
-      const nextStops = Array.isArray(plan?.stops) ? plan.stops : [];
-      const nextOutcomes = Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : [];
+      const servedStops = Array.isArray(plan?.stops) ? plan.stops : [];
+      const servedOutcomes = Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : [];
+      const { stops: nextStops, outcomes: nextOutcomes } = strollerDropped
+        ? keepStrollerFriendlyCourse(servedStops, servedOutcomes)
+        : { stops: servedStops, outcomes: servedOutcomes };
       announceReplan(plan?.planId ?? "", nextStops);
       setStops(nextStops);
       setSlotOutcomes(nextOutcomes);

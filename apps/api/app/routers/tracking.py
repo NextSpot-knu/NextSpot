@@ -43,7 +43,8 @@ _EVENT_PROPS: dict[str, set[str]] = {
     "voice_tool_executed": {"tool", "status", "facility_type", "max_walk_minutes"},
 }
 _FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
-_ATTRIBUTES = {"indoor", "accessible"}
+# travel_context.VALID_ATTRIBUTES 와 같은 집합 — 유모차(stroller)는 휠체어(accessible)와 다른 조건이다.
+_ATTRIBUTES = {"indoor", "accessible", "stroller"}
 # 음성 명령 이름·결과. apps/web/lib/voice/voiceCommands.ts 의 VoiceAppCommand 와 같은 집합이어야 한다.
 _VOICE_TOOLS = {"set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board"}
 _VOICE_STATUSES = {"applied", "no_match"}
@@ -65,7 +66,8 @@ def _validate_product_event(event: str, props: dict) -> None:
         raise HTTPException(status_code=422, detail="categories 값이 올바르지 않습니다.")
     attributes = props.get("required_attributes")
     if attributes is not None and (
-        not isinstance(attributes, list) or len(attributes) > 2 or any(v not in _ATTRIBUTES for v in attributes)
+        not isinstance(attributes, list) or len(attributes) > len(_ATTRIBUTES)
+        or any(v not in _ATTRIBUTES for v in attributes)
     ):
         raise HTTPException(status_code=422, detail="required_attributes 값이 올바르지 않습니다.")
     if "max_walk_minutes" in props and props["max_walk_minutes"] not in {None, 5, 10, 20}:

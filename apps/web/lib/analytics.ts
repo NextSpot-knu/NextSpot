@@ -8,8 +8,42 @@
 //   - SSR/프리렌더 가드(typeof window) — 정적 export 빌드 중 실행되지 않게 한다.
 //   - FASTAPI 베이스 URL 계산은 lib/api-client.ts 의 BASE_URL 과 동일 로직이다.
 //     그 파일이 값을 export 하지 않아 여기 인라인 중복했다 — 값을 바꿀 땐 두 파일 다 함께 수정할 것.
+import { markServerSkipsStroller, serverSkipsStroller, withoutStrollerAttribute } from "./strollerSupport";
+
 const FASTAPI_BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 const TRACK_URL = `${FASTAPI_BASE_URL}/api/v1/events/track`;
+
+function postTrack(payload: string): Promise<Response> {
+  return fetch(TRACK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+    keepalive: true,
+  });
+}
+
+/**
+ * 유모차 조건('stroller', P1-6)이 담긴 context_applied — 옛 API 는 그 값을 422 로 거절한다(배포 시차, lib/strollerSupport).
+ * 이 세션에서 이미 확인했으면 빼고 보낸다. 아직 모르면 응답을 봐야 해서 sendBeacon 대신 fetch 로 보내고, 422 면 빼고
+ * 한 번만 다시 보낸다(그게 통하면 세션에 표시 — 추천 요청도 처음부터 뺀다). 처리했으면 true.
+ */
+function trackStrollerContext(event: string, props: Record<string, unknown>): boolean {
+  const attributes = props.required_attributes;
+  if (event !== "context_applied" || !Array.isArray(attributes) || !attributes.includes("stroller")) return false;
+  const stripped = { ...props, required_attributes: withoutStrollerAttribute(attributes) };
+  if (serverSkipsStroller()) {
+    void postTrack(JSON.stringify({ event, props: stripped })).catch(() => { /* 계측 실패는 무해 무시 */ });
+    return true;
+  }
+  void postTrack(JSON.stringify({ event, props }))
+    .then(async (response) => {
+      if (response.status !== 422) return;
+      const retry = await postTrack(JSON.stringify({ event, props: stripped }));
+      if (retry.ok) markServerSkipsStroller();
+    })
+    .catch(() => { /* 계측 실패는 무해 무시 */ });
+  return true;
+}
 
 const EVENT_PROPS: Record<string, ReadonlySet<string>> = {
   context_applied: new Set(["categories", "max_walk_minutes", "available_minutes", "required_attributes", "exclude_visited"]),
@@ -37,6 +71,7 @@ export function track(event: string, props?: Record<string, unknown>): void {
     const safeProps = Object.fromEntries(
       Object.entries(props ?? {}).filter(([key]) => allowed.has(key)),
     );
+    if (trackStrollerContext(event, safeProps)) return;
     const payload = JSON.stringify({ event, props: safeProps });
 
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
@@ -46,12 +81,7 @@ export function track(event: string, props?: Record<string, unknown>): void {
       // sendBeacon 이 큐잉 실패(false)를 반환한 경우에만 fetch 로 폴백.
     }
 
-    fetch(TRACK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-      keepalive: true,
-    }).catch(() => {
+    postTrack(payload).catch(() => {
       /* 계측 실패는 무해 무시 */
     });
   } catch {

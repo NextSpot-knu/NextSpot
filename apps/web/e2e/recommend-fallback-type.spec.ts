@@ -237,6 +237,59 @@ test('from the waiting board: an empty same-kind answer retries once without the
   expect(bodies).toHaveLength(2);
   expect(bodies[0].candidate_types).toEqual(['attraction', 'culture']);
   expect(bodies[1].candidate_types).toEqual([]);
+  // 다시 물은 결과가 여전히 같은 무리(관광지·문화시설)면 종류가 바뀌었다고 말하지 않는다.
+  await expect(page.getByTestId('recommend-kind-fallback')).toHaveCount(0);
+});
+
+// P1-5 — 같은 종류가 비어 종류 없이 다시 물었더니 다른 종류가 왔다: 그 사실을 먼저 말한다(말없이 식당이 오면 고장으로 읽힌다).
+test('an empty same-kind answer that falls back to other kinds says so', async ({ page }) => {
+  test.setTimeout(60_000);
+  const noodle = {
+    ...ATTRACTIONS[0],
+    recommendation_id: 'rec-alt-noodle',
+    facility: { ...ATTRACTIONS[0].facility, id: 'alt-noodle', name: '황남 국수', type: 'restaurant' },
+  };
+  await stubFromWaiting(page, { typedEmpty: true, items: [noodle, ATTRACTIONS[1]] });
+  await page.goto(FROM_WAITING);
+  await expect(page.locator('section.space-y-4 h4')).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.getByTestId('recommend-kind-fallback')).toHaveText('같은 종류가 없어 다른 종류를 보여 드려요');
+});
+
+// P1-5 — 지도에서 고른 장소의 '대신 갈 곳 보기'(from=pick). 걷는 시간을 내 위치에서 쟀으면 '{장소} 대신 갈 만한 N곳',
+// 내 위치를 몰라 그 장소에서 쟀으면(walk=place) '{장소}에서 걸어서 갈 수 있는 곳' — 머리글이 기준을 말한다.
+test('from a picked place: the header says where the walk is measured from', async ({ page }) => {
+  test.setTimeout(60_000);
+  const bodies = await stubFromWaiting(page);
+  await page.goto('/explore/recommend?facilityId=origin-cheom&lat=35.83&lng=129.22&type=attraction&from=pick');
+  await expect(page.locator('section.space-y-4 h4')).toHaveCount(3, { timeout: 30_000 });
+  await expect(page.getByRole('heading', { level: 1, name: '경주 첨성대 대신 갈 만한 3곳' })).toBeVisible();
+  expect(bodies[0].candidate_types).toEqual(['attraction', 'culture']);
+  expect(bodies[0].user_lat).toBeCloseTo(35.83, 6);
+  expect(bodies[0].user_lng).toBeCloseTo(129.22, 6);
+
+  await page.goto('/explore/recommend?facilityId=origin-cheom&lat=35.8347&lng=129.219&type=attraction&from=pick&walk=place');
+  await expect(page.getByRole('heading', { level: 1, name: '경주 첨성대에서 걸어서 갈 수 있는 곳' })).toBeVisible({ timeout: 30_000 });
+});
+
+// P1-5 — 아직 우리 데이터에 없는 장소(카카오 장소 검색 결과)의 '대신 갈 곳 보기'. 원래 장소 기록이 없어 대안 API 를 쓸 수
+// 없으니, 같은 종류를 그 둘레에서 by-type 으로 한 번 묻는다(제외할 시설 없음). 지도로 튕기지 않는다.
+test('a place not in our data asks by-type for the same kind around it, once', async ({ page }) => {
+  test.setTimeout(60_000);
+  const byTypeBodies = await stubEmptyPersonalised(page, alternatives);
+  let personalised = 0;
+  await page.route('**/api/v1/recommendations', (route) => {
+    personalised += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+  await page.goto(`/explore/recommend?name=${encodeURIComponent('황남 카페 본점')}&type=cafe&lat=35.838&lng=129.209&from=pick&walk=place`);
+
+  await expect(page.locator('section.space-y-4 h4')).toHaveText(['고요한 찻집', '박물관 카페'], { timeout: 30_000 });
+  await expect(page.getByRole('heading', { level: 1, name: '황남 카페 본점에서 걸어서 갈 수 있는 곳' })).toBeVisible();
+  await expect(page).toHaveURL(/\/explore\/recommend/);
+  expect(byTypeBodies).toHaveLength(1);
+  expect(byTypeBodies[0].facility_type).toBe('cafe');
+  expect(byTypeBodies[0].exclude_ids).toEqual([]);
+  expect(personalised).toBe(0);
 });
 
 test('Top 3 order sits below the list behind a toggle, with minutes written as 분', async ({ page }) => {

@@ -752,40 +752,73 @@ def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
     assert fetch_all.await_count == 1
 
 
-def test_recommend_by_type_does_not_fill_from_weaker_eligibility_tier(auth_client):
+def test_recommend_by_type_fills_from_weaker_tier_only_below_the_limit(auth_client):
+    """영업 근거 등급 채움(P1-4) — 요청이 청하고(fill_weaker_tiers) 확인 등급이 limit 보다 적을 때만 다음 등급에서
+    채우고, 정렬은 등급이 먼저다.
+
+    예전에는 가장 강한 등급만 남겨, 영업시간이 확인된 곳이 하나라도 있으면 영업시간이 빈 곳이 통째로 빠졌다
+    (모두가 같은 소수 가게로 몰렸다). 'weaker' 는 가장 가까워 점수로만 줄 세우면 1위인 곳이다 — 그래도 확인된
+    두 곳 뒤에 서야 하고, 자기 등급('영업 확인 필요')을 달고 나와야 한다. 플래그가 없으면(배포된 구 번들 — 응답을
+    점수로 다시 줄 세운다) 종전처럼 확인 등급만 돌려준다.
+    """
     cafes = [
         _facility("verified-a", "cafe", 0.0002),
         _facility("verified-b", "cafe", 0.0004),
         _facility("weaker", "cafe", 0.0006),
     ]
     tier_by_id = {"verified-a": 0, "verified-b": 0, "weaker": 2}
-    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
-         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
-         patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
-             WalkingRoute(2.0, 130.0, "osm_pedestrian"),
-             WalkingRoute(3.0, 195.0, "osm_pedestrian"),
-             WalkingRoute(1.0, 65.0, "osm_pedestrian"),
-         ])), \
-         patch(
-             "app.routers.recommendations.recommendation_eligibility_tier",
-             side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
-         ), \
-         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
-         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
-         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
-        response = auth_client.post("/api/v1/recommendations/by-type", json={
+
+    def _run(limit: int, fill: bool | None):
+        body = {
             "user_id": AUTH_USER_ID,
             "facility_type": "cafe",
             "user_lat": BASE_LAT,
             "user_lng": BASE_LNG,
-            "limit": 3,
-        })
+            "limit": limit,
+        }
+        if fill is not None:
+            body["fill_weaker_tiers"] = fill
+        with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+             patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+             patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
+                 WalkingRoute(2.0, 130.0, "osm_pedestrian"),
+                 WalkingRoute(3.0, 195.0, "osm_pedestrian"),
+                 WalkingRoute(1.0, 65.0, "osm_pedestrian"),
+             ])), \
+             patch(
+                 "app.routers.recommendations.recommendation_eligibility_tier",
+                 side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
+             ), \
+             patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+             patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+             patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+            response = auth_client.post("/api/v1/recommendations/by-type", json=body)
+        assert response.status_code == 200
+        return response.json()
 
-    assert response.status_code == 200
-    items = response.json()
-    assert {item["facility"]["id"] for item in items} == {"verified-a", "verified-b"}
-    assert len(items) == 2
-    assert all(item["eligibility_tier"] == "verified_open_route" for item in items)
+    # 확인 등급 2곳 < limit 3, 채움을 청함 → 모자란 한 자리를 다음 등급에서 채운다.
+    filled = _run(3, True)
+    assert [item["facility"]["id"] for item in filled] == ["verified-a", "verified-b", "weaker"]
+    assert [item["rank"] for item in filled] == [1, 2, 3]
+    assert [item["eligibility_tier"] for item in filled] == [
+        "verified_open_route", "verified_open_route", "hours_confirmation_required_route",
+    ]
+    assert [item["information_confidence"] for item in filled] == ["verified", "verified", "unknown"]
+    # 등급이 점수보다 먼저다: 더 가까운 'weaker' 가 점수는 높아도 확인된 곳을 앞지르지 못한다.
+    # 같은 등급 안에서는 종전처럼 점수 순이다.
+    assert filled[2]["spot_score"] > filled[1]["spot_score"]
+    assert filled[0]["spot_score"] >= filled[1]["spot_score"]
+
+    # 확인 등급만으로 limit 을 채우면 다음 등급은 데려오지 않는다(종전과 같다).
+    exact = _run(2, True)
+    assert [item["facility"]["id"] for item in exact] == ["verified-a", "verified-b"]
+    assert all(item["eligibility_tier"] == "verified_open_route" for item in exact)
+
+    # 플래그가 없거나 false 면(구 번들) limit 이 남아도 채우지 않는다 — 종전 그대로 확인 등급만.
+    for fill in (None, False):
+        legacy = _run(3, fill)
+        assert [item["facility"]["id"] for item in legacy] == ["verified-a", "verified-b"]
+        assert all(item["eligibility_tier"] == "verified_open_route" for item in legacy)
 
 
 def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):
@@ -2184,6 +2217,34 @@ def test_accept_recommendation_issues_coupon(auth_client):
     assert body["coupon_issued"] is True
     assert body["coupon_rate"] == 0.2
     assert body["expires_at"] is not None
+    # 추천 행 id 없이 온 수락(구 번들·핀으로 고른 곳)은 취향을 배우지 않는다 — 화면이 이 값으로 문구를 고른다.
+    assert body["recommendation_id"] is None
+    assert body["updated_vector"] is False
+
+
+def test_accept_without_a_linkable_recommendation_id_keeps_the_legacy_insert(auth_client):
+    # recommendation_id 가 없거나(구 번들) DB 행이 없는 id('mock-rec-id' — 노출 저장 실패분)면 종전 그대로
+    # 원본=추천=그 시설인 수락 행을 새로 넣는다. 404 로 막으면 그 카드의 쿠폰까지 막힌다.
+    # 노출된 추천 행을 갱신하는 새 경로는 tests/routers/test_accept_recommendation_id.py 가 검증한다.
+    db = RejectRecordingSupabase()
+    coupon = AsyncMock(return_value={"coupon_issued": False, "coupon_rate": 0.0, "expires_at": None})
+    with patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=_facility("f-1", "cafe", 0))), \
+         patch("app.routers.recommendations.issue_coupon_if_partner", new=coupon), \
+         patch("app.routers.recommendations.supabase_client", new=db):
+        for body in ({"facility_id": "f-1"}, {"facility_id": "f-1", "recommendation_id": "mock-rec-id"}):
+            res = auth_client.post("/api/v1/recommendations/accept", json=body)
+            assert res.status_code == 200
+            assert res.json()["recommendation_id"] is None
+    legacy_row = {
+        "user_id": AUTH_USER_ID,
+        "original_facility_id": "f-1",
+        "recommended_facility_id": "f-1",
+        "spot_score": 0.0,
+        "score_breakdown": {},
+        "accepted": True,
+    }
+    assert db.inserted == [legacy_row, legacy_row]
+    assert coupon.await_count == 2
 
 
 def test_accept_recommendation_no_partner(auth_client):
@@ -2199,6 +2260,7 @@ def test_accept_recommendation_no_partner(auth_client):
     assert body["coupon_issued"] is False
     assert body["coupon_rate"] == 0.0
     assert body["expires_at"] is None
+    assert body["updated_vector"] is False
 
 
 class RejectRecordingTable(FakeTable):
