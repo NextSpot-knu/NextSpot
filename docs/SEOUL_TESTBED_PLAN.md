@@ -1,6 +1,6 @@
 # 서울 테스트베드 — 실시간 유동인구 기반 시스템 사전 구축·검증 계획
 
-> 상태: **진행 중(2026-10-31) — S0·S1·S2·S5·S6 완료(`yunseong`, main 미반영), S3·S4 는 사용자가 직접 진행(대기)**. 진행표는 §6 끝. 같은 날 앞선 판('현재 이해' 정리)은 git 이력에 있다(`e5703d6`).
+> 상태: **진행 중(2026-11-01) — S0·S1·S2·S3·S5·S6 완료(`yunseong`, main 미반영), S4 는 사용자가 직접 진행(대기)**. 진행표는 §6 끝. 같은 날 앞선 판('현재 이해' 정리)은 git 이력에 있다(`e5703d6`).
 > 앞선 계획은 [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md)(D1~D6 결정 완료·구현됨)이고, 전체 방향은 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §0 이다.
 > 표기: **[확인]** 코드·문서·git 에서 직접 본 것 · **[추정]** 근거로 미루어 판단한 것 · **[제안]** 이 문서가 새로 내놓는 설계(승인 전).
 
@@ -34,7 +34,7 @@
 | 기능 | 위치 | 상태 |
 |---|---|---|
 | 서울 수집기(조회·파싱·대상지명 대조·주차 필터·추정·저장) | `apps/api/app/services/seoul_citydata_service.py` | 구현, 테스트 30 |
-| 수집·상태 API | `routers/engine_validation.py` — `POST /api/v1/engine-validation/seoul/collect`(기계·관리자), `GET …/seoul/status` | 구현 |
+| 수집·상태 API | `routers/engine_validation.py` — `POST /api/v1/engine-validation/seoul/collect`(기계·개발자), `GET …/seoul/status`(개발자) | 구현 |
 | 저장 | `seoul_citydata_snapshots`(대상지·10분 버킷 유니크, service_role 만) — `20260920120000` | 운영 적재 중 — 09-20 23:40 KST 부터 5곳 10분(S0 A) |
 | 스케줄 | pg_cron 10분 + 보충(`20260920121000`), 보충 예산(`20260920140000`) | **둘 다 적용됨**(S0 C — 보충 `9,39 * * * *`). 수집 호스트는 Render 싱가포르 API(S0 D) |
 | 혼잡 공급원 층(S1) | `services/crowd/` — `CrowdObservation`·`CrowdProvider`·`seoul_provider`·`store`·`telecom_template` | 구현(`b6cb50a`·`20096dd`). 수집기가 저장한 대상지를 `zone_crowd_snapshots` 에도 저장(이중 저장) |
@@ -42,7 +42,7 @@
 | 추정 정확도 지표·판정 | `services/engine_validation_metrics.py` | 구현 |
 | 보정(주차 → 인파 곡선, 관문 통과 시 경주 추정에 자동 적용) | `services/congestion_calibration_service.py`, `congestion_estimator_service.py:178-187` | 구현 |
 | 대안 패널(홍대 → 연남동·합정, SPOT 미사용) | `services/seoul_alternatives_service.py` | 구현(시연용) |
-| 관리자 화면 | `apps/web/app/admin/engine-validation/page.tsx` | '실시간 데이터 리허설'(S6, 옛 '엔진 검증'), 메뉴에서 숨김(`AdminSidebar.tsx` `HIDDEN_FROM_MENU`) |
+| 관리자 화면 | `apps/web/app/admin/engine-validation/page.tsx` | '실시간 데이터 리허설'(S6, 옛 '엔진 검증'). **11-01 부터 developer 전용**(API 403 · 메뉴·대시보드 링크는 개발자에게만) |
 
 - 쓰는 필드는 다음과 같다.
   - `LIVE_PPLTN_STTS`: `AREA_CONGEST_LVL`(4단계 정답), `AREA_PPLTN_MIN/MAX`, `PPLTN_TIME`, `FCST_PPLTN`(서울시 예측)
@@ -192,10 +192,21 @@ flowchart LR
 | S0 | ✅ 완료(사용자) | SQL A~E 결과는 §7 표, 해석은 §2. `20260920121000`·`140000` 적용 확인 |
 | S1 | ✅ 구현 | `b6cb50a` · 수집 마감 `4052f68`. 남은 것: `20261031120000` 원격 적용(사람) |
 | S2 | ✅ 설정 | `b6cb50a` → 주기 재설계 `c534783`(아래). 남은 것: Render `SEOUL_CITYDATA_TARGETS` 정리 · 종로 4곳 이름 확인 · API 배포 뒤 수집 2~4주 |
-| S3 | ⏸ 대기 | 사용자가 직접 진행(ultracode) |
+| S3 | ✅ 구현 | `cc6b299`·`40d6034`·`b563db2`·`50ed9b8`·`d22aeef`(아래 'S3'). 남은 것: HANDOVER 사람 작업 11-01 ①~⑥ |
 | S4 | ⏸ 대기 | 사용자가 직접 진행(ultracode) |
 | S5 | ✅ 구현 | `20096dd` · 어댑터 틀 보정 `22ecc1d`. 남은 결정은 §5 |
 | S6 | ✅ 구현 | `65a45ff` · `8c0de61`. 결정 품질은 S4 전까지 '아직 없음'(`not_evaluated`) |
+
+**S3 — 서울을 개발자 전용 내부 지역으로(11-01, 사용자 결정 반영)**
+- **누가 보나**: `users.role = 'developer'` 만. 서버가 매 요청 `X-NextSpot-Region` 헤더(요청일 뿐)를 역할로 다시 판정한다(`app/core/region.py`) — admin·심사 계정·사장님·관광객·게스트는 경주로 내려가고 `/internal/regions` 는 403. 웹은 개발자에게만 지역 스위처(/main·/mypage)와 배지를 보이고, 서울 이름·좌표는 번들에 없이 서버 응답으로 팩을 만든다.
+- **DB 가 막는다**(`20261101090000`): `facilities.region` · 브라우저(anon·authenticated — 개발자 브라우저도)는 RESTRICTIVE 정책으로 경주 행만 · 추천·피드백 행의 서울 표식도 같은 방식 · 자식 표 6곳은 서울 시설 id 쓰기를 트리거로 거절 · 지역 변경 금지 · 체감 혼잡 투영은 경주만. 서울 화면은 역할 검사를 거친 API 로만 채운다. `region_isolation_status()` 가 이 전부를 카탈로그로 확인하고 `/health` 는 `capabilities.region_isolation=1` 을 낸다.
+- **region-guard**(30분, `.github/workflows/region-guard.yml`): 격리가 깨졌거나 anon 이 서울 행을 보면 `region_guard_contain()` 으로 정책을 되살리고 서울 행을 끈다(자동 비활성화 — 사용자 결정). `/health` 를 못 읽으면 경보만.
+- **엔진**: 구역 실측은 `measured_rules` 근거(tier 0)다. 도착 시각 단계는 '지속(관측 30분 안)'과 '공급자 예보(발행 90분 안, 목표 ±30분)' 중 시간이 가까운 쪽, 동률이면 지속. 다구역 시설은 도착 시 최댓값이고 매핑 구역이 하나라도 비거나 오래되면 단계를 주장하지 않는다. 재배치 기여는 '출발지에 그대로 있었을 때의 도착 시각 단계'와 비교한다(같은 구역 = 0). 도착 시 'busy' 는 기존 0.9 경계로 내리고 'slightly_busy' 는 내리지 않는다. 서울에는 경주 전용 사전확률(지역 수요·집중률·Tmap)·경주 모델·주차 추정·업종 기준선·`congestion_logs` 를 쓰지 않는다.
+- **'평소 대비'는 문구만**(`20261101091000` `zone_population_baseline` — 같은 KST 시·평일/주말, 28일, 중복·대체값 제외, 표본 4 이상). 순위는 절대 단계(결정). 기준선 조회는 순위 경로 밖에서 백그라운드로 채운다.
+- **표시**: 구역 단계는 앱 공통 혼잡 등급(한산·여유·보통·혼잡)으로 쓰고 서울시 원문 4단계는 화면에 쓰지 않는다. 근거 줄은 '{구역} 일대 실시간 인구 기준 · N분 전 관측' 또는 '{시각} 도착 기준 예측'.
+- **서울에서 꺼지는 것**(결정 2): 혼잡·영업 제보, 체감 혼잡 질문·저장, 자리 알림·타임세일, 쿠폰 발급, 공유, 날씨·축제·주차·발견·외부 검색·예보 띠.
+- **장소**: `ingest-seoul.yml`(수동, 기본 dry_run) → `ingest_tourapi_seoul.py` → `map_facility_zones.py`. 쓰기 전후로 시험용 관광객 계정으로 서울 행이 안 보이는지 확인하고, 새면 이번 실행 행을 끄고 지운다.
+- **함께 바뀐 것**: '실시간 데이터 리허설'(엔진 검증) 화면·API 도 서울 실측을 보여 developer 전용이 됐다(pg_cron 기계 토큰 수집은 그대로).
 
 **S2 대상지·주기(확정 — `b6cb50a`, 주기는 `c534783`)**
 - **종로 유산 권역** 4곳: 경복궁 · 북촌한옥마을 · 인사동 · 창덕궁·종묘(§7 A2 답 — 처음 제안의 광화문·덕수궁 · 서촌은 뺐다).

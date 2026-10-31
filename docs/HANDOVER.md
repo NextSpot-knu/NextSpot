@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다.
+- **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다. **이번 밤 범위는 `0747801` 까지다** — S3(`cc6b299..d22aeef`, 아래 2026-11-01)는 사람 작업 11-01 ①~⑥ 준비가 된 뒤 따로 올린다(`git push origin <sha>:main` 으로 범위를 정한다).
 - **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
 - **2026-10-24 KST main `9cf767c..49c2067`(PR #22, 웹·스키마·문서) + 표 적용.** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). CI 4잡 green · Vercel 프로덕션 반영. 표는 10-24 Supabase MCP(`apply_migration`, PM 지시)로 적용 + `NOTIFY pgrst` — 확인: RLS on · anon INSERT 201 · anon SELECT 거부(42501) · 목록 밖 이벤트 400 · 보관 예약 `23 18 * * *`(cron 4→5개), 검증 행은 지움. API 무변경.
 - **2026-10-22 KST main 갱신 예정(e2e·문서 — `test/night-e2e-1022`, PR #21).** 밤 23시 이후에만 깨지던 e2e 두 원인(PR #13 에서 테스트 수정만 분리 — `4a37ab4`·`c678db4`). 웹·API 무변경.
@@ -60,7 +60,7 @@
 
 1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
-   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 끝 — **S3·S4 는 사용자가 ultracode 로 직접**. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
+   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3 끝, main 미반영 — **S4 는 사용자가 ultracode 로 직접**. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -96,6 +96,12 @@ asyncio.run(main())"
 - [ ] **(10-31c ⑥) 개인정보처리방침 + 앱 안 개인정보 안내 — 출시 전 전문가 확인** — 게스트 방문 확인 답에 네트워크 대역 해시를 남긴다(목적: 악용 방지·답 품질, 보관 30일, 원본 IP 는 서버 메모리에만 최대 30분). Turnstile 을 켜면 Cloudflare 를 제3자 처리자로 적는다. 앱 안 안내(`/mypage/privacy` '부정 이용 방지' 절, 4로케일, 갱신일 2026-10-31)는 넣었다 — 법률 검토는 따로 필요하다.
 - [ ] **(10-31c ⑦ · ④ 적용 2주 뒤) 게스트 답 실시간 전환 결정** — `GET /api/v1/admin/metrics/guest-answers?days=14` 의 일치율·공유 네트워크 비율을 보고 정한다. 켜기 전에 운영 로그로 `client_ip`(XFF 마지막 값)가 Render 뒤에서 실제 손님 IP 인지 확인한다(프록시 hop 이 붙으면 전원이 한 IP — "보안 진단" 중 항목과 같은 관측). 켜려면 Render `GUEST_CROWD_ANSWERS_LIVE=true`(재시작) **와** 웹 문구 `visit.guestCongestionNote`(4로케일) 변경을 함께.
 - [ ] **(10-31c ⑧) '인사동·익선동' → '인사동' 확인(사용자)** — 서울시 공식 목록에 한 곳으로 없어 인사동(POI078)만 넣었다(익선동은 POI116). 익선동을 `@3+1` 로 10번째에 더해도 주 768 · 최악 912회/일로 한도 안이다(`SEOUL_TESTBED_PLAN.md` §6 S2).
+- [ ] **(11-01 S3 ① · main 반영 전) 격리 사전 확인(읽기 전용)** — `select id, name, latitude, longitude from public.facilities where latitude between 37.41 and 37.72 and longitude between 126.76 and 127.19;` 가 **0행**이어야 한다(아니면 `20261101090000` 이 23514 로 통째 롤백된다).
+- [ ] **(11-01 S3 ②) 순서: API 배포 → `20261101090000_facility_region_isolation.sql` → `20261101091000_zone_population_baseline.sql` → `NOTIFY pgrst, 'reload schema';` → 웹.** `20261031120000`(10-31c ②)이 먼저다. 090000 은 끝에서 `region_isolation_status()` 가 1 이 아니면 스스로 실패한다. 확인은 "마이그레이션 확인" 21·22번과 그 아래 쿼리. 마이그레이션 전 API 는 지역 열이 없으면(42703) 경주만 그대로 돈다.
+- [ ] **(11-01 S3 ③) region-guard** — 변수 `BACKEND_HEALTH_URL` 이 있는지 확인하고 `REGION_GUARD_AUTO_DEACTIVATE` 는 **두지 않는다**(사용자 결정: 자동 비활성화). main 반영 뒤 `region-guard.yml` 을 한 번 수동 실행 — 기대 `ok`(적용 전이면 `not_applied`). **롤백 규칙**: `/health` 에 `capabilities.region_isolation` 이 없는 커밋으로 API·main 을 되돌리기 전에 `update public.facilities set is_active=false where region<>'gyeongju';`. `containment_failed` 면 090000 을 SQL Editor 에서 다시 적용한다.
+- [ ] **(11-01 S3 ④) 서울 장소 적재** — 시험용 관광객 계정(일반 tourist, 다른 용도 금지)을 만들고 GitHub Secrets `REGION_PROBE_TOURIST_EMAIL`·`REGION_PROBE_TOURIST_PASSWORD` 등록(없으면 실제 실행이 exit 3). ② 뒤 `ingest-seoul.yml` 을 `dry_run=true` 로 돌려 TourAPI 호출 수를 보고, `dry_run=false` 로 다시 — 매핑 단계 `active_unmapped_count = 0` 확인. region-guard 가 한 번 끊었다면 격리 복구 뒤 `reactivate=true`.
+- [ ] **(11-01 S3 ⑤ · 선택) 서울 구역 경계** — OA-21285 '서울시 주요 121장소 영역.zip' 을 빈 폴더에 받아 `python -I apps/api/scripts/build_seoul_zone_polygons.py <zip>` → 생긴 GeoJSON 커밋 → `ingest-seoul` `map_zones=true`. 그 전에는 반경 원으로 매핑한다.
+- [ ] **(11-01 S3 ⑥) 개발자 계정 서울 리허설** — 실기기에서 지역 전환 → 지도 구역 원·라벨(e2e 는 카카오 SDK 를 대역으로 써 못 봤다) · 카드·코스·대기판의 구역 줄 · 서울에서 공유·제보·체감 혼잡 질문·쿠폰함이 없는지.
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
@@ -273,7 +279,13 @@ with checks(seq, migration, applied) as (values
       and to_regclass('public.zone_crowd_snapshots') is not null and to_regclass('public.facility_zones') is not null),
   (20, '20261031130000_guest_crowd_answer_shadow', (select count(*)>0 from information_schema.columns
       where table_schema='public' and table_name='recommendation_outcomes' and column_name='observed_answer_mode')
-      and exists (select 1 from cron.job where jobname='nextspot-network-hash-retention'))
+      and exists (select 1 from cron.job where jobname='nextspot-network-hash-retention')),
+  (21, '20261101090000_facility_region_isolation', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='facilities' and column_name='region')
+      and exists (select 1 from pg_policies where tablename='facilities'
+                   and policyname='facilities_public_region_only' and permissive='RESTRICTIVE')),
+  (22, '20261101091000_zone_population_baseline', exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.proname = 'zone_population_baseline'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -281,10 +293,20 @@ from checks order by seq;
 
 19·20번은 따로도 본다. 19 — `select count(*) from public.zones;` = 9, 수집이 돈 뒤 `select zone_id, count(*) from public.zone_crowd_snapshots group by 1;`.
 20 — `select column_name from information_schema.columns where table_name='recommendation_outcomes' and column_name like 'observed_%';`(`observed_answer_mode`·`observed_at`·`observed_network_hash` 가 보여야 한다) · `select jobname from cron.job where jobname='nextspot-network-hash-retention';` 1행.
+21 — `select public.region_isolation_status();` → 1 · `select policyname, permissive, roles from pg_policies where tablename in ('facilities','recommendations','user_feedback') and policyname like '%region_only';` → RESTRICTIVE 3행(`{anon,authenticated}`) · `select tgname from pg_trigger where tgname like '%region%';` → 7행(자식 표 6 + `trg_facilities_freeze_region`) · anon 으로는 `region_isolation_status`·`region_guard_contain` 실행 거부.
 
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-11-01 — 서울 테스트베드 S3: 개발자 전용 내부 지역 · 구역 실측 엔진 연결 · DB 지역 격리
+
+- 도구·브랜치: Claude Code(ultracode 워크플로 24 에이전트 + 수정·검토 에이전트) / `yunseong`(`0747801` 위, main 미반영)
+- 커밋: `cc6b299`(DB 격리·region-guard) · `40d6034`(서울 적재·매핑) · `b563db2`(API 지역 판정·엔진) · `50ed9b8`(리허설 화면 개발자 전용) · `d22aeef`(웹) + 이 기록(문서)
+- 한 것: 사용자 결정 — 서울은 **developer 만**(admin·심사 계정 포함 그 밖은 0), 서울에선 제보·자리 알림·타임세일·공유·경주 전용 위젯 끔, region-guard 자동 비활성화 켬, 인사동 유지, 순위는 절대 단계. 엔진 검증(리허설) 화면도 서울 실측을 보여 개발자 전용으로 바꿨다(사용자 확인: 관광공모전이 끝나 심사 계정 노출은 필요 없다). 설계·동작은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S3' 와 커밋 본문.
+- 검증: 6 작업 묶음 구현 → 통합 → 4 렌즈(보안·경주 불변·엔진·웹) 반박 검증 → 수정 3회 → 남은 Med 4건·Low 다수를 API·웹 에이전트가 고치고 다른 검토자 2명이 다시 봄(High·Med 0 까지). 마지막 트리에서 api ruff · pytest 3739 · web lint 0 error(경고 148 그대로)·typecheck·test 131·build · build_reset(추가만) · check-docs. 마이그레이션은 PGlite 시나리오(57+ 검사)만 — 실 Supabase 미시험. e2e 는 바뀐 spec 만 로컬, 전체는 CI.
+- 다음·미결: 받아들인 잔여 — ① developer 에서 강등된 사람은 자기 서울 추천 행을 브라우저로 계속 읽는다(RLS 소유자 절) — 강등 때 그 행을 지우거나 라벨을 바꾸는 것은 사람 판단 ② 운영 PostgREST 가 임베드 JSON 경로 필터를 받는지 미확인(model-trust 는 실패하면 닫힌 쪽 폴백) ③ 내부 지역 `pack` 을 쓰는 효과 일부(saved 등)는 재확인 때 다시 돈다(무해). S4(재생 평가)는 사용자가 ultracode 로.
+- 사람 작업: "사람 작업 대기" 11-01 S3 ①~⑥(사전 확인 쿼리 · 적용 순서 · region-guard · 시험 계정 비밀·적재 · 구역 경계 · 리허설). 계획의 Render 변수 `INTERNAL_REGION_*` 는 없다(코드에 developer 고정).
 
 ## 2026-10-31c — 서울 테스트베드 S1·S2·S5·S6 + 게스트 답 그림자 모드(D3) + 문서 답변
 
@@ -352,26 +374,6 @@ from checks order by seq;
 - 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
 - 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
 - 사람 작업: 표 적용 1회(위).
-
-## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
-
-- 도구·브랜치: Claude Code / `chore/llm-off-1022`(main `9bd5584` 위)
-- 커밋: 이 기록 포함 1건(API·문서)
-- 한 것: PM "당분간 Upstage 꺼놔 — 보여 줄 사람도 없으니". `LLM_ENABLED`(기본 `false`)를 두고 `llm_client.is_enabled()` 가 스위치와 키를 함께 본다. 모든 Upstage 호출이 `chat_text()` → `is_enabled()` 를 지나므로 음성 해석·검색 재작성·조건 해석·사유·브리핑이 전부 기존 키워드·규칙·템플릿 폴백으로 간다(키 없는 운영과 같은 경로). 키는 Render 에 그대로 둔다.
-- 검증: api ruff · pytest(테스트는 `tests/conftest.py` 가 스위치를 켜 기존 LLM 경로 검증을 그대로 유지).
-- 배포: Render 자동 배포가 일어나지 않아 23:53 KST PM Manual Deploy 로 반영(`deploy.commit=a9ecd921cb02` 확인). 자동 배포 원인은 "사람 작업 대기" 첫 줄. PR #13 의 밤 23시 e2e 수정 두 건은 PR #21 로 따로 뗐다.
-- 다음·미결: 다시 켤 때는 Render `nextspot-t2ib` 환경변수 `LLM_ENABLED=true`. `render.yaml` 에는 넣지 않았다 — Blueprint 가 아직 정지된 오리건 서비스(`nextspot-api`)를 가리켜, 그 파일을 고치면 동기화가 그쪽을 건드린다. PR #13(LLM IP 리밋·전역 예산)은 LLM 이 꺼진 동안 급하지 않다 — 그 안의 밤 23시 e2e 수정만 필요하면 따로 뗀다.
-- 사람 작업: 없음.
-
-## 2026-10-22 — main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임 · 오리건 API 정지
-
-- 도구·브랜치: Claude Code / `fix/ci-e2e-1022`(main `b6d428e` 위)
-- 커밋: 이 기록 포함 6건(웹·e2e·문서, API·스키마 무변경)
-- 한 것: main CI e2e 10건 실패(10-19부터 — 마지막 초록은 10-11 `3a61300`)를 정리했다. ① 관제 로그인 '데모로 둘러보기'가 로그인 화면으로 다시 튕기던 버그 — 레이아웃이 살아 있는 채 경로가 바뀌면 새 경로의 첫 렌더가 옛 데모 판정으로 리다이렉트를 걸었다. `app/admin/layout.tsx` 가 그 경로의 데모 판정을 읽은 뒤에만 보낸다. ② 화살표 검사 5건은 10-19 `1adb704` 로 가치 상자 머리에 들어온 '출발 → 도착' 시간 줄까지 보고 있었다 → 가치 문장(`value-sentence`)만 본다. ③ SPOT 상자 밀림 검사는 카드 등장 애니메이션 중에 기준을 쟀다 → 다 자란 뒤, 멈춘 자리끼리 비교. ④ 1366×650 '상세 정보 펼치기' 2px 넘침(10-21 첫 문장 메뉴·이동 시간 뒤) → 짧은 패널 간격 4→3px. ⑤ 휴대폰 미리보기: 출발·도착을 칩 줄 맨 앞으로 올려 한 줄 줄였다(PM 결정) — 390×844 미리보기 221→193px, 360×640 지도 띠 101→129px. e2e 예산은 ≤195px · ≥125px(이전 ≤190 · ≥180, PM 결정).
-- 운영: 오리건 `nextspot-api` 정지(PM, 10-22 저녁 — 503 확인). 정지 뒤 수집 버킷 11:30Z 가 들어온 것을 `area-demand-alert` 수동 실행(age 6.1분)으로 확인 — pg_cron 은 싱가포르로 간다. 싱가포르 `/health` healthy.
-- 검증: 실패했던 e2e 15건(테마·로케일 포함) 로컬 통과 · web lint(0 error)·typecheck·test(110파일). PR #19 CI(리눅스) e2e 518 통과 — 10-20 부터 리눅스 글꼴에서만 72px 로 실패하던 768 태블릿 ja 지도 띠도 미리보기 한 줄 줄임으로 통과.
-- 다음·미결: `render.yaml` 의 오리건 서비스 정의 정리(Blueprint 동기화가 정지된 서비스를 되살리지 않게 — 별도 결정) 
-- 사람 작업: 없음.
 
 ## 기록 규칙
 
