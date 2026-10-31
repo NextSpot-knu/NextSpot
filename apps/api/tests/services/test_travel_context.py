@@ -238,11 +238,32 @@ def test_pathological_text_finishes_without_catastrophic_backtracking():
 
     monday = datetime(2026, 11, 2, 12, tzinfo=KST)
     started = time.monotonic()
-    for raw in ("1 " * 14 + "x", "1st " * 14 + "x", "첫째 " * 14 + "x", "1st and " * 14 + "x", "1 " * 400 + "x"):
-        assert closed_day_status(raw, monday) is None
-    for raw in ("입장마감" + " " * 200 + "x", "브레이크" + " " * 200 + "x"):
+    for raw in (
+        "1 " * 14 + "x", "1st " * 14 + "x", "첫째 " * 14 + "x", "1st and " * 14 + "x",
+        "토 " * 140 + "x", "월화" * 140, "월" + " 은" * 140 + "x", "공휴일 경우 " * 30 + "x",
+    ):
+        assert closed_day_status(raw, monday) is None, raw[:20]
+    assert closed_day_status("월 , " * 70 + "x", monday) == "closed"  # 구분 기호로 이은 월요일 목록
+    assert closed_day_status("mon " * 70 + "x", monday) is None  # 휴무 말 없는 영어 요일 이름
+    # 600자를 넘겨 잘린 원문은 뒤쪽을 못 읽었으니 무엇도 단정하지 않는다(그날 모름). 주소·태그 찾기도 길이에 비례한다.
+    for raw in ("1 " * 400 + "x", "x" * 3990 + "www.", "a." * 2000, "<" * 4000, "z" * 9000):
+        assert closed_day_status(raw, monday) == "uncertain", raw[:12]
+    for raw in ("입장마감" + " " * 200 + "x", "브레이크" + " " * 200 + "x", "휴게" + " " * 400 + "x", "1-" * 240 + "시", "a." * 2000):
         assert open_status_at_arrival({"operating_hours": {"open": raw}}, monday) == "needs_confirmation"
     assert time.monotonic() - started < 2.0
+
+
+def test_parenthesized_open_exception_does_not_cancel_the_weekly_closure():
+    # 검증(6차): '(공휴일 영업)' 처럼 조건이 붙은 영업 안내가 괄호로 붙으면 그 요일을 영업일로 읽어 휴무가 사라졌다.
+    for closed, day in (
+        ("매주 화요일(공휴일 영업)", 3), ("휴무일: 매주 월요일 (공휴일 정상영업)", 2), ("정기휴무 매주 일요일 (공휴일 정상 영업)", 1),
+        ("매주 일요일(단체 예약 시 영업)", 1), ("매주 월요일 (명절 당일 영업)", 2), ("매주 월요일 휴관(공휴일 개관)", 2),
+    ):
+        facility = {"type": "culture", "operating_hours": {"open": "09:00~18:00", "closed": closed}}
+        assert open_status_at_arrival(facility, datetime(2026, 11, day, 12, tzinfo=KST)) == "closed_confirmed", closed
+    # 영업 앞말·바로 뒤 영업 말은 그대로 영업 요일이다.
+    assert closed_day_status("영업: 월~금, 휴무: 토, 일", datetime(2026, 11, 2, 12, tzinfo=KST)) == "open"
+    assert closed_day_status("토·일 운영, 월요일 휴무", datetime(2026, 11, 1, 12, tzinfo=KST)) == "open"
 
 
 def test_weekday_runs_written_without_separators_are_read():
@@ -287,12 +308,23 @@ def test_monthly_sunday_closure_closes_only_its_own_sundays():
 
 
 def test_break_time_is_a_closed_interval_and_midnight_close_is_accepted():
+    # 쉬는 시간 말이 범위 바로 앞에 있으면 닫힌 구간이다('15시~17시'·'3-5pm' 꼴 포함).
+    for hours in (
+        "11:00~21:00 브레이크타임 15:00~17:00", "11:00~21:00 (브레이크타임 15시~17시)", "11:00~22:00 (break 3-5pm)",
+    ):
+        labelled = {"type": "restaurant", "operating_hours": {"open": hours}}
+        assert open_status_at_arrival(labelled, datetime(2026, 11, 3, 16, tzinfo=KST)) == "closed_confirmed", hours
+        assert open_status_at_arrival(labelled, datetime(2026, 11, 3, 12, tzinfo=KST)) == "open_expected", hours
+        assert not is_recommendable_at_arrival(labelled, datetime(2026, 11, 3, 16, tzinfo=KST)), hours
+    # 말 없는 괄호 범위는 쉬는 시간일 수도 있을 뿐이다 — 닫힘으로 단정하지 않고 확인 필요로 둔다(후보에는 남는다).
     lunch_break = {"type": "restaurant", "operating_hours": {"open": "11:00~21:00 (15:00~17:00)"}}
-    assert open_status_at_arrival(lunch_break, datetime(2026, 11, 3, 16, tzinfo=KST)) == "closed_confirmed"
-    assert open_status_at_arrival(lunch_break, datetime(2026, 11, 3, 14, 45, tzinfo=KST)) == "closing_soon"
-    assert not is_recommendable_at_arrival(lunch_break, datetime(2026, 11, 3, 16, tzinfo=KST))
-    labelled = {"type": "restaurant", "operating_hours": {"open": "11:00~21:00 브레이크타임 15:00~17:00"}}
-    assert open_status_at_arrival(labelled, datetime(2026, 11, 3, 16, tzinfo=KST)) == "closed_confirmed"
+    assert open_status_at_arrival(lunch_break, datetime(2026, 11, 3, 16, tzinfo=KST)) == "needs_confirmation"
+    assert open_status_at_arrival(lunch_break, datetime(2026, 11, 3, 14, 45, tzinfo=KST)) == "needs_confirmation"
+    assert open_status_at_arrival(lunch_break, datetime(2026, 11, 3, 14, tzinfo=KST)) == "open_expected"
+    assert is_recommendable_at_arrival(lunch_break, datetime(2026, 11, 3, 16, tzinfo=KST))
+    # 시각 없는 쉬는 시간 말은 앞 범위를 쉬는 시간으로 만들지 않는다.
+    vague = {"type": "restaurant", "operating_hours": {"open": "평일 10:00~19:00, 주말 10:00~20:00 (휴게시간 있음)"}}
+    assert open_status_at_arrival(vague, datetime(2026, 11, 3, 12, tzinfo=KST)) == "open_expected"
     midnight = {"type": "cafe", "operating_hours": {"open": "10:00~24:00"}}
     assert open_status_at_arrival(midnight, datetime(2026, 11, 3, 23, tzinfo=KST)) == "open_expected"
     assert recommendation_eligibility_tier(midnight, datetime(2026, 11, 3, 23, tzinfo=KST), "osm_pedestrian") == 0

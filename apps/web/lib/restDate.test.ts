@@ -42,13 +42,36 @@ assert.doesNotMatch(restDateSource, /\(\?<[!=]/, 'restDate.ts 에 정규식 뒤�
 // 결과를 단언하고 시간은 넉넉한 상한만 둔다(지수적으로 되돌아가면 이 크기에서 수십 초가 걸린다).
 const mondayNoon = new Date('2026-11-02T12:00:00+09:00');
 const pathologicalStarted = performance.now();
-for (const raw of ['1 '.repeat(14) + 'x', '1st '.repeat(14) + 'x', '첫째 '.repeat(14) + 'x', '1st and '.repeat(14) + 'x', '1 '.repeat(400) + 'x']) {
+for (const raw of [
+  '1 '.repeat(14) + 'x', '1st '.repeat(14) + 'x', '첫째 '.repeat(14) + 'x', '1st and '.repeat(14) + 'x',
+  '토 '.repeat(140) + 'x', '월화'.repeat(140), '월' + ' 은'.repeat(140) + 'x', '공휴일 경우 '.repeat(30) + 'x',
+]) {
   assert.equal(closedDayStatus(raw, mondayNoon), null, `closedDayStatus(${raw.slice(0, 12)}…)`);
 }
-for (const raw of ['입장마감' + ' '.repeat(200) + 'x', '브레이크' + ' '.repeat(200) + 'x']) {
+assert.equal(closedDayStatus('월 , '.repeat(70) + 'x', mondayNoon), 'closed'); // 구분 기호로 이은 월요일 목록
+assert.equal(closedDayStatus('mon '.repeat(70) + 'x', mondayNoon), null); // 휴무 말 없는 영어 요일 이름
+// 600자를 넘겨 잘린 원문은 뒤쪽을 못 읽었으니 무엇도 단정하지 않는다(그날 모름). 주소·태그 찾기도 길이에 비례한다.
+for (const raw of ['1 '.repeat(400) + 'x', 'x'.repeat(3990) + 'www.', 'a.'.repeat(2000), '<'.repeat(4000), 'z'.repeat(9000)]) {
+  assert.equal(closedDayStatus(raw, mondayNoon), 'uncertain', `closedDayStatus(${raw.slice(0, 12)}…)`);
+}
+for (const raw of [
+  '입장마감' + ' '.repeat(200) + 'x', '브레이크' + ' '.repeat(200) + 'x', '휴게' + ' '.repeat(400) + 'x', '1-'.repeat(240) + '시',
+  'a.'.repeat(2000),
+]) {
   assert.equal(getArrivalOpenStatus({ open: raw }, mondayNoon), 'needs_confirmation');
 }
 assert.ok(performance.now() - pathologicalStarted < 2000, '휴무·영업시간 해석이 병적인 입력에서 오래 걸린다');
+
+// 괄호로 붙은 조건부 영업 안내('(공휴일 영업)')가 매주 휴무를 지우지 않는다(6차 검증).
+for (const [closed, at] of [
+  ['매주 화요일(공휴일 영업)', '2026-11-03'], ['휴무일: 매주 월요일 (공휴일 정상영업)', '2026-11-02'],
+  ['정기휴무 매주 일요일 (공휴일 정상 영업)', '2026-11-01'], ['매주 일요일(단체 예약 시 영업)', '2026-11-01'],
+  ['매주 월요일 (명절 당일 영업)', '2026-11-02'], ['매주 월요일 휴관(공휴일 개관)', '2026-11-02'],
+]) {
+  assert.equal(getArrivalOpenStatus({ open: '09:00~18:00', closed }, new Date(`${at}T12:00:00+09:00`)), 'closed_confirmed', closed);
+}
+assert.equal(closedDayStatus('영업: 월~금, 휴무: 토, 일', new Date('2026-11-02T12:00:00+09:00')), 'open');
+assert.equal(closedDayStatus('토·일 운영, 월요일 휴무', new Date('2026-11-01T12:00:00+09:00')), 'open');
 
 // 일요일 휴무 오판(2026-10-31) — '매주 월요일' 가게가 일요일 카드에서 '휴무' 로 빠지지 않는다.
 const sundayNoon = new Date('2026-11-01T12:00:00+09:00');
