@@ -57,10 +57,10 @@
 
 ## 우선순위
 
-1. **심사 기간 운영 유지** — 1차 심사자료는 09-21 제출 끝. 1차 기능 심사는 10월 중(날짜 미공지 — 심사위원이 라이브 URL 에
-   혼자 들어와 심사 계정으로 로그인, TourAPI 호출 이력도 본다) · 10-21 본선 발표 · 10-28 발표 심사 · 11-05 시상(PM 안내 기준 —
-   저장소 문서에는 없다). 세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 푸시는 KST 밤에만.
-   데모 전 체크리스트는 [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) §0.
+1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
+   작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
+   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(Q1~Q8 답 대기).
+   세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
 2. **사람 작업 대기** 처리 — 특히 `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
 4. **PR #13 `fix/llm-rate-limits-1009` 병합** — "알려진 이슈" ③ 의 구현 + 밤 e2e 수정. CI green(`c678db4`), KST 밤 PM 병합만 남음("사람 작업 대기" 맨 위).
@@ -72,6 +72,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
@@ -186,8 +187,8 @@
 - ② **developer의 좌석 방송이 `verified`로 학습에 들어간다** — 소유자가 아닌 사람의 방송은 `single_report`로 낮추는 안.
 - ③ **인증 없는·게스트 LLM/쓰기 경로에 유량 제한이 없다** — 순서는 아래 "보안 진단"대로: `travel-context/parse`·
   `preferences/parse`(상) → `/voice/turn`·`events/track`·`search/ingest-request`. (`/reports/*` 는 2026-10-30 게스트 차단 + IP 쿨다운.)
-- **일요일 휴무 오판(버그, 10-31 재현)** — "매주 월요일 휴무"·"매주 화요일"처럼 요일이 적힌 휴무 문구의 가게가 일요일마다 `closed_confirmed` 가 된다.
-  정규식 `(?:매주|매월|요일|휴무)[^\n]{0,12}일` 이 '요일'의 '일'에 걸린다(API `services/travel_context.py:94`, 웹 `lib/restDate.ts:107-109`). 고침은 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) P0-1.
+- **일요일 휴무 오판(버그, 10-31 재현) — `yunseong` 에서 고침(`9f3c77f` — 남은 오판을 고친 5차 수정은 검증 중), main 반영 전까지 운영은 그대로** — "매주 월요일 휴무"처럼 요일이 적힌 휴무 문구의 가게가 일요일마다 `closed_confirmed` 가 된다(운영 정규식이 '요일'의 '일'에 걸린다).
+  웹(`lib/restDate.ts`)도 같은 판정이라 **API·웹을 함께** 반영해야 고쳐진다(API 먼저 — 옛 API 는 새 웹의 `stroller` 요청을 거절한다). 상세는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §7 P0-1.
 - **게스트 차단 빈틈** — 방문 확인의 체감 혼잡(`PATCH /recommendations/{id}/outcome` 의 `observed_congestion`)은 아직 게스트를 받는다.
   DB 트리거가 `user_report` 로 옮겨 계정 둘이 일치하면 corroborated 가 된다(`20260820123000:83-95`). 같은 문서 P0-2 · D3.
 - **main 의 e2e 가 KST 23:29 이후 CI 에서 실패한다(PR #13 병합 전까지)** — e2e 고정 장소가 '하루 종일'을 `'00:00~23:59'` 로 적어, 앱의 '도착 뒤 30분 안 마감 제외'(`lib/restDate.ts` `isRecommendationOpen`)에 밤마다 걸린다. 앱 버그가 아니라 시험 고정값 문제. 고침은 #13 의 `c678db4`(`'24시간'`). 그 전에 밤 main CI 가 빨가면 rec-card·category-chips·doc-crosswalk 음성부터 의심.
@@ -357,24 +358,6 @@ from checks order by seq;
 - 한 것: 카드 상세의 대표메뉴 → 운영시간·휴무일(같은 행) → 소개 → 주소·전화번호(같은 행) 순서로 배치. 기존 전화 연결·실시간 갱신 표시 유지. 서울 검증 표에 API `service_role` GRANT를 명시하고 이후 public 테이블의 역할별 권한 선언을 배포 문서에 기록.
 - 검증: web lint·typecheck·test(110파일)·build, 스키마 재생성·문서 검사.
 - 다음·미결: Vercel 배포와 라이브 화면 확인. SQL의 원격 적용 여부는 별도 확인.
-- 사람 작업: 없음.
-
-## 2026-10-21c — 음식점 추천의 메뉴·이동 시간·선택 버튼을 첫 화면에
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `ca60e7a` 위)
-- 커밋: `4ae4274` · `2f1d119` · `24de2ab` + 이 기록 포함 1건(웹·문서만)
-- 한 것: 음식점 추천 문장에 실제 메뉴(없으면 음식 종류)와 도보 시간, 확인된 대기 시간이 있으면 식사까지 예상 시간을 표시. 모바일 미리보기의 출발·도착 시각과 세 선택 버튼 문구를 정리하고, 메뉴명은 카드·미리보기 모두 줄바꿈해 끝까지 표시. '일단 킵하고' 뒤에서 버튼 문구 줄바꿈(동작 무변경). 4개 언어 동기화.
-- 검증: 첫 커밋은 web lint·typecheck·test·build·관련 e2e·check-docs 통과. 이번 문구·표시 변경은 web build·check-docs만 실행(PM 지시: 간단한 UI는 테스트 생략).
-- 다음·미결: Vercel 배포·라이브 화면 확인. 메뉴 원자료가 없는 가게에는 카카오 음식 종류만 표시.
-- 사람 작업: 없음.
-
-## 2026-10-21b — 추천 카드의 메뉴 표시 강조
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `8d4b56b` 위)
-- 커밋: 이 기록 포함 1건(웹·문서만)
-- 한 것: 추천 카드 전체와 휴대폰 미리보기의 메뉴·음식 종류에 금빛 배경과 테두리, 진한 글자와 큰 아이콘을 적용해 한눈에 읽히게 했다. 메뉴 데이터·순서·접근성 이름은 유지.
-- 검증: web build · check-docs. 간단한 UI 변경이라 테스트는 실행하지 않음(PM 지시).
-- 다음·미결: Vercel 배포·라이브 카드 확인.
 - 사람 작업: 없음.
 
 ## 기록 규칙

@@ -37,7 +37,7 @@
 | [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) | API 재설계 — 참조 스냅샷 · 사전 계산 · 패치 층 제거. 실측 근거, 단계 P0a~P8 상태, 레드팀 제약 B1~B6 | living | 2026-09-28 |
 | [`DESIGN_PRINCIPLES.md`](./DESIGN_PRINCIPLES.md) | 디자인 원칙 — Toss·Apple 철학에서 가져온 NextSpot 원칙 9가지(Google 은 기준에서 제외), 글쓰기 규칙, 측정 기준(대비·탭 영역·글자)과 지키는 장치, 남은 결정 | living | 2026-10-10 |
 | [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) | 혼잡 엔진 계획 — 서울 실시간 도시데이터를 검증 지역으로, 경주는 주차·집중률 기반 "추정 모드". 확정·구현됨(2026-09-20, D1~D6 결정 완료) | living | 2026-10-31 |
-| [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) | 제품 평가와 다음 작업 계획 — 최신 소식(공모전 우수상·모두의 창업 2라운드·실서비스 창업 방향), 관광객·사장님·기관·공통 관점 평가, 단계별 개선안(Phase 0~3), 결정 D1~D9, 진행 상황(§7) | living | 2026-10-31 |
+| [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) | 제품 평가와 다음 작업 계획 — 최신 소식(공모전 우수상·모두의 창업 로컬 트랙 1라운드·실서비스 창업 방향), 관광객·사장님·기관·공통 관점 평가, 단계별 개선안(Phase 0~3), 결정 D1~D9, 진행 상황(§7) | living | 2026-10-31 |
 | [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) | 서울 테스트베드 — 경주 통신사 데이터 확보 전에 서울 공공 실시간 API 로 실시간 유동인구 기반 시스템(공급원 어댑터·구역 모델·실측 순위·분산 결정 재생 평가)을 미리 구축·검증하는 계획 + 통신사 데이터 계약 명세 초안. **질문 Q1~Q8 답 대기** | living | 2026-10-31 |
 
 ## 심사 자료 (`docs/contest/`)

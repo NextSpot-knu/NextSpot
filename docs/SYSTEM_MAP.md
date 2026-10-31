@@ -260,7 +260,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
 | ″ | **추정 모드 피드**(실측·예측이 없는 시설의 '추정' 혼잡) | `GET /congestion/estimates` (공개·5분 캐시, `routers/infrastructures.py`) | `congestion_estimator_service` ← `area_demand_snapshots`(주차 10분) + 관광 집중률 · 웹은 `lib/congestionEstimate.ts` |
 | ″ | 히트맵 + 시간대별 AI 예측 타임슬라이더 | `POST /predict/batch` | `predict_service` |
-| ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` |
+| ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` — 수락은 `recommendation_id` 가 있으면 노출된 그 추천 행을 수락으로 갱신하고 취향 +10%(응답 `updated_vector`), 없으면 예전처럼 원본=추천 행을 넣는다(2026-10-31) |
 | ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
 | ″ | 진행중 여정의 자연어 현장조건 변경 (`ActiveJourneyCard`) | `POST /travel-context/parse` | `travel_context_parser` |
 | ″ | 검색 — 로컬 0건일 때만 외부 조회 | `GET /search/places` (Kakao) | `kakao_place_search_service` |
@@ -275,7 +275,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/saved` | 저장한 장소 (목록은 로컬) | `POST /feedback` | `lib/savedFacilities.ts` |
 | `/mypage` | 취향 레이더 · 임팩트 요약 · 실험실 대기 수 | `GET /users/me/vector` `/impact/summary` `/lab/pending/count` | `preference_vector_service` |
 | `/mypage/coupons` | 내 쿠폰함 | `GET /coupons/mine` · `POST /coupons/{id}/use` | `coupon_service` |
-| `/mypage/impact` | 내 여행 임팩트 | `GET /impact/summary` | 수락·혼잡회피·쿠폰 성과 집계 |
+| `/mypage/impact` | 내 여행 임팩트 | `GET /impact/summary` | 길안내 출발(같은 시설·같은 날 1회)·도착 확인(`arrivals_confirmed`)·혼잡회피·쿠폰 — 값이 0 이거나 근거가 없는 타일은 그리지 않는다 |
 | `/mypage/lab` | **거절 실험실** | `GET /lab/pending` · `POST /lab/{id}/reason` · `.../reason/classify` · `.../skip` · `.../hide` | `lab` 라우터 + LLM 분류 |
 | `/mypage/settings` | 회원 탈퇴 | `DELETE /account/me` | `account` 라우터 |
 | `/account/business` | 역할 신청 — 제출·내역·**철회·수정** | `POST /account/verification-requests` · `GET …/mine` · `PATCH …/{id}` · `POST …/{id}/withdraw` | `account` 라우터 (심사는 `/dev` — §5.4) |
@@ -329,7 +329,7 @@ SessionBootstrap: 익명 세션 자동 발급
 
 | 기능 | API | 설명 |
 |---|---|---|
-| 내 가게 성적표 | `GET /merchant/stats` | 노출·수락·방문 수치 |
+| 내 가게 성적표 | `GET /merchant/stats?days=7\|30` | 노출(손님 화면에 뜬 추천 카드 `rec_shown` — 기록이 없으면 '추천 목록에 포함된 횟수')·길안내(손님·날짜당 1회)·도착 확인·쿠폰·제보, 직전 기간 비교·표본(`metrics`). 관리자·개발자 계정은 뺀다(`app/core/internal_accounts.py`) |
 | AI 브리핑 | `GET /merchant/briefing` | `merchant_briefing_service` (LLM) |
 | 셀프 타임세일 | `POST /merchant/timesale` · `/timesale/cancel` | 쿠폰율 즉시 상향 → **SPOT w₃에 직결** |
 | 좌석상태 방송 | `POST /merchant/seat-status` | 30분 신선도 내 **실측으로 취급** (`verified` 등급) |
@@ -357,14 +357,14 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **엔진 검증** — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py`) |
 | ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음) |
 | ″ | `GET /admin/engine-validation/seoul/alternatives?origin=` | **권역 대안 패널**(`SeoulAlternativesPanel`) — 홍대(`POI007`)·연남동(`POI073`)·합정역(`POI053`) 시연 권역의 실측 인파 비교("여기가 붐비니 저기로") |
-| ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **분산 효과 정량화** — 절감 대기시간·재배치 건수 |
+| ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **추천 수락 결과** — 재배치 = 수락 · 원본 ≠ 목적지 · 도착 확인. 도착 미확인·같은 장소 수락은 따로 센다. '예상 대기 차이(모델 추정)'는 재배치 건만. 내부 계정 제외, 표본 수를 함께 낸다(2026-10-31) |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
 | `/admin/infrastructure` | `POST /admin/facilities/{id}/congestion` | 혼잡 수동 입력 (`admin_override` · §7.1) |
 | ″ | `GET /search/ingest-requests?status=pending` · `POST /search/ingest-requests/approve` | **검색 0건 → 승인형 배치 적재** 큐 |
 | ″ | (Supabase anon 직접 조회 — `facilities` 페이지네이션 + `latest_congestion_for_facilities`) | 장소 목록·이상 혼잡 알림 |
 | `/admin/simulator` | `GET /users/me/vector` | SPOT 시뮬레이터 (가중치 슬라이더 — 쓰기 없음) |
 | `/admin/reports` | `GET /admin/metrics?days=28` + Supabase anon `congestion_logs` | 통계 리포트 (요일·카테고리 집계, AI 수락 추이) |
-| `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 |
+| `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 — 최근 30분 관측만 판정에 쓰고, 관측이 없으면 '판정 불가'(`judgement`). 존마다 관측 시각·출처. 경보 기준 0.9(`ANOMALY_LEVEL`과 같음) |
 | `/admin/report` | `GET /admin/metrics/trend?days=30` · `/admin/dashboard/today` · `GET /freshness` | 성과 리포트 — 의회·평가 제출용 인쇄물 |
 | ″ | `GET /admin/reports/estimated?days=` (`estimated_report_service`) | **추정 일별 시계열** — 2026-09-20 신설. 이 글을 쓰는 시점에 웹 호출부는 아직 없다(다른 에이전트가 배선 중) |
 | `/admin/support` | `GET/PATCH /admin/inquiries` | 문의 처리 |
@@ -372,7 +372,7 @@ SessionBootstrap: 익명 세션 자동 발급
 
 관제의 폐루프는 **관제 → 개입(쿠폰) → 효과 측정**으로 닫힌다.
 쿠폰 정책 패널에서 할인율을 올리면 `coupon_rate`가 SPOT 인센티브 항에 즉시 반영되고,
-그 결과가 **같은 대시보드 화면의** `ImpactWidget`("절감 대기시간 · 재배치 건수", `GET /admin/impact`)으로
+그 결과가 **같은 대시보드 화면의** `ImpactWidget`("추천 수락 결과" — 재배치·예상 대기 차이(모델 추정), `GET /admin/impact`)으로
 되돌아온다. 세 패널이 한 화면에 있는 것이 데모 동선의 전제다(`contest/DEMO_SCENARIO.md` §2).
 `/admin/report` 는 그 지표를 인쇄물로 조립하는 별도 화면이고, 파생 불가능한 수치는 지어내지 않고 뺀다.
 
