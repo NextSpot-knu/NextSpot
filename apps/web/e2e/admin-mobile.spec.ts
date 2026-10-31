@@ -75,6 +75,79 @@ const SAFETY_STATUS = {
   summary: { alertZones: 1, warnZones: 1, normalZones: 1, alertFacilities: 1, warnFacilities: 1, observedZones: 3 },
 };
 
+// 실시간 데이터 리허설(/admin/engine-validation) — 요약 응답에 대상지별 수집 상태(pipeline)를 실어, 새 표와
+// 알림이 390px 에서 실제로 그려지게 한다. 상태를 섞었다(최신·지연·행 없음·설정 밖, 마지막 시도 실패, 정규화 표
+// 미적용 + 긴 마이그레이션 파일명이 든 사람 작업) — 가장 긴 문구 조합이 카드 밖으로 밀리지 않는지 본다.
+const ZONE_STEP = "Supabase SQL Editor 에서 supabase/migrations/20261031120000_crowd_zones.sql 을 실행하고 NOTIFY pgrst, 'reload schema'; 로 스키마 캐시를 새로 읽힌다(사람 작업).";
+
+function rehearsalTarget(area: string, over: Record<string, unknown> = {}) {
+  return {
+    area_nm: area, zone_id: `seoul:${area}`, configured: true, state: 'fresh',
+    every_buckets: 3, offset_buckets: 2, cadence_minutes: 30, stale_after_minutes: 68,
+    latest_bucket_at: iso(14), latest_age_minutes: 14, first_bucket_in_window_at: iso(60 * 24 * 2),
+    counted_since_at: iso(60 * 24 * 2),
+    window: { expected_buckets: 96, collected_buckets: 95, off_schedule_buckets: 12, fill_rate: 0.9896 },
+    last_24h: { expected_buckets: 48, collected_buckets: 47, off_schedule_buckets: 0, fill_rate: 0.9792 },
+    rows_24h: 47, zone_rows_24h: null, primary_calls_per_day: 48, retry_calls_per_day_worst: 0,
+    last_run: { state: 'stored', checked_at: iso(10), error_code: null, upstream_code: null, last_success_at: iso(10) },
+    ...over,
+  };
+}
+
+const ENGINE_SUMMARY = {
+  state: 'collecting', window_days: 14, window_start: iso(60 * 24 * 14), generated_at: iso(0),
+  table: 'seoul_citydata_snapshots', migration: '20260920120000_seoul_citydata_snapshots.sql',
+  grade_labels: ['여유', '보통', '약간 붐빔', '붐빔'], estimate_grade_edges: [0.25, 0.5, 0.75],
+  min_samples: 36, min_danger_samples: 12, omitted_metrics: [],
+  collection: {
+    row_count: 1200, first_bucket_at: iso(60 * 24 * 13), last_bucket_at: iso(14), first_observed_at: iso(60 * 24 * 13),
+    last_observed_at: iso(18), hours_collected: 312, latest_bucket_at: iso(14), latest_age_minutes: 14, stale: false,
+    stale_after_minutes: 30,
+  },
+  places: [],
+  pipeline: {
+    schedule_state: 'ok', schedule_error: null, key_configured: true, table_state: 'has_rows', human_step: null,
+    stale_rule: { formula: 'max(30, 2 × 주기 + 8)분', base_minutes: 30, collection_offset_minutes: 8 },
+    bucket_minutes: 10,
+    budget: {
+      primary_per_day: 720, retry_worst_case_per_day: 144, worst_case_per_day: 864, limit_per_day: 1000,
+      headroom_per_day: 136, within_limit: true, retry_cron: '9,39 * * * *',
+      retry_migration: '20260920140000_seoul_citydata_retry_budget.sql',
+    },
+    targets: [
+      rehearsalTarget('홍대 관광특구', { every_buckets: 1, offset_buckets: 0, cadence_minutes: 10, stale_after_minutes: 30, primary_calls_per_day: 144, retry_calls_per_day_worst: 48 }),
+      rehearsalTarget('창덕궁·종묘', {
+        state: 'stale', latest_age_minutes: 190,
+        last_run: { state: 'failed', checked_at: iso(9), error_code: 'seoul_quota_exceeded', upstream_code: 'ERROR-337', last_success_at: iso(190) },
+      }),
+      rehearsalTarget('북촌한옥마을', {
+        state: 'empty', latest_bucket_at: null, latest_age_minutes: null, first_bucket_in_window_at: null,
+        window: { expected_buckets: 671, collected_buckets: 0, off_schedule_buckets: 0, fill_rate: 0 },
+        last_24h: { expected_buckets: 48, collected_buckets: 0, off_schedule_buckets: 0, fill_rate: 0 }, rows_24h: 0, last_run: null,
+      }),
+      rehearsalTarget('광화문·덕수궁', {
+        configured: false, state: 'not_configured', every_buckets: null, offset_buckets: null, cadence_minutes: null,
+        stale_after_minutes: null, primary_calls_per_day: null, retry_calls_per_day_worst: null, last_run: null,
+        window: { expected_buckets: null, collected_buckets: 30, off_schedule_buckets: 0, fill_rate: null },
+      }),
+    ],
+    last_run: {
+      state: 'partial', last_run_at: iso(9), last_success_at: iso(9), error_code: 'seoul_quota_exceeded',
+      skipped_targets: ['명동 관광특구', '동대문 관광특구'], memory_only: true,
+    },
+    zones: {
+      table: 'zone_crowd_snapshots', migration: '20261031120000_crowd_zones.sql', table_state: 'not_migrated',
+      rows_24h: null, latest_bucket_at: null, latest_age_minutes: null,
+      last_write: { state: 'migration_not_applied', stored_count: 0, errors: { 'seoul:POI007': 'migration_not_applied' }, at: iso(9) },
+      human_step: ZONE_STEP,
+    },
+  },
+  decision_quality: {
+    state: 'not_evaluated', stage: 'S4', result: null,
+    criterion: "V3 — 추천지가 도착 시 1단계 이상 덜 붐빌 확률이 '가장 가까운 곳' 기준선보다 10%p 이상 높고, 일 블록 부트스트랩 95% 신뢰구간 하한 > 0",
+  },
+};
+
 function json(route: Route, status: number, body: unknown, headers: Record<string, string> = {}) {
   return route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) });
 }
@@ -117,20 +190,29 @@ async function stubAdminConsole(page: Page): Promise<void> {
       return json(route, 200, { maintenance_mode: false, notice_text: '', congestion_threshold: 80, coldstart_weight: 50 });
     }
     if (url.includes('/ingest-requests')) return json(route, 200, []);
+    if (url.includes('/admin/engine-validation/seoul/summary')) return json(route, 200, ENGINE_SUMMARY);
     // 나머지 관리자 API 는 '아직 없음' 으로 닫는다 — 화면은 실패 상태를 그리고, 레이아웃 검사는 그대로 성립한다.
     return json(route, 404, { detail: 'not stubbed' });
   });
 }
 
-/** 본문이 화면 밖으로 밀려났는가 — 가로 스크롤 컨테이너 **안**에 있는 것은 정상(카드 안에서 민다). */
+/**
+ * 본문이 화면 밖으로 밀려났는가 — **가로** 스크롤 상자(`overflow-x-auto`, 표를 담는 카드) **안**에 있는 것은 정상.
+ *
+ * 관제 화면의 본문 상자는 `overflow-y-auto`(세로 스크롤)다. CSS 규칙상 한쪽이 visible 이 아니면 다른 쪽도 auto 로
+ * 계산돼서, 계산값(overflowX)만 보면 본문 전체가 '가로 스크롤 상자 안' 으로 면제됐다 — 그 안에서 밀려난 요소는
+ * 하나도 잡히지 않았다. 그래서 면제는 가로 스크롤을 **의도한** 상자(클래스)만 하고, 본문 상자 자체가 가로로
+ * 넘치는지는 `scrollOverflows` 가 따로 본다.
+ */
 async function escapingElements(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const vw = document.documentElement.clientWidth;
     const out: string[] = [];
+    const HORIZONTAL = ['overflow-x-auto', 'overflow-x-scroll', 'overflow-auto', 'overflow-scroll'];
     const scrollsX = (el: Element | null): boolean => {
       for (let p = el?.parentElement ?? null; p && p !== document.body; p = p.parentElement) {
         const ox = getComputedStyle(p).overflowX;
-        if (ox === 'auto' || ox === 'scroll') return true;
+        if ((ox === 'auto' || ox === 'scroll') && HORIZONTAL.some((name) => p!.classList.contains(name))) return true;
       }
       return false;
     };
@@ -158,6 +240,17 @@ async function openAdmin(page: Page, path: string): Promise<void> {
   await page.waitForTimeout(500);
 }
 
+/** 본문의 세로 스크롤 상자(`overflow-y-auto`)가 가로로 넘치는가 — 넘치면 휴대폰에서 본문이 옆으로 밀린다. */
+async function scrollOverflows(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('main .overflow-y-auto, main.overflow-y-auto'))
+      .filter((el) => !el.classList.contains('overflow-x-auto'))
+      .map((el) => ({ el, over: el.scrollWidth - el.clientWidth }))
+      .filter(({ el, over }) => over > 1 && el.getBoundingClientRect().width > 0)
+      .map(({ el, over }) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)} +${over}px`),
+  );
+}
+
 const SHOT_DIR = process.env.ADMIN_SHOT_DIR;
 
 test.beforeEach(async ({ page }) => {
@@ -177,6 +270,13 @@ for (const path of ADMIN_ROUTES) {
     const mainWidth = await page.locator('main').first().evaluate((el) => el.getBoundingClientRect().width);
     expect(mainWidth, '본문 폭').toBeGreaterThanOrEqual(389);
     expect(await escapingElements(page), '화면 밖으로 밀려난 요소').toEqual([]);
+    expect(await scrollOverflows(page), '가로로 넘치는 본문 스크롤 상자').toEqual([]);
+    if (path === '/admin/engine-validation') {
+      // 스텁한 수집 상태가 실제로 그려졌다 — 그려지지 않으면 위 검사는 빈 화면을 잰 것이다.
+      await expect(page.getByRole('region', { name: '수집 상태' })).toBeVisible();
+      await expect(page.getByText('정규화 표 미적용 — 20261031120000_crowd_zones.sql')).toBeVisible();
+      await expect(page.getByText(/S4 재생 평가 전 — 아직 없음/)).toBeVisible();
+    }
 
     const narrowCells = await page.evaluate((min) =>
       Array.from(document.querySelectorAll('main th, main td'))

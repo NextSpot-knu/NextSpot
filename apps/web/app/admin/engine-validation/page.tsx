@@ -211,7 +211,7 @@ export default function EngineValidationPage() {
           {summary && (
             <>
               {/* 1) 수집 파이프라인 — 대상지별 실제 상태 · 정규화 표 */}
-              <RehearsalStatusPanel pipeline={pipeline} windowDays={summary.window_days} />
+              <RehearsalStatusPanel pipeline={pipeline} windowDays={summary.window_days} windowStart={summary.window_start} />
               {/* 2) 결정 품질(S4) — 재생 평가 전에는 '아직 없음' 만 */}
               <DecisionQualityPanel quality={decisionQuality} />
             </>
@@ -352,7 +352,7 @@ function StateBanner({ tone, title, detail, children }: { tone: Tone; title: str
     <div className={`flex items-start gap-3 border rounded-2xl p-4 ${style.box}`}>
       <Icon size={20} className={`${style.title} flex-shrink-0 mt-0.5`} />
       <div className="min-w-0">
-        <p className={`font-bold ${style.title}`}>{title}</p>
+        <p className={`font-bold break-words ${style.title}`}>{title}</p>
         <p className="text-sm text-hanok-muted mt-1">{detail}</p>
         {children}
       </div>

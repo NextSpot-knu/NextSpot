@@ -9,6 +9,7 @@
 import { Activity, AlertCircle, AlertTriangle, CheckCircle2, Database, Info, Scale } from 'lucide-react';
 import { formatKst, type StateNotice, type Tone } from '@/lib/engineValidation';
 import {
+  countedSinceLabel,
   describeBudget,
   describeDecisionQuality,
   describeLastRun,
@@ -42,7 +43,7 @@ function Notice({ notice }: { notice: StateNotice }) {
     <div className={`flex items-start gap-3 border rounded-xl p-3 ${TONE_BOX[notice.tone]}`}>
       <Icon size={18} className={`${TONE_TEXT[notice.tone]} flex-shrink-0 mt-0.5`} />
       <div className="min-w-0">
-        <p className={`font-bold text-sm ${TONE_TEXT[notice.tone]}`}>{notice.title}</p>
+        <p className={`font-bold text-sm break-words ${TONE_TEXT[notice.tone]}`}>{notice.title}</p>
         <p className="text-xs text-hanok-muted mt-1 break-words">{notice.detail}</p>
       </div>
     </div>
@@ -54,9 +55,11 @@ const CELL = 'px-2 py-2 whitespace-nowrap min-w-[3.5rem] text-left align-top';
 export function RehearsalStatusPanel({
   pipeline,
   windowDays,
+  windowStart,
 }: {
   pipeline: RehearsalPipeline | null;
   windowDays: number;
+  windowStart?: string | null;
 }) {
   if (!pipeline) {
     return (
@@ -122,9 +125,11 @@ export function RehearsalStatusPanel({
                     <td className={CELL}>
                       {formatFillRate(target.window)}
                       {offSchedule > 0 && <span className="block text-[10px] text-hanok-muted">차례 밖 {offSchedule}개 별도</span>}
-                      {target.first_bucket_in_window_at && (
+                      {countedSinceLabel(target, windowStart) ? (
+                        <span className="block text-[10px] text-hanok-muted">{countedSinceLabel(target, windowStart)}</span>
+                      ) : target.first_bucket_in_window_at ? (
                         <span className="block text-[10px] text-hanok-muted">첫 버킷 {formatKst(target.first_bucket_in_window_at)}</span>
-                      )}
+                      ) : null}
                     </td>
                     <td className={CELL}>
                       {target.primary_calls_per_day ?? '—'}

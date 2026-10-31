@@ -7,25 +7,33 @@
 ## 왜 주기를 알아야 하나
 
 예전에는 모든 대상지가 10분마다 불렸고 "최신 버킷이 30분보다 오래됐으면 멈춘 것" 이 맞았다. 대상지별 주기
-(S2 — 홍대·종로 20분, 명동·동대문 30분)가 들어오면 그 규칙은 건강한 30분 대상지를 매 주기 '멈춤' 으로 보인다:
-버킷 :10 의 행은 :14 에 들어오고, 다음 차례 :40 의 행은 :44 에 들어온다 — 그 직전 나이는 약 34분이다.
+(기본 설정 — 홍대 권역 10분, 종로 4곳·명동·동대문 30분)가 들어오면 그 규칙은 건강한 30분 대상지를 매 주기
+'멈춤' 으로 보인다: 버킷 :20 의 행은 :24 에 들어오고, 다음 차례 :50 의 행은 :54 에 들어온다 — 그 직전 나이는
+약 34분이다. 주기는 설정에서 읽으므로(`configured_schedule`) 20분 같은 다른 주기에도 같은 식이 적용된다.
 
-## 신선도 기준: max(30, 2 × 주기 + 5)
+## 신선도 기준: max(30, 2 × 주기 + 8)
 
   · **2 × 주기** — 한 번 빠뜨리는 것까지는 '멈춤' 이 아니다. 서울 API 한 번의 실패(타임아웃·일시 오류)는
     흔하고, 다음 차례에 저절로 메워진다. 두 번 연속 빠지면 그때 사람에게 알린다.
-  · **+ 5분** — 행의 시각(`bucket_at`)은 버킷의 **시작**이고 pg_cron 주 호출은 버킷 시작 4분 뒤(:x4)에 돈다.
-    여기에 호출·저장 시간(대상지당 최대 10초 × 버킷당 최대 6곳 ≈ 1분)을 더한 값이다.
-  · **max(30, …)** — 10분 대상지는 2 × 10 + 5 = 25 가 되지만, 예전 기준(30분)을 그대로 둔다. 10분 주기에서
+  · **+ 8분** — 행의 시각(`bucket_at`)은 버킷의 **시작**이고 pg_cron 주 호출은 버킷 시작 4분 뒤(:x4)에 돈다.
+    그 요청은 pg_cron 요청 제한(90초) 안에 끝나거나 버려진다 — 수집기는 버킷당 최대 7곳을 4개씩 동시에
+    부르므로(묶음 2개 × 10초 + 관광 성분 15초 + 저장) 보통 1분 안이다. 그래서 행은 늦어도 버킷 시작 + 5.5분에
+    들어온다. 나머지 2.5분은 여유다: Render 가 잠들었다 깨는 첫 요청 지연, DB·API 서버 시계 차이.
+    5분으로 두면 한 번 놓친 30분 대상지의 나이(30 × 2 + 4 + 처리 시간 ≈ 64~65.5분)가 기준 65분과 겹쳤다.
+  · **max(30, …)** — 10분 대상지는 2 × 10 + 8 = 28 이 되지만, 예전 기준(30분)을 그대로 둔다. 10분 주기에서
     화면·경보가 갑자기 더 예민해지면 '주기를 아는 기준' 이 아니라 '기준을 조인 변경' 이 된다.
 
-결과: 10분 → 30분(그대로) · 20분 → 45분 · 30분 → 65분.
+결과: 10분 → 30분(그대로) · 20분 → 48분 · 30분 → 68분.
 
 ## 채움률의 분모는 '그 대상지의 차례였던 버킷 수' 다
 
 하루 144가 아니다. 30분 대상지는 하루 48번만 불리므로 48이 분모다. 창 안에 차례가 아닌 버킷의 행(예전 10분 설정
 때의 행·수동 호출)은 분자에 넣지 않고 `off_schedule_buckets` 로 따로 센다 — 넣으면 채움률이 100% 를 넘는다.
-아직 수집 시각(버킷 시작 + 5분)이 지나지 않은 지금 버킷은 분모에 넣지 않는다.
+아직 수집 시각(버킷 시작 + 8분)이 지나지 않은 지금 버킷은 분모에 넣지 않는다.
+
+분모는 **창 시작과 그 대상지의 첫 버킷(표 전체에서) 중 늦은 쪽**부터 센다. 창(예: 14일)보다 나중에 수집을
+시작한 대상지(S2 의 종로 4곳)를 창 시작부터 세면 두 주 내내 7% 같은 숫자가 '수집이 빠진다' 로 읽힌다.
+첫 버킷 이후의 누락은 그대로 분모에 남는다. 어느 시각부터 셌는지는 `counted_since_at` 으로 함께 준다.
 """
 
 from __future__ import annotations
@@ -43,19 +51,21 @@ BUCKETS_PER_DAY = 144
 _BUCKET = timedelta(minutes=BUCKET_MINUTES)
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-# pg_cron 주 호출이 버킷 시작 4분 뒤(:x4)에 돌고, 호출·저장에 1분 남짓 걸린다(위 모듈 설명).
-COLLECTION_OFFSET_MINUTES = 5
+# pg_cron 주 호출이 버킷 시작 4분 뒤(:x4)에 돌고 90초 안에 끝나거나 버려진다 + 여유 2.5분(위 모듈 설명).
+COLLECTION_OFFSET_MINUTES = 8
 # 10분 주기 시절의 기준. 이보다 예민해지지는 않는다.
 BASE_STALE_AFTER_MINUTES = 30
 # 서울 열린데이터광장 인증키 일 호출 한도(대상지 1곳 = 1회).
 DAILY_CALL_LIMIT = 1_000
 # 보충 호출 — 마이그레이션 20260920140000: '9,39 * * * *' 에 그 버킷 행이 0개일 때만 같은 엔드포인트를 부른다.
 # :09 는 :00 버킷, :39 는 :30 버킷이므로 버킷 번호 n 이 n % 3 == 0 인 버킷만 다시 불린다.
+# ⚠️ 이 예약은 코드가 아니라 DB(pg_cron)에 있다 — 여기 값은 그 마이그레이션이 **적용됐다는 가정**이다(S0 점검
+#    쿼리 C 결과 '9,39 * * * *' 로 확인, 2026-10-31). 예약을 바꾸면 이 세 값과 보충 최악값을 함께 고친다.
 RETRY_CRON = "9,39 * * * *"
 RETRY_EVERY = 3
 RETRY_OFFSET = 0
 RETRY_MIGRATION = "20260920140000_seoul_citydata_retry_budget.sql"
-STALE_RULE = "max(30, 2 × 주기 + 5)분"
+STALE_RULE = f"max(30, 2 × 주기 + {COLLECTION_OFFSET_MINUTES})분"
 
 TARGET_FRESH = "fresh"
 TARGET_STALE = "stale"
@@ -142,7 +152,7 @@ def _index_floor(moment: datetime) -> int:
 
 
 def last_collectable_index(now: datetime) -> int:
-    """지금까지 수집됐어야 하는 마지막 버킷 번호 — 시작 + 5분이 지난 버킷까지."""
+    """지금까지 수집됐어야 하는 마지막 버킷 번호 — 시작 + COLLECTION_OFFSET_MINUTES(8분)이 지난 버킷까지."""
     return _index_floor(now - timedelta(minutes=COLLECTION_OFFSET_MINUTES))
 
 
@@ -178,7 +188,9 @@ class Coverage:
 
 
 def coverage(item: TargetSchedule | None, buckets: Iterable[datetime], start: datetime, now: datetime) -> Coverage:
-    """창 [start, now] 의 채움. 주기를 모르면(설정 오류·설정 밖 대상지) 분모 없이 실제 버킷 수만."""
+    """창 [start, now] 의 채움. 주기를 모르면(설정 오류·설정 밖 대상지) 분모 없이 실제 버킷 수만.
+
+    `start` 는 부르는 쪽이 정한다 — 대상지가 창 안에서 수집을 시작했으면 그 첫 버킷(`target_status`)."""
     first = _index_ceil(start)
     last = last_collectable_index(now)
     indices = {_index_floor(bucket) for bucket in buckets if start <= bucket <= now}
@@ -215,6 +227,7 @@ def target_status(
     last_run: dict[str, Any] | None,
     zone_id: str | None,
     zone_rows_24h: int | None,
+    first_bucket_ever: datetime | None = None,
 ) -> dict[str, Any]:
     """대상지 한 곳의 수집 상태. **행이 없거나 오래됐으면 절대 fresh 가 아니다.**
 
@@ -225,6 +238,9 @@ def target_status(
       empty           이 대상지의 행이 한 줄도 없다
       stale           최신 버킷 나이 > 기준
       fresh           기준 안
+
+    채움률 분모의 시작은 max(창 시작, `first_bucket_ever`) 다(모듈 설명). `first_bucket_ever` 는 표 전체에서
+    이 대상지의 첫 버킷이고, 모르면(None) 창 시작부터 센다.
     """
     cadence = cadence_minutes(item.every) if item else None
     threshold = stale_after_minutes(cadence)
@@ -242,8 +258,9 @@ def target_status(
     else:
         state = TARGET_FRESH
     day_start = now - timedelta(days=1)
-    window = coverage(item, buckets, window_start, now)
-    last_day = coverage(item, buckets, day_start, now)
+    counted_since = max(window_start, first_bucket_ever) if first_bucket_ever is not None else window_start
+    window = coverage(item, buckets, counted_since, now)
+    last_day = coverage(item, buckets, max(day_start, counted_since), now)
     rows_24h = sum(1 for bucket in buckets if day_start <= bucket <= now)
     in_window = [bucket for bucket in buckets if window_start <= bucket <= now]
     return {
@@ -259,6 +276,8 @@ def target_status(
         "latest_age_minutes": age,
         # 창 안 첫 버킷 — 창 시작보다 늦으면 그 전에는 이 대상지를 부르지 않았거나 끊겨 있었다(채움률이 낮은 이유).
         "first_bucket_in_window_at": _iso(min(in_window)) if in_window else None,
+        # 채움률 분모를 센 시작 시각 — 창 시작보다 늦으면 이 대상지가 그때 수집을 시작했다는 뜻이다.
+        "counted_since_at": _iso(counted_since),
         "window": window.as_dict(),
         "last_24h": last_day.as_dict(),
         "rows_24h": rows_24h,

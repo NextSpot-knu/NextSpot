@@ -307,13 +307,17 @@ def test_pipeline_lists_every_configured_target_even_without_rows(monkeypatch):
     assert {t["state"] for t in pipeline["targets"]} <= {"fresh", "empty"}
 
 
-@pytest.mark.parametrize(("age_minutes", "expected"), [(34, "fresh"), (64, "fresh"), (66, "stale")])
+@pytest.mark.parametrize(
+    ("age_minutes", "expected"),
+    # 34 = 정상 차례 직전 · 65.5 = 한 번 놓친 뒤 다음 행이 들어오기 직전(2×30 + 4 + 처리 1.5) · 69 = 두 번 놓침
+    [(34, "fresh"), (65.5, "fresh"), (67, "fresh"), (69, "stale")],
+)
 def test_thirty_minute_target_is_not_stale_between_its_own_collections(monkeypatch, age_minutes, expected):
     # 명동은 30분 주기(@3+2) — 차례 직전 나이는 약 34분이다. 예전 30분 고정 기준이면 매 주기 '멈춤' 이었다.
     _install(monkeypatch, _Table(rows=[_site_row(MYEONGDONG, NOW - timedelta(minutes=age_minutes))]))
     myeongdong = _target(router_module.build_summary(14, now=NOW), MYEONGDONG)
     assert myeongdong["cadence_minutes"] == 30
-    assert myeongdong["stale_after_minutes"] == 65
+    assert myeongdong["stale_after_minutes"] == 68
     assert myeongdong["state"] == expected
 
 
@@ -329,21 +333,21 @@ def test_ten_minute_target_keeps_the_thirty_minute_rule(monkeypatch, age_minutes
     assert body["collection"]["stale"] is (expected == "stale")
 
 
-@pytest.mark.parametrize(("age_minutes", "expected"), [(44, "fresh"), (46, "stale")])
+@pytest.mark.parametrize(("age_minutes", "expected"), [(47, "fresh"), (49, "stale")])
 def test_twenty_minute_target_allows_one_missed_collection(monkeypatch, age_minutes, expected):
-    # 20분 주기(@2) — max(30, 2×20+5) = 45분.
+    # 20분 주기(@2) — max(30, 2×20+8) = 48분.
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구@2")
     _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, NOW - timedelta(minutes=age_minutes))]))
     hongdae = _target(router_module.build_summary(14, now=NOW), HONGDAE)
-    assert hongdae["stale_after_minutes"] == 45 and hongdae["state"] == expected
+    assert hongdae["stale_after_minutes"] == 48 and hongdae["state"] == expected
 
 
 def test_whole_collector_staleness_uses_the_fastest_cadence(monkeypatch):
-    # 가장 잦은 주기가 30분이면 65분 기준. 40분 전 행은 수집기 전체 '멈춤' 이 아니다(예전 30분 고정이면 멈춤).
+    # 가장 잦은 주기가 30분이면 68분 기준. 40분 전 행은 수집기 전체 '멈춤' 이 아니다(예전 30분 고정이면 멈춤).
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "명동 관광특구@3+2,동대문 관광특구@3+2")
     _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, NOW - timedelta(minutes=40))]))
     collection = router_module.build_summary(14, now=NOW)["collection"]
-    assert collection["stale_after_minutes"] == 65 and collection["stale"] is False
+    assert collection["stale_after_minutes"] == 68 and collection["stale"] is False
 
 
 def test_target_with_rows_only_outside_window_is_stale_not_empty(monkeypatch):
@@ -376,8 +380,8 @@ def test_off_schedule_rows_are_counted_apart_and_never_push_fill_over_100(monkey
     due = [b for b in every_bucket if _bucket_index(b) % 3 == MYEONGDONG_OFFSET]
     assert last_day["collected_buckets"] == len(due)
     assert last_day["off_schedule_buckets"] == len(every_bucket) - len(due)
-    # 하루 중 앞 18시간은 비어 있다 — 그 사실이 채움률에 그대로 남고, 100% 를 넘지도 않는다.
-    assert last_day["fill_rate"] < 0.3
+    # 표 전체의 첫 버킷이 6시간 전이라 그때부터 센다 — 차례 버킷은 다 찼고, 차례 밖 행이 있어도 100% 를 넘지 않는다.
+    assert last_day["fill_rate"] == 1.0
 
 
 def test_current_bucket_before_its_collection_time_is_not_expected(monkeypatch):
@@ -453,8 +457,8 @@ def test_zone_last_write_comes_from_the_collector_status(monkeypatch):
 def test_zone_rows_are_counted_per_target(monkeypatch):
     recent = NOW - timedelta(minutes=13)
     zone_rows = [
-        {"zone_id": "seoul:POI007", "bucket_at": recent.isoformat()},
-        {"zone_id": "seoul:POI007", "bucket_at": (recent - timedelta(minutes=20)).isoformat()},
+        {"zone_id": "seoul:POI007", "source": "seoul_citydata", "bucket_at": recent.isoformat()},
+        {"zone_id": "seoul:POI007", "source": "seoul_citydata", "bucket_at": (recent - timedelta(minutes=20)).isoformat()},
     ]
     _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, recent)]), zone_table=_Table(rows=zone_rows))
     body = router_module.build_summary(14, now=NOW)
@@ -491,3 +495,43 @@ def test_places_carry_their_cadence_and_bucket_gap(monkeypatch):
     place = router_module.build_summary(14, now=NOW)["places"][0]
     assert place["cadence_minutes"] == 30
     assert place["median_bucket_gap_minutes"] == 30.0
+
+
+# --- 창보다 나중에 수집을 시작한 대상지의 채움률(검토 L4) ------------------------------------
+
+
+def test_fill_rate_counts_from_the_targets_first_bucket_when_it_started_inside_the_window(monkeypatch):
+    # 경복궁(30분)이 이틀 전에 수집을 시작했다. 14일 창 시작부터 세면 차례 버킷의 약 14% 로 보였다.
+    started = NOW - timedelta(days=2)
+    due = _due_buckets(every=3, offset=1, since=started, until=NOW - timedelta(minutes=8))
+    _install(monkeypatch, _Table(rows=[_site_row("경복궁", b) for b in due]))
+    gyeongbok = _target(router_module.build_summary(14, now=NOW), "경복궁")
+    assert gyeongbok["counted_since_at"] == due[0].isoformat()
+    assert gyeongbok["window"]["expected_buckets"] == len(due)
+    assert gyeongbok["window"]["fill_rate"] == 1.0
+
+
+def test_gap_at_the_window_start_still_counts_against_the_target(monkeypatch):
+    # 표 전체로는 20일 전부터 수집했는데 창 앞부분이 비었다 — 그건 누락이다. 분모는 창 시작부터.
+    old = _site_row(MYEONGDONG, NOW - timedelta(days=20))
+    recent = _due_buckets(every=3, offset=MYEONGDONG_OFFSET, since=NOW - timedelta(days=2), until=NOW - timedelta(minutes=8))
+    _install(monkeypatch, _Table(rows=[old, *[_site_row(MYEONGDONG, b) for b in recent]]))
+    myeongdong = _target(router_module.build_summary(14, now=NOW), MYEONGDONG)
+    assert myeongdong["counted_since_at"] == (NOW - timedelta(days=14)).isoformat()
+    assert myeongdong["window"]["fill_rate"] < 0.2
+
+
+def test_zone_window_has_a_total_order_on_the_unique_key(monkeypatch):
+    zone_table = _Table(rows=[])
+    _install(monkeypatch, _Table(rows=[]), zone_table=zone_table)
+    seen: list[list[tuple[str, bool]]] = []
+    original = _Query.execute
+
+    def spy(self):
+        if self._table is zone_table:
+            seen.append(list(self._orders))
+        return original(self)
+
+    monkeypatch.setattr(_Query, "execute", spy)
+    router_module.build_summary(14, now=NOW)
+    assert seen and [column for column, _ in seen[0]] == ["bucket_at", "zone_id", "source"]

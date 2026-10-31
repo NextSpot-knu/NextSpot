@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   calibrationPace,
   chartStepMinutes,
+  countedSinceLabel,
   describeBudget,
   describeDecisionQuality,
   describeLastRun,
@@ -24,7 +25,7 @@ import {
 function target(over: Partial<PipelineTarget> = {}): PipelineTarget {
   return {
     area_nm: '명동 관광특구', zone_id: 'seoul:POI003', configured: true, state: 'fresh',
-    every_buckets: 3, offset_buckets: 2, cadence_minutes: 30, stale_after_minutes: 65,
+    every_buckets: 3, offset_buckets: 2, cadence_minutes: 30, stale_after_minutes: 68,
     latest_bucket_at: '2026-10-31T03:20:00+00:00', latest_age_minutes: 34, first_bucket_in_window_at: null,
     window: { expected_buckets: 672, collected_buckets: 660, off_schedule_buckets: 0, fill_rate: 0.9821 },
     last_24h: { expected_buckets: 48, collected_buckets: 47, off_schedule_buckets: 0, fill_rate: 0.9792 },
@@ -45,7 +46,7 @@ function zones(over: Partial<ZonesStatus> = {}): ZonesStatus {
 function pipeline(over: Partial<RehearsalPipeline> = {}): RehearsalPipeline {
   return {
     schedule_state: 'ok', schedule_error: null, key_configured: true, table_state: 'has_rows', human_step: null,
-    stale_rule: { formula: 'max(30, 2 × 주기 + 5)분', base_minutes: 30, collection_offset_minutes: 5 },
+    stale_rule: { formula: 'max(30, 2 × 주기 + 8)분', base_minutes: 30, collection_offset_minutes: 8 },
     bucket_minutes: 10,
     budget: {
       primary_per_day: 720, retry_worst_case_per_day: 144, worst_case_per_day: 864, limit_per_day: 1000,
@@ -108,6 +109,14 @@ function pipeline(over: Partial<RehearsalPipeline> = {}): RehearsalPipeline {
   );
 }
 
+// --- 채움률 분모 시작 ---------------------------------------------------------------
+{
+  const start = '2026-10-17T03:00:00+00:00';
+  assert.equal(countedSinceLabel({ counted_since_at: start }, start), null, '창 시작부터 셌으면 표시 없음');
+  assert.equal(countedSinceLabel({ counted_since_at: '2026-10-29T01:10:00+00:00' }, start), '10.29 10:10 수집 시작부터');
+  assert.equal(countedSinceLabel({}, start), null, '이전 서버(필드 없음)');
+}
+
 // --- 전체 배너 --------------------------------------------------------------------
 {
   const allFresh = describePipeline(pipeline());
@@ -134,7 +143,29 @@ function pipeline(over: Partial<RehearsalPipeline> = {}): RehearsalPipeline {
   assert.notEqual(noKey.tone, 'ok', '인증키가 없으면 전부 최신이어도 정상이 아니다');
   assert.match(noKey.detail, /SEOUL_OPENDATA_KEY/);
 
-  for (const notice of [allFresh, mixed, none, notMigrated, invalid, noKey]) {
+  // 인증키 회수·한도 초과 직후: DB 행은 아직 기준 안('최신')이지만 모든 시도가 실패한다 — 초록으로 남지 않는다(검토 M2).
+  const failedRun = { state: 'failed', checked_at: '2026-10-31T03:24:00+00:00', error_code: 'seoul_key_invalid', upstream_code: 'INFO-100', last_success_at: null };
+  const keyRevoked = describePipeline(pipeline({ targets: [target({ last_run: failedRun }), target({ area_nm: '동대문 관광특구', last_run: failedRun })] }));
+  assert.equal(keyRevoked.tone, 'warn');
+  assert.match(keyRevoked.title, /2곳 중 2곳 최신 · 2곳 마지막 시도 실패/);
+  assert.match(keyRevoked.detail, /seoul_key_invalid/);
+
+  const oneQuota = describePipeline(pipeline({
+    targets: [target(), target({ area_nm: '동대문 관광특구', last_run: { ...failedRun, error_code: 'seoul_quota_exceeded', upstream_code: 'ERROR-337' } })],
+  }));
+  assert.equal(oneQuota.tone, 'warn');
+  assert.match(oneQuota.title, /1곳 마지막 시도 실패/);
+
+  const storedRun = { ...failedRun, state: 'stored', error_code: null, upstream_code: null };
+  assert.equal(describePipeline(pipeline({ targets: [target({ last_run: storedRun })] })).tone, 'ok', '성공한 시도는 배너를 바꾸지 않는다');
+
+  const wholeRunFailed = describePipeline(pipeline({
+    last_run: { state: 'failed', last_run_at: null, last_success_at: null, error_code: 'seoul_key_missing', skipped_targets: [], memory_only: true },
+  }));
+  assert.equal(wholeRunFailed.tone, 'warn');
+  assert.match(wholeRunFailed.title, /마지막 수집 실패\(seoul_key_missing\)/);
+
+  for (const notice of [allFresh, mixed, none, notMigrated, invalid, noKey, keyRevoked, oneQuota, wholeRunFailed]) {
     assert.doesNotMatch(notice.title + notice.detail, /가동 중/, '상태를 고정 문구로 단정하지 않는다');
   }
 }

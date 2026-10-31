@@ -18,18 +18,22 @@ def _at(index: int, minutes: int = 0) -> datetime:
 
 @pytest.mark.parametrize(
     ("cadence", "expected"),
-    [(10, 30), (20, 45), (30, 65), (60, 125), (None, 30)],
+    [(10, 30), (20, 48), (30, 68), (60, 128), (None, 30)],
 )
 def test_stale_threshold_allows_one_missed_collection_and_keeps_ten_minutes(cadence, expected):
     assert status.stale_after_minutes(cadence) == expected
 
 
 def test_healthy_thirty_minute_target_never_crosses_its_threshold():
-    # 30분 주기: 차례 버킷 :10 의 행은 :14 에 들어오고 다음 차례 :40 행은 :44 에 들어온다.
-    # 그 직전(:43:59)의 나이 ≈ 34분 — 예전 30분 기준이면 매 주기 '멈춤' 이었다.
-    worst_healthy_age = 30 + status.COLLECTION_OFFSET_MINUTES - 1
-    assert worst_healthy_age > status.BASE_STALE_AFTER_MINUTES
-    assert worst_healthy_age < status.stale_after_minutes(30)
+    # 30분 주기: 차례 버킷 :20 의 행은 :24 에 들어오고 다음 차례 :50 행은 :54 에 들어온다.
+    # 그 직전의 나이 ≈ 34분 — 예전 30분 기준이면 매 주기 '멈춤' 이었다.
+    cron_minute, worst_processing = 4, 1.5  # pg_cron :x4 · 요청 제한 90초
+    healthy = 30 + cron_minute + worst_processing
+    assert healthy > status.BASE_STALE_AFTER_MINUTES
+    assert healthy < status.stale_after_minutes(30)
+    # 한 번 놓친 뒤 다음 행이 들어오기 직전 — 여기까지는 '멈춤' 이 아니고, 여유가 2분 이상 남는다.
+    one_miss = 2 * 30 + cron_minute + worst_processing
+    assert status.stale_after_minutes(30) - one_miss >= 2
 
 
 @pytest.mark.parametrize(
@@ -79,14 +83,15 @@ def test_expected_due_buckets_counts_only_due_and_already_collectable_buckets():
     brute = sum(1 for n in range(300, 444) if n % 3 == 1)
     assert status.expected_due_buckets(item, start, now) == brute == 48
     # 5분이 지나면 444 가 차례인 경우에만 하나 는다(444 % 3 == 0 → 차례 아님).
-    assert status.expected_due_buckets(item, start, _at(444, minutes=6)) == 48
-    assert status.expected_due_buckets(item, start, _at(445, minutes=6)) == 49
+    assert status.expected_due_buckets(item, start, _at(444, minutes=9)) == 48
+    assert status.expected_due_buckets(item, start, _at(445, minutes=7)) == 48, '수집 시각(+8분) 전'
+    assert status.expected_due_buckets(item, start, _at(445, minutes=9)) == 49
 
 
 def test_coverage_never_exceeds_one_and_counts_off_schedule_apart():
     item = seoul.TargetSchedule("x", 3, 1)
     start = _at(300)
-    now = _at(330, minutes=6)
+    now = _at(330, minutes=9)
     buckets = [_at(n) for n in range(300, 331)]
     result = status.coverage(item, buckets, start, now)
     assert result.expected_buckets == sum(1 for n in range(300, 331) if n % 3 == 1)
@@ -135,3 +140,16 @@ def test_last_run_entry_reads_process_memory_only():
         {"targets": {"x": {"state": "failed", "error_code": "seoul_timeout", "checked_at": "t"}}}, "x"
     )
     assert entry["state"] == "failed" and entry["error_code"] == "seoul_timeout"
+
+
+def test_counting_starts_at_the_targets_first_bucket_when_later_than_the_window():
+    first = _at(900)
+    buckets = [_at(n) for n in range(900, 1000) if n % 3 == 2]
+    result = _status(buckets=buckets, latest_bucket=buckets[-1], first_bucket_ever=buckets[0])
+    assert result["counted_since_at"] == buckets[0].isoformat()
+    assert result["window"]["fill_rate"] == 1.0
+    assert first <= buckets[0]
+    # 표 전체의 첫 버킷이 창보다 앞이면 창 시작부터 센다(앞부분 누락은 누락이다).
+    earlier = _status(buckets=buckets, latest_bucket=buckets[-1], first_bucket_ever=_at(-500))
+    assert earlier["counted_since_at"] == _at(0).isoformat()
+    assert earlier["window"]["fill_rate"] < 0.2

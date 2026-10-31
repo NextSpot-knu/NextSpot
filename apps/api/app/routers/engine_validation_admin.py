@@ -58,7 +58,7 @@ _COLUMNS = (
     "fcst,live_lot_count,parking_level,tourism_level,level_est,estimator_version"
 )
 # 예전(모든 대상지 10분 주기) 기준. 지금은 대상지별 주기로 정한다 — `seoul_collection_status.stale_after_minutes`
-# (max(30, 2 × 주기 + 5)). 10분 주기에서는 여전히 이 값이다.
+# (max(30, 2 × 주기 + 8)). 10분 주기에서는 여전히 이 값이다.
 STALE_AFTER_MINUTES = status_rules.BASE_STALE_AFTER_MINUTES
 
 # 테이블 부재 신호(PostgREST PGRST205 · Postgres 42P01). 컬럼 부재(42703 "column … does not exist")는
@@ -189,12 +189,29 @@ def _load_target_latest(area_nm: str) -> datetime | None:
     return metrics.parse_time(res.data[0].get("bucket_at")) if res.data else None
 
 
+def _load_target_first(area_nm: str) -> datetime | None:
+    """표 전체에서 이 대상지의 첫 버킷 — 창보다 나중에 수집을 시작한 대상지의 채움률 분모를 거기서부터 센다."""
+    res = (
+        supabase_admin.table(TABLE)
+        .select("area_nm,bucket_at")
+        .eq("area_nm", area_nm)
+        .order("bucket_at")
+        .limit(1)
+        .execute()
+    )
+    return metrics.parse_time(res.data[0].get("bucket_at")) if res.data else None
+
+
 def _load_zone_window(since_iso: str) -> list[dict[str, Any]]:
+    # 페이지 경계가 흔들리지 않게 유니크 키(zone_id, source, bucket_at) 전체로 전순서를 건다 — 공급원이 둘이 되면
+    # (bucket_at, zone_id) 만으로는 같은 값의 행끼리 순서가 정해지지 않아 페이지 사이에서 겹치거나 빠진다.
     return fetch_all_rows(
         supabase_admin,
         ZONE_TABLE,
-        select="zone_id,bucket_at",
-        apply_filters=lambda query: query.gte("bucket_at", since_iso).order("bucket_at").order("zone_id"),
+        select="zone_id,source,bucket_at",
+        apply_filters=lambda query: (
+            query.gte("bucket_at", since_iso).order("bucket_at").order("zone_id").order("source")
+        ),
     )
 
 
@@ -292,12 +309,20 @@ def build_pipeline(
     for name in [*names, *extra]:
         buckets = buckets_by_place.get(name, [])
         latest = max(buckets) if buckets else (None if table_missing else _load_target_latest(name))
+        # 창 시작 뒤에야 첫 행이 보이면 표 전체의 첫 버킷을 확인한다 — 창 안에서 수집을 시작한 대상지인지,
+        # 창 앞부분이 끊겨 있었던 것인지 가른다(앞의 경우만 분모 시작을 늦춘다). 그런 대상지만 조회한다.
+        item = by_name.get(name)
+        first_ever = None
+        if buckets and item is not None:
+            lead = timedelta(minutes=status_rules.cadence_minutes(item.every) + status_rules.COLLECTION_OFFSET_MINUTES)
+            if min(buckets) > window_start + lead:
+                first_ever = _load_target_first(name)
         zone = crowd_seoul.zone_for_name(name)
         zone_id = zone.zone_id if zone else None
         targets.append(
             status_rules.target_status(
                 name,
-                item=by_name.get(name),
+                item=item,
                 configured=name in names,
                 schedule_valid=schedule_error is None,
                 table_missing=table_missing,
@@ -308,6 +333,7 @@ def build_pipeline(
                 last_run=status_rules.last_run_entry(run, name),
                 zone_id=zone_id,
                 zone_rows_24h=(zone_counts.get(zone_id, 0) if zone_counts is not None and zone_id else None),
+                first_bucket_ever=first_ever,
             )
         )
 
@@ -405,7 +431,7 @@ async def seoul_summary(days: int = Query(14, ge=1, le=28)):
 #
 #     not_migrated  표가 없다
 #     empty         시연 권역 3곳의 행이 한 줄도 없다
-#     stale         행은 있는데 어느 곳의 최신 버킷도 그 대상지의 신선도 기준(주기별 — 10분 30분 · 20분 45분)
+#     stale         행은 있는데 어느 곳의 최신 버킷도 그 대상지의 신선도 기준(주기별 — 10분 30분 · 30분 68분)
 #                   안에 없다 — "지금" 이라고 말하면 안 된다
 #     ready         한 곳 이상이 기준 안의 실측으로 답할 수 있다
 

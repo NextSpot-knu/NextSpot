@@ -439,7 +439,7 @@ def test_twenty_minute_cluster_is_fresh_between_its_own_collections(monkeypatch)
     _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=40))))
     body = router_module.build_alternatives("홍대 관광특구", now=NOW)
     assert body["state"] == "ready"
-    assert all(place["stale"] is False and place["stale_after_minutes"] == 45 for place in body["places"])
+    assert all(place["stale"] is False and place["stale_after_minutes"] == 48 for place in body["places"])
 
 
 def test_ten_minute_cluster_keeps_the_thirty_minute_rule(monkeypatch):
@@ -462,8 +462,8 @@ def test_build_places_without_thresholds_keeps_the_old_default():
     assert all(card["stale"] is True and card["stale_after_minutes"] == 30 for card in cards)
 
 
-def test_thirty_minute_cluster_uses_sixty_five_minutes(monkeypatch):
+def test_thirty_minute_cluster_uses_sixty_eight_minutes(monkeypatch):
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구@3,연남동@3,합정역@3")
     _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=60))))
     body = router_module.build_alternatives("홍대 관광특구", now=NOW)
-    assert body["state"] == "ready" and body["stale_after_minutes"] == 65
+    assert body["state"] == "ready" and body["stale_after_minutes"] == 68

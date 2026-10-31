@@ -39,6 +39,8 @@ export interface PipelineTarget {
   latest_bucket_at: string | null;
   latest_age_minutes: number | null;
   first_bucket_in_window_at: string | null;
+  /** 채움률 분모를 센 시작 — max(창 시작, 이 대상지의 첫 버킷). 이전 서버는 없다. */
+  counted_since_at?: string | null;
   window: Coverage;
   last_24h: Coverage;
   rows_24h: number;
@@ -154,7 +156,7 @@ export function parsePipeline(raw: unknown): RehearsalPipeline | null {
     budget: isRecord(raw.budget) ? (raw.budget as unknown as CallBudget) : null,
     stale_rule: isRecord(raw.stale_rule)
       ? (raw.stale_rule as unknown as RehearsalPipeline['stale_rule'])
-      : { formula: 'max(30, 2 × 주기 + 5)분', base_minutes: 30, collection_offset_minutes: 5 },
+      : { formula: 'max(30, 2 × 주기 + 8)분', base_minutes: 30, collection_offset_minutes: 8 },
   };
 }
 
@@ -226,8 +228,12 @@ export function describeLastRun(run: TargetLastRun | null): string {
 // --- 파이프라인 전체 ---------------------------------------------------------------
 
 /**
- * 맨 위 배너. **전부 최신일 때만** ok 다 — 9곳 중 1곳이라도 지연·행 없음이면 그 사실이 제목에 선다.
- * 표가 없거나 설정이 틀리면 대상지 숫자보다 그 사실과 할 일을 먼저 말한다.
+ * 맨 위 배너. **전부 최신이고 마지막 시도도 실패가 없을 때만** ok 다 — 9곳 중 1곳이라도 지연·행 없음이면
+ * 그 사실이 제목에 선다. 표가 없거나 설정이 틀리면 대상지 숫자보다 그 사실과 할 일을 먼저 말한다.
+ *
+ * 마지막 시도(서버 메모리)를 함께 보는 이유: 인증키가 막히거나(seoul_key_invalid) 일 한도를 넘으면
+ * (seoul_quota_exceeded) 그 순간부터 모든 시도가 실패하지만, DB 의 마지막 행은 신선도 기준(30~68분) 동안
+ * 여전히 '최신' 이다. 행만 보면 그동안 배너가 초록으로 남는다.
  */
 export function describePipeline(pipeline: RehearsalPipeline): StateNotice {
   if (pipeline.table_state === 'not_migrated') {
@@ -257,14 +263,27 @@ export function describePipeline(pipeline: RehearsalPipeline): StateNotice {
     stale > 0 ? `${stale}곳 지연` : null,
     empty > 0 ? `${empty}곳 행 없음` : null,
   ].filter((part): part is string => part !== null);
+  const failedTargets = configured.filter((t) => t.last_run?.state === 'failed');
+  const runFailed = pipeline.last_run?.state === 'failed';
+  if (failedTargets.length > 0) {
+    parts.push(`${failedTargets.length}곳 마지막 시도 실패`);
+  } else if (runFailed) {
+    // 대상지를 하나도 부르지 못한 실패(키 없음·설정 오류·표 없음) — 대상지별 기록이 없다.
+    parts.push(`마지막 수집 실패${pipeline.last_run?.error_code ? `(${pipeline.last_run.error_code})` : ''}`);
+  }
+  const codes = Array.from(new Set(failedTargets.map((t) => t.last_run?.error_code).filter((c): c is string => Boolean(c))));
+  const failureNote = failedTargets.length > 0 || runFailed
+    ? ` 마지막 시도가 실패했습니다${codes.length > 0 ? `(${codes.join(', ')})` : ''} — DB 의 마지막 행이 아직 기준 안이어도 다음 행이 들어오지 않을 수 있습니다.`
+    : '';
   const keyNote = pipeline.key_configured ? '' : ' 이 서버에는 서울 인증키(SEOUL_OPENDATA_KEY)가 없습니다 — 수집을 부를 수 없습니다.';
-  const tone: Tone = fresh === configured.length && configured.length > 0 && pipeline.key_configured
-    ? 'ok'
-    : fresh === 0 ? 'error' : 'warn';
+  const allFresh = fresh === configured.length && configured.length > 0;
+  const tone: Tone = fresh === 0
+    ? 'error'
+    : allFresh && pipeline.key_configured && !failureNote ? 'ok' : 'warn';
   return {
     tone,
     title: parts.join(' · '),
-    detail: `'최신' = 마지막 버킷이 그 대상지의 기준(${pipeline.stale_rule.formula}) 안에 있다는 뜻입니다.${keyNote}`,
+    detail: `'최신' = 마지막 버킷이 그 대상지의 기준(${pipeline.stale_rule.formula}) 안에 있다는 뜻입니다.${failureNote}${keyNote}`,
   };
 }
 
@@ -274,6 +293,19 @@ export function describeBudget(budget: CallBudget | null): string {
   const n = (value: number) => value.toLocaleString('ko-KR');
   const verdict = budget.within_limit ? `여유 ${n(budget.headroom_per_day)}회` : `한도 초과 ${n(-budget.headroom_per_day)}회`;
   return `주 호출 ${n(budget.primary_per_day)} + 보충 최악 ${n(budget.retry_worst_case_per_day)} = ${n(budget.worst_case_per_day)}회/일 · 한도 ${n(budget.limit_per_day)} · ${verdict}`;
+}
+
+/**
+ * 채움률을 창 시작보다 늦게부터 셌으면 그 시각을 돌려준다(창 안에서 수집을 시작한 대상지). 아니면 null.
+ * 이 표시가 없으면 '14일 채움률 100%' 가 '14일 내내 찼다' 로 읽힌다.
+ */
+export function countedSinceLabel(target: Pick<PipelineTarget, 'counted_since_at'>, windowStart: string | null | undefined): string | null {
+  const since = target.counted_since_at;
+  if (!since || !windowStart) return null;
+  const sinceMs = Date.parse(since);
+  const startMs = Date.parse(windowStart);
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(startMs) || sinceMs <= startMs) return null;
+  return `${formatKst(since)} 수집 시작부터`;
 }
 
 // --- 정규화 표(zone_crowd_snapshots) ----------------------------------------------
