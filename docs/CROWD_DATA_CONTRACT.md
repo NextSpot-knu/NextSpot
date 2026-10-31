@@ -129,7 +129,7 @@
 | `centroid_lat/lng`, `bbox` | `zones.centroid_lat/lng`, `zones.geometry`(GeoJSON), `zones.radius_m` | 반지름 = 칸과 같은 넓이 원의 반지름 |
 | `observed_at` | `observed_at` | 집계 구간 시작. 시간대 없으면 KST + `quality.timestamp_assumed_kst` |
 | `period_seconds` | `period_seconds` | 없으면 설정값(600) |
-| (우리가 받은 시각) | `fetched_at`, `quality.lag_seconds` | 지연이 집계 10분 + 15분을 넘으면 `quality.stale` |
+| (우리가 받은 시각) | `fetched_at`, `quality.lag_seconds` | 지연이 집계 10분 + 15분을 넘으면 `quality.stale`. 거기서 한 주기(10분) 더 늦으면(35분 초과) 현재값으로 내지 않고 그 구역을 뺀다 |
 | `population` | `population_point` | 그대로. 없으면 행을 버린다(0 으로 채우지 않는다) |
 | `population_low/high` | `population_min/max` | 내림·올림한 정수. 순서가 틀리면 버리고 `quality.ci_dropped` |
 | `sample_flag = masked` + `min_count` | `population_min = 0`, `population_max = k-1`, 점 추정·단계 없음 | `quality.masked` |
@@ -140,7 +140,7 @@
 
 **단계 계산**
 
-1. **기준선 분위수**(`level_scale = telecom_baseline_quantile`): 같은 칸·같은 요일·같은 시간대(기본 1시간)의 과거 인원 분포에서 지금 값이 어디쯤인지(0~1). 표본이 12개(2주 × 시간당 6행) 이상일 때만 쓴다.
+1. **기준선 분위수**(`level_scale = telecom_baseline_quantile`): 같은 칸·같은 요일·같은 시간대(기본 1시간)의 과거 인원 분포에서 지금 값이 어디쯤인지(0~1). 표본이 12개(2주 × 시간당 6행) 이상일 때만 쓴다. 가린 행(`masked`)도 "k-1명 이하" 값으로 분포에 넣는다 — 빼면 한산한 시간이 사라져 덜 붐빈다고 잘못 나온다.
 2. **보수적 대체**(`level_scale = telecom_density_fallback_4`): 기준선이 모자라면 칸 넓이당 인원으로 4단계를 정하고 구간 중앙값(0.125·0.375·0.625·0.875)을 쓴다. `quality.level_provisional = true` 로 표시한다. 경계는 일부러 낮게 잡았다(덜 붐빈다고 잘못 말하는 쪽이 더 나쁜 오류다).
 3. 둘 다 안 되면 단계는 비워 둔다(`quality.level_method = none`).
 

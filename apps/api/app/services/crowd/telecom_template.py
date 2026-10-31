@@ -36,6 +36,15 @@
     0 ~ min_count-1 만 남긴다(계약이 보장하는 사실이라 지어낸 값이 아니다).
   · 표본 적은 칸(`low` · 알 수 없는 플래그 · 신뢰구간 폭이 추정치보다 큼)은 값은 그대로 두고
     `quality.low_sample=True` 로 표시한다. 순위에서 얼마나 깎을지는 엔진(S3)이 정한다.
+  · 기준선에는 가려진 행도 **표본으로 넣는다**(`GridBaseline.add(masked=True)`). 빼면 한산한 시간이 분포에서
+    사라져 지금 값의 순위가 낮게 나온다 — 덜 붐빈다고 잘못 말하는 쪽으로 기운다. 넣는 값은 `min_count` 를
+    알면 `min_count - 1`(가린 값의 상한), 모르면 `MASKED_SENTINEL`(-1, 모든 실제 값보다 아래)이다. 실제 값
+    (≥ min_count)의 순위는 둘 중 어느 쪽이든 정확하다.
+
+## 오래된 행
+  · 지연 `lag = 받은 시각 − 집계 시작`. `lag > period + expected_latency`(지연 목표를 모르면 `period × 2`)면
+    `quality.stale`. 그보다 한 집계 주기(`period`) 더 늦으면(기본 10+15+10 = 35분) **현재값으로 내지 않고
+    그 구역을 뺀다** — 몇 시간 전 행을 '지금'으로 보여 주지 않는다. `max_row_age_seconds` 로 바꿀 수 있다.
 """
 
 from __future__ import annotations
@@ -110,6 +119,21 @@ class TelecomGridConfig:
     low_sample_ci_ratio: float = 1.0
     # 공급원 시계가 조금 앞서도 받는 허용치. 이보다 미래 시각의 행은 버린다.
     future_tolerance_seconds: int = 60
+    # 이보다 오래된 행은 현재값으로 내지 않는다(구역을 뺀다). None = stale 기준 + 집계 주기 1번.
+    max_row_age_seconds: int | None = None
+
+    def stale_after_seconds(self, period: int | None = None) -> int:
+        """이 지연을 넘으면 `quality.stale`. period = 전달물의 집계 주기(없으면 설정값).
+        지연 목표를 모르면 집계 주기 한 번을 목표로 본다."""
+        period = period or self.period_seconds
+        latency = self.expected_latency_seconds if self.expected_latency_seconds is not None else period
+        return period + latency
+
+    def max_age_seconds(self, period: int | None = None) -> int:
+        """이보다 오래된 행은 현재값으로 내지 않는다(기본 stale 기준 + 집계 주기 1번)."""
+        if self.max_row_age_seconds is not None:
+            return self.max_row_age_seconds
+        return self.stale_after_seconds(period) + (period or self.period_seconds)
 
     def __post_init__(self) -> None:
         if not re.match(r"^[a-z][a-z0-9_]*$", self.region):
@@ -123,6 +147,8 @@ class TelecomGridConfig:
             raise ValueError("baseline_slot_minutes must divide a day")
         if self.min_baseline_samples < 1 or self.period_seconds <= 0:
             raise ValueError("min_baseline_samples and period_seconds must be positive")
+        if self.max_row_age_seconds is not None and self.max_row_age_seconds <= 0:
+            raise ValueError("max_row_age_seconds must be positive")
 
 
 # ── 전달물 ────────────────────────────────────────────────────────────────────
@@ -476,8 +502,20 @@ def zone_table_rows(payload: GridPayload, config: TelecomGridConfig) -> list[dic
 # ── 기준선 ────────────────────────────────────────────────────────────────────
 
 
+# 최소 인원(min_count)을 모를 때 가려진 행이 기준선에 들어가는 값 — 모든 실제 인원(≥ 0)보다 아래.
+MASKED_SENTINEL = -1.0
+
+
+def masked_baseline_value(min_count: int | None) -> float:
+    """가려진 행의 기준선 값. min_count 를 알면 가린 값의 상한(min_count-1), 모르면 MASKED_SENTINEL."""
+    return float(min_count - 1) if min_count and min_count >= 1 else MASKED_SENTINEL
+
+
 class GridBaseline:
-    """구역 × (요일, 시간대) 인원 분포. 가려진 값(None)은 넣지 않는다.
+    """구역 × (요일, 시간대) 인원 분포.
+
+    가려진 행(masked)은 **표본으로 넣는다** — 결측(인원 없음 · 표시 없음)만 뺀다. 가려진 행을 빼면 한산한
+    시간이 분포에서 사라져 지금 값의 순위가 낮게(덜 붐빈다고) 나온다. 값은 `masked_baseline_value` 를 쓴다.
 
     채우는 곳: 계약의 8주 백필(`add_payload`) 또는 우리가 쌓은 `zone_crowd_snapshots`(`add_observations`).
     지금 판정할 관측 자체를 넣은 뒤 순위를 매기면 자기 자신이 섞인다 — 기준선은 판정 시각 **이전** 이력으로 만든다.
@@ -499,19 +537,47 @@ class GridBaseline:
         weekday = local.weekday() if self.by_weekday else -1
         return weekday, (local.hour * 60 + local.minute) // self.slot_minutes
 
-    def add(self, zone_id: str, observed_at: datetime, population: float | None) -> None:
-        if population is None or not math.isfinite(population) or population < 0:
-            return
-        bisect.insort(self._values.setdefault((zone_id, *self.slot(observed_at)), []), float(population))
+    def add(
+        self,
+        zone_id: str,
+        observed_at: datetime,
+        population: float | None,
+        *,
+        masked: bool = False,
+        min_count: int | None = None,
+    ) -> None:
+        if masked:
+            value = masked_baseline_value(min_count)
+        elif population is None or not math.isfinite(population) or population < 0:
+            return  # 결측 — 지어내지 않는다
+        else:
+            value = float(population)
+        bisect.insort(self._values.setdefault((zone_id, *self.slot(observed_at)), []), value)
 
     def add_payload(self, payload: GridPayload, region: str, *, before: datetime | None = None) -> None:
         for row in payload.rows:
             if before is None or row.observed_at < before:
-                self.add(zone_id_for_cell(region, row.cell_id), row.observed_at, row.population)
+                self.add(
+                    zone_id_for_cell(region, row.cell_id),
+                    row.observed_at,
+                    row.population,
+                    masked=row.sample_flag == "masked",
+                    min_count=payload.min_count,
+                )
 
     def add_observations(self, observations: Iterable[CrowdObservation]) -> None:
+        """저장된 관측(`zone_crowd_snapshots`)에서. 가려진 관측은 `quality.masked` 로 알아보고, 상한
+        (`population_max` = min_count-1)이 있으면 그 값을 쓴다."""
         for observation in observations:
-            self.add(observation.zone_id, observation.observed_at, observation.population_point)
+            masked = bool(observation.quality.get("masked"))
+            bound = observation.population_max if masked else None
+            self.add(
+                observation.zone_id,
+                observation.observed_at,
+                observation.population_point,
+                masked=masked,
+                min_count=bound + 1 if bound is not None else None,
+            )
 
     def samples(self, zone_id: str, at: datetime) -> int:
         return len(self._values.get((zone_id, *self.slot(at)), ()))
@@ -631,9 +697,11 @@ class TelecomGridProvider:
 
     def _latest_rows(self, payload: GridPayload, now: datetime) -> dict[str, GridRow]:
         horizon = now + timedelta(seconds=self.config.future_tolerance_seconds)
+        oldest = now - timedelta(seconds=self.config.max_age_seconds(payload.period_seconds))
         latest: dict[str, GridRow] = {}
         for row in payload.rows:
-            if row.observed_at > horizon:
+            if row.observed_at > horizon or row.observed_at < oldest:
+                # 미래 행(시계 어긋남)과 너무 오래된 행은 '현재값'이 아니다 — 그 구역은 관측 없음.
                 continue
             current = latest.get(row.cell_id)
             if current is None or row.observed_at >= current.observed_at:
@@ -656,7 +724,7 @@ class TelecomGridProvider:
             "sample_flag": row.sample_flag,
             **level.quality,
         }
-        if config.expected_latency_seconds is not None and lag > period + config.expected_latency_seconds:
+        if lag > config.stale_after_seconds(period):
             quality["stale"] = True
         if row.timestamp_assumed_kst:
             quality["timestamp_assumed_kst"] = True

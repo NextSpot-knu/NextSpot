@@ -255,11 +255,97 @@ def test_masked_without_declared_min_count_has_no_population_at_all():
 
 
 def test_outage_serves_the_last_real_row_and_marks_it_stale():
-    current = _current(_provider(now=datetime(2026, 10, 24, 12, 25, tzinfo=KST)))
+    # 끊김 12:00~12:20. 12:20 에는 11:50 행이 지연 30분 — stale(> 10+15분) 이지만 버릴 나이(> 35분)는 아니다.
+    current = _current(_provider(now=datetime(2026, 10, 24, 12, 20, tzinfo=KST)))
+    assert current, "11:50 행이 있는 칸은 돌아와야 한다"
     for observation in current.values():
         assert observation.observed_at < datetime(2026, 10, 24, 12, 0, tzinfo=KST)
-        assert observation.quality["lag_seconds"] >= 35 * 60
-        assert observation.quality["stale"] is True  # 35분 > 집계 10분 + 지연 15분
+        assert 25 * 60 < observation.quality["lag_seconds"] <= 35 * 60
+        assert observation.quality["stale"] is True
+
+
+def test_rows_older_than_the_max_age_are_not_presented_as_current():
+    # 픽스처 마지막 행은 10-25 23:50. 몇 시간 뒤에는 어떤 칸도 '지금' 관측이 아니다.
+    assert _current(_provider(now=datetime(2026, 10, 26, 3, 0, tzinfo=KST))) == {}
+    # 기본 한계 = 10분 + 15분 + 10분 = 35분: 23:50 행은 00:25 까지만 나온다.
+    assert CONFIG.max_age_seconds(600) == 35 * 60
+    assert _current(_provider(now=datetime(2026, 10, 26, 0, 25, tzinfo=KST)))
+    assert _current(_provider(now=datetime(2026, 10, 26, 0, 26, tzinfo=KST))) == {}
+
+
+def test_unknown_latency_still_flags_stale_and_drops_old_rows():
+    config = tt.TelecomGridConfig(source="synthetic_gyeongju_grid", cell_size_m=100, expected_latency_seconds=None)
+    assert (config.stale_after_seconds(600), config.max_age_seconds(600)) == (20 * 60, 30 * 60)
+    fresh = _current(_provider(config=config, now=datetime(2026, 10, 25, 15, 5, tzinfo=KST)))
+    assert fresh and all("stale" not in item.quality for item in fresh.values())
+    late = _current(_provider(config=config, now=datetime(2026, 10, 26, 0, 15, tzinfo=KST)))  # 23:50 + 25분
+    assert late and all(item.quality["stale"] is True for item in late.values())
+    assert _current(_provider(config=config, now=datetime(2026, 10, 26, 0, 21, tzinfo=KST))) == {}
+    explicit = tt.TelecomGridConfig(source="synthetic_gyeongju_grid", max_row_age_seconds=6 * 3600)
+    assert explicit.max_age_seconds(600) == 6 * 3600
+
+
+# ── 기준선: 가려진 행도 표본이다 ───────────────────────────────────────────────
+
+_SAT_15 = datetime(2026, 10, 24, 15, 0, tzinfo=KST)
+
+
+def _masked_slot_payload(min_count):
+    """같은 칸 · 토요일 15시대 24행: 가린 12행 + 5~16명 12행(리뷰 재현)."""
+    rows = []
+    for week in range(1, 13):
+        at = _SAT_15 - timedelta(weeks=week)
+        rows.append({"cell_id": "A1", "observed_at": at.isoformat(), "sample_flag": "masked"})
+        rows.append({"cell_id": "A1", "observed_at": (at + timedelta(minutes=10)).isoformat(),
+                     "population": 4 + week, "sample_flag": "low"})
+    meta = {"min_count": min_count} if min_count is not None else {}
+    return tt.parse_grid_json(_json(rows, **meta))
+
+
+@pytest.mark.parametrize("min_count", [5, None])
+def test_masked_rows_count_as_low_samples_in_the_baseline(min_count):
+    payload = _masked_slot_payload(min_count)
+    baseline = tt.GridBaseline()
+    baseline.add_payload(payload, "gyeongju")
+    # 6명: 가린 12행 + 5명 1행이 아래, 6명 1행이 같다 → (13 + 0.5) / 24.
+    assert baseline.quantile_rank("gyeongju:A1", _SAT_15, 6.0) == (pytest.approx(13.5 / 24), 24)
+    # 가린 행을 빼던 예전 계산이면 (0.125, 12) = '여유' — 덜 붐빈다고 잘못 말한다.
+    now = _SAT_15 + timedelta(minutes=5)
+    live = tt.parse_grid_json(_json([{"cell_id": "A1", "observed_at": _SAT_15.isoformat(), "population": 6}]))
+    config = tt.TelecomGridConfig()
+    observation = asyncio.run(
+        tt.TelecomGridProvider(tt.static_feed(live), config, baseline=baseline, clock=lambda: now)
+        .fetch_current(tt.zones_from_payload(live, config))
+    )[0]
+    assert observation.quality["level_method"] == "baseline_quantile"
+    assert observation.level_label == "보통"
+
+
+def test_masked_baseline_value_is_the_contract_bound_or_below_everything():
+    assert tt.masked_baseline_value(5) == 4.0
+    assert tt.masked_baseline_value(None) == tt.MASKED_SENTINEL < 0
+    baseline = tt.GridBaseline()
+    baseline.add("gyeongju:x", _SAT_15, None)  # 결측(가림 표시 없음)은 여전히 빠진다
+    assert baseline.samples("gyeongju:x", _SAT_15) == 0
+    baseline.add("gyeongju:x", _SAT_15, None, masked=True)
+    assert baseline.quantile_rank("gyeongju:x", _SAT_15, 0.0) == (1.0, 1), "가린 값은 실제 0명보다도 아래"
+
+
+def test_baseline_from_stored_observations_keeps_masked_rows():
+    payload = _masked_slot_payload(5)
+    config = tt.TelecomGridConfig()
+    zones = tt.zones_from_payload(payload, config)
+    stored = []
+    for row in payload.rows:  # 저장된 관측을 흉내: 행마다 그 시각에 받은 관측
+        at = row.observed_at + timedelta(minutes=5)
+        single = tt.GridPayload(cells=payload.cells, rows=(row,), cell_size_m=50, min_count=5)
+        stored += asyncio.run(
+            tt.TelecomGridProvider(tt.static_feed(single), config, clock=lambda at=at: at).fetch_current(zones)
+        )
+    assert sum(bool(item.quality.get("masked")) for item in stored) == 12
+    baseline = tt.GridBaseline()
+    baseline.add_observations(stored)
+    assert baseline.quantile_rank("gyeongju:A1", _SAT_15, 6.0) == (pytest.approx(13.5 / 24), 24)
 
 
 def test_unknown_cells_and_foreign_provider_zones_are_dropped():
@@ -404,6 +490,7 @@ def test_forecast_rows_become_forecasts_with_level_only_when_baseline_exists():
         {"fallback_density_per_m2": (0.0, 0.03, 0.06)},
         {"baseline_slot_minutes": 7},
         {"min_baseline_samples": 0},
+        {"max_row_age_seconds": 0},
     ],
 )
 def test_config_rejects_nonsense(overrides):
