@@ -359,7 +359,8 @@
     "liked": "Liked it",
     "disliked": "Not great",
     "thanks": "Recorded! We'll use it for your next picks 🙌",
-    "guestCongestionNote": "As a guest, your answer is used to fine-tune recommendations first. Sign in to have it show on the crowd map right away."
+    "guestCongestionNote": "As a guest, your answer is saved but doesn't show on the crowd map for now. Sign in and it counts right away.",
+    "congestionNotRecorded": "Your visit is recorded. This crowd answer wasn't saved."
   },
   "calm": {
     "chip": "Quiet now",
@@ -530,8 +531,10 @@
     "storageBody": "Device settings such as language stay in your browser. Account profile, preferences, saved places, recommendations and visit feedback are stored in Supabase and follow you when you sign in.",
     "usageTitle": "Usage records",
     "usageBody": "To improve the service, we record which screens you open, which buttons you tap on recommendation cards (such as heading there now or seeing the next pick), and arrival checks and congestion reports, under an anonymous number created on your device. We don't include your name, account, location or search words, we don't send this to outside analytics companies, and we delete it after one year. If your browser's Do Not Track setting is on, nothing is recorded.",
+    "abuseTitle": "Abuse prevention",
+    "abuseBody": "When you answer the visit-check crowd question as a guest (not signed in), we store a one-way transformed value of your network range (IPv4 /24, IPv6 /64) with the answer, to stop one person from answering many times and to measure answer accuracy. This value is deleted automatically after 30 days and isn't used for anything else. Your raw IP address is not stored; it is kept only in server memory for about 30 minutes, then discarded.",
     "thirdPartyTitle": "Third parties",
-    "thirdPartyBody": "We never sell your information to third parties or share it for advertising. You may be linked to external services such as Kakao Map for maps and directions.",
+    "thirdPartyBody": "We never sell your information to third parties or share it for advertising. You may be linked to external services such as Kakao Map for maps and directions. To filter out automated (bot) access when you sign in, sign up or start as a guest, we may use Cloudflare Turnstile; Cloudflare then processes the browser and connection information needed for the check.",
     "termsTitle": "Terms of use",
     "termsBody": "Congestion, wait times and recommendations are for reference only. We accept no legal liability for outcomes of using the service.",
     "contactTitle": "Contact",
@@ -994,6 +997,7 @@
     "guest": "Continue as guest",
     "needFields": "Please enter your email and password.",
     "loginError": "Incorrect email or password.",
+    "captchaFailed": "We couldn't finish the bot check. Please try again in a moment.",
     "signupEmailExists": "This email is already registered. Please sign in from the Login tab.",
     "signupWeakPassword": "Please use a password with at least 6 characters.",
     "signupError": "Couldn't sign you up. Please try again.",

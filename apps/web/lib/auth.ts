@@ -21,10 +21,12 @@ import {
 export type { AuthState, AuthStatus, OAuthProvider };
 import { createPublicClient } from "@/lib/supabase";
 import { mergeGuestData } from "@/lib/api-client";
+import { authCaptchaTokenGetter, captchaOption, runWithCaptcha } from "@/lib/authCaptcha";
 import {
   classifyPasswordUpdateError,
   classifySignInError,
   classifySignUpError,
+  isCaptchaRejection,
   shouldRetryGuestMerge,
   type PasswordUpdateFailReason,
   type SignInFailReason,
@@ -252,7 +254,14 @@ export async function signInWithEmail(
   try {
     const supabase = createPublicClient();
     await captureGuestSession();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    // 사람 확인 토큰은 사이트 키가 있을 때만 붙는다(lib/authCaptcha — Supabase CAPTCHA 는 프로젝트 전체 설정).
+    const { error } = await runWithCaptcha(authCaptchaTokenGetter, (captchaToken) =>
+      supabase.auth.signInWithPassword({
+        email,
+        password,
+        ...(captchaToken ? { options: captchaOption(captchaToken) } : {}),
+      }),
+    );
     if (!error) {
       await mergeCapturedGuestData();
       return { error: null, reason: null };
@@ -300,11 +309,13 @@ export async function signUpWithEmail(
       return { error: null, reason: null, needsConfirmation: !!after?.is_anonymous };
     }
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: meta ? { data: meta } : undefined,
-    });
+    const { data, error } = await runWithCaptcha(authCaptchaTokenGetter, (captchaToken) =>
+      supabase.auth.signUp({
+        email,
+        password,
+        options: meta || captchaToken ? { ...(meta ? { data: meta } : {}), ...captchaOption(captchaToken) } : undefined,
+      }),
+    );
     if (error) return { error: error.message, reason: classifySignUpError(error), needsConfirmation: false };
     // 세션이 없으면 Confirm email ON — 확인 메일 후 로그인 필요.
     return { error: null, reason: null, needsConfirmation: !data.session };
@@ -315,18 +326,21 @@ export async function signUpWithEmail(
 }
 
 /** 비밀번호 재설정 메일을 보낸다. 링크는 정적 export 호환 클라이언트 페이지로 돌아온다. */
-export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+export async function requestPasswordReset(email: string): Promise<{ error: string | null; captcha: boolean }> {
   try {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     // 이미 운영 허용 목록에 등록된 OAuth 콜백을 재사용한다. 별도 reset-password URL 설정 없이
     // PKCE 복구 세션을 확립한 뒤 callback의 안전한 next 처리로 입력 화면에 이동한다.
     const params = new URLSearchParams({ next: "/auth/reset-password" });
-    const { error } = await createPublicClient().auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/auth/callback?${params.toString()}`,
-    });
-    return { error: error?.message ?? null };
+    const { error } = await runWithCaptcha(authCaptchaTokenGetter, (captchaToken) =>
+      createPublicClient().auth.resetPasswordForEmail(email, {
+        redirectTo: `${origin}/auth/callback?${params.toString()}`,
+        ...captchaOption(captchaToken),
+      }),
+    );
+    return { error: error?.message ?? null, captcha: isCaptchaRejection(error) };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { error: err instanceof Error ? err.message : String(err), captcha: false };
   }
 }
 

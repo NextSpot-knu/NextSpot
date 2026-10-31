@@ -33,7 +33,7 @@
     (5분·1분)로 걸면 두 번째 계정이 5분 1초 뒤에 보내 그대로 corroborated 가 된다 — 늦출 뿐 막지 못한다.
     같은 와이파이 일행의 두 번째 제보도 막히지만, 같은 일행의 같은 관찰은 원래 '독립된 두 확인' 이 아니다.
   IP 키는 app/core/client_ip.py 의 해석(XFF 마지막 값)을 따른다. 검사와 자리 잡기는 await 없이 한 번에
-  한다(app/core/report_slots.reserve_report_slot — 방문 확인 체감 혼잡 경로와 공용, 혼잡 표도 함께 쓴다) — 사이에 await 가 있으면 동시에 들어온 두 계정이 둘 다 검사를 통과한다.
+  한다(app/core/report_slots.reserve_report_slot — 게스트 방문 확인 답 경로와 공용) — 사이에 await 가 있으면 동시에 들어온 두 계정이 둘 다 검사를 통과한다.
 """
 import asyncio
 from datetime import datetime, timezone
@@ -81,8 +81,8 @@ _AVAILABILITY_COOLDOWN_SEC = 60.0
 _last_availability_report_at: dict[tuple[str, str], float] = {}
 
 # (IP, 시설) → (그 IP 에서 마지막으로 성공한 계정, 시각). 창 안에서는 같은 IP 의 **다른** 계정을 받지 않는다.
-# 규칙·자리 잡기는 app/core/report_slots.py(방문 확인 체감 혼잡과 공용). 혼잡 표는 방문 확인 답과 **같은 표**를 쓴다 —
-# 같은 IP 에서 한 계정은 제보로, 다른 계정은 방문 확인으로 같은 장소에 표를 내는 것도 막는다.
+# 규칙·자리 잡기는 app/core/report_slots.py(방문 확인 체감 혼잡과 공용). 게스트 방문 확인 답은 이 표를 읽기만 한다 —
+# 같은 IP 에서 계정 사용자가 먼저 제보한 장소의 게스트 답은 버려지지만, 게스트 답이 계정 사용자의 제보를 막지는 않는다.
 _last_report_by_ip = CONGESTION_VOTES_BY_IP
 _last_availability_report_by_ip: dict[tuple[str, str], tuple[str, float]] = {}
 

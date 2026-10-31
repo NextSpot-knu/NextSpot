@@ -42,7 +42,7 @@
 - **Attack Protection → CAPTCHA(Cloudflare Turnstile)** — 아직 꺼짐(D3, 2026-10-31 준비). 켜는 순서: Cloudflare 에서 Invisible 위젯 생성 →
   Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY`(공개값) + 웹 배포 → 여기서 CAPTCHA 켜고 Turnstile **비밀 키**를 넣는다(비밀 키는 이곳에만 —
   저장소·Vercel·Render 에 두지 않는다) → 위 익명 로그인 IP 한도를 낮춘다. ⚠️ Supabase CAPTCHA 는 **프로젝트 전체**에 걸린다 — 익명 로그인뿐 아니라
-  이메일 로그인·가입·비밀번호 재설정도 토큰을 요구한다. 모든 로그인 경로에 토큰을 싣는 웹 후속 수정(진행 중)이 main 에 배포된 뒤에만 켠다.
+  이메일 로그인·가입·비밀번호 재설정도 토큰을 요구한다. 웹은 익명 로그인·`signInWithPassword`·`signUp`·`resetPasswordForEmail` 네 호출 모두 토큰을 싣는다(`lib/authCaptcha.ts`, D3 보안 수정) — 이 웹이 main 에 배포된 뒤에만 켠다. 켠 뒤 게스트→회원 전환(`updateUser`)·OAuth 콜백이 되는지 한 번 확인한다(토큰 불필요로 분류했지만 대시보드 동작은 미확인).
 - Providers: Google(동의 화면 게시 필요), Kakao(비즈 앱 전환 전까지 `account_email` 스코프 오류 — `HANDOVER.md` 사람 작업).
 
 ### 1-3. Storage (비공개 버킷 2개)

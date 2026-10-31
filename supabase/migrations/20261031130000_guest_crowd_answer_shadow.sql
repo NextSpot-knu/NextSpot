@@ -29,7 +29,7 @@
 --     본인 행 SELECT 정책이 있어 본인은 자기 행의 해시를 볼 수 있다 — 자기 네트워크의 키 해시라 남의 정보가 없다.
 --
 -- 적용 순서: 이 마이그레이션 → API 배포 순서가 맞다. 반대 순서(API 먼저)도 깨지지 않는다 — API 는 새 RPC 인자를
---   못 찾으면 옛 인자로 다시 부른다(그동안은 오늘과 같은 동작). 구 API + 새 DB 도 무해하다: 새 RPC 는 추가 인자에
+--   못 찾으면 옛 인자로 다시 부르되, 게스트 답은 빼고 평가만 저장한다(닫힌 쪽 실패 — 계정 사용자는 오늘과 같다). 구 API + 새 DB 도 무해하다: 새 RPC 는 추가 인자에
 --   기본값이 있어 옛 5개 인자 호출을 그대로 받는다.
 -- 멱등: 컬럼 IF NOT EXISTS, 함수 CREATE OR REPLACE(시그니처가 바뀌는 RPC 는 DROP 후 생성), 트리거 DROP IF EXISTS 후 생성,
 --   cron 은 같은 이름을 먼저 지우고 다시 건다.
@@ -537,4 +537,4 @@ REVOKE ALL ON FUNCTION public.guest_crowd_answer_shadow_metrics(INTEGER) FROM PU
 GRANT EXECUTE ON FUNCTION public.guest_crowd_answer_shadow_metrics(INTEGER) TO service_role;
 
 -- 적용 후 SQL Editor 에서 `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1) —
--- 빼먹으면 API 가 새 RPC 인자를 못 찾아 옛 인자로 다시 부른다(그동안 게스트 답은 그림자로 가지만 네트워크 키는 비어 있다).
+-- 빼먹으면 API 가 새 RPC 인자를 못 찾아 옛 인자로 다시 부르고, 그동안 게스트 답은 저장하지 않는다(평가만 저장).

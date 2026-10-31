@@ -1,11 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, FileText, HardDrive, BarChart3, ShieldCheck, Scale, Mail } from 'lucide-react';
+import { ChevronLeft, FileText, HardDrive, BarChart3, ShieldAlert, ShieldCheck, Scale, Mail } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 이 안내문을 마지막으로 고친 날 — 문구를 바꾸면 함께 바꾼다(푸터 '최종 업데이트 · {date}').
-const PRIVACY_UPDATED_AT = '2026-10-23';
+const PRIVACY_UPDATED_AT = '2026-10-31';
 
 export default function PrivacyPage() {
   const router = useRouter();
@@ -17,6 +17,8 @@ export default function PrivacyPage() {
     { id: 'storage', icon: HardDrive, titleKey: 'privacy.storageTitle', bodyKey: 'privacy.storageBody' },
     // 익명 이용 기록(lib/usageEvents · public.usage_events, 2026-10-23).
     { id: 'usage', icon: BarChart3, titleKey: 'privacy.usageTitle', bodyKey: 'privacy.usageBody' },
+    // 게스트 방문 확인 답의 네트워크 대역 해시(30일) · 원본 IP 는 메모리에만(D3, 2026-10-31). Turnstile 은 제3자 항목에.
+    { id: 'abuse', icon: ShieldAlert, titleKey: 'privacy.abuseTitle', bodyKey: 'privacy.abuseBody' },
     { id: 'thirdParty', icon: ShieldCheck, titleKey: 'privacy.thirdPartyTitle', bodyKey: 'privacy.thirdPartyBody' },
     { id: 'terms', icon: Scale, titleKey: 'privacy.termsTitle', bodyKey: 'privacy.termsBody' },
     { id: 'contact', icon: Mail, titleKey: 'privacy.contactTitle', bodyKey: 'privacy.contactBody' },

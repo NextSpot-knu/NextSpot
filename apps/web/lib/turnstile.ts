@@ -1,14 +1,19 @@
-// Cloudflare Turnstile — 익명(게스트) 세션을 만들기 전에 사람인지 확인하는 토큰을 받는다(PRODUCT_EVALUATION_PLAN §6 D3 (나)).
+// Cloudflare Turnstile — Supabase 인증 호출 전에 사람인지 확인하는 1회용 토큰을 받는다(PRODUCT_EVALUATION_PLAN §6 D3 (나)).
 //
-// 왜: 게스트 세션은 클릭 한 번이면 새로 생긴다. Supabase 는 익명 로그인에 CAPTCHA 를 강하게 권하고, 켜면
-//   signInAnonymously 가 captchaToken 을 요구한다. 그래서 웹이 먼저 토큰을 받을 수 있어야 대시보드에서 켤 수 있다.
+// 왜: 게스트 세션은 클릭 한 번이면 새로 생긴다. Supabase 는 익명 로그인에 CAPTCHA 를 강하게 권한다. 그런데 Supabase 의
+//   CAPTCHA(Attack Protection)는 **프로젝트 전체** 설정이라 켜는 순간 익명 로그인 · 이메일 가입 · 비밀번호 로그인 ·
+//   재설정 메일이 모두 captchaToken 을 요구한다. 그래서 이 네 호출이 전부 토큰을 싣는다:
+//   익명 로그인은 lib/anonymousSession, 나머지 셋은 lib/auth 가 lib/authCaptcha 를 거쳐서.
 //
-// 켜는 법: NEXT_PUBLIC_TURNSTILE_SITE_KEY 를 넣고 배포 → Supabase Auth 에서 CAPTCHA(Turnstile, 비밀 키) 켜기 →
-//   익명 로그인 IP 한도 낮추기(사람 작업 순서). 사이트 키는 원래 공개값이다. **비밀 키는 Supabase 대시보드에만** 넣는다.
-// 키가 없으면: 이 파일은 아무것도 하지 않는다 — 스크립트를 싣지 않고 오늘과 똑같이 동작한다.
-// 실패하면: null 을 돌려준다. 호출부(lib/anonymousSession)는 토큰 없이 한 번 시도한다 — 대시보드 CAPTCHA 가 아직 꺼져
-//   있으면 그대로 통과하고, 켜져 있으면 거절돼 기존 재시도 창(5초→15초→…5분)마다 새 확인을 다시 받는다. 즉 확인이
-//   실패해도 화면이 잠기지 않고 공개 화면은 그대로이며, 게스트 기능만 다음 시도까지 기다린다.
+// 켜는 법(순서 — 이 순서면 CAPTCHA 를 켠 순간에도 어떤 로그인도 깨지지 않는다):
+//   ① NEXT_PUBLIC_TURNSTILE_SITE_KEY 를 넣고 웹 배포(네 호출이 모두 토큰을 싣기 시작한다 — CAPTCHA 가 꺼져 있어도 무해)
+//   ② Supabase Auth → Attack Protection 에서 CAPTCHA(Turnstile, 비밀 키) 켜기
+//   ③ 익명 로그인 IP 한도 낮추기.
+//   사이트 키는 원래 공개값이다. **비밀 키는 Supabase 대시보드에만** 넣는다.
+// 키가 없으면: 이 파일은 아무것도 하지 않는다 — 스크립트를 싣지 않고, 인증 호출 모양도 오늘과 똑같다.
+// 실패하면: null 을 돌려준다. 호출부는 토큰 없이 한 번 시도한다 — CAPTCHA 가 아직 꺼져 있으면 그대로 통과하고,
+//   켜져 있으면 서버가 거절한다. 그때 익명 로그인은 기존 재시도 창(5초→15초→…5분)마다 새 확인을 다시 받고(공개 화면은
+//   그대로), 로그인·가입·재설정 화면은 '사람 확인을 마치지 못했어요'(login.captchaFailed)를 띄운다 — 조용히 실패하지 않는다.
 // 화면: 위젯은 Cloudflare 대시보드에서 'Invisible' 로 만든다(권장 — 아무것도 보이지 않는다). 'Managed' 로 만들었다면
 //   사람 확인이 필요할 때만(interaction-only) 화면 아래쪽에 상자가 잠깐 뜬다.
 

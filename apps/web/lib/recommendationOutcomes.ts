@@ -17,6 +17,39 @@ interface QueuedOutcome {
 
 let flushing: Promise<void> | null = null;
 
+/**
+ * 방문 확인 체감 혼잡 답의 서버 처리 결과를 알리는 창 이벤트(D3). 'rated' 단계에 답을 실어 보낸 항목이 저장되면 쏜다.
+ * detail.crowdAnswer 는 API 응답 crowd_answer 그대로다 — registered · guest_shadow · guest_live, 또는
+ * not_recorded_*(게스트 답을 이번에는 저장하지 않음: 같은 네트워크·30분 쿨다운·DB 마이그레이션 전). 응답에 없으면 null.
+ */
+export const CROWD_ANSWER_EVENT = 'nextspot:crowd-answer';
+
+export interface CrowdAnswerDetail {
+  recommendationId: string;
+  crowdAnswer: string | null;
+}
+
+/** 응답 본문(camelCase 변환 뒤)에서 crowdAnswer 를 꺼낸다. 문자열이 아니면 null. */
+export function readCrowdAnswer(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+  const value = (response as { crowdAnswer?: unknown }).crowdAnswer;
+  return typeof value === 'string' ? value : null;
+}
+
+/** 서버가 이번 혼잡 답을 저장하지 않았는가(평가는 저장됨). */
+export function isUnrecordedCrowdAnswer(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith('not_recorded');
+}
+
+function announceCrowdAnswer(detail: CrowdAnswerDetail): void {
+  try {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent<CrowdAnswerDetail>(CROWD_ANSWER_EVENT, { detail }));
+  } catch {
+    /* 알림은 선택 — 큐 처리를 막지 않는다 */
+  }
+}
+
 function readQueue(): QueuedOutcome[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -95,11 +128,14 @@ export function flushRecommendationOutcomes(): Promise<void> {
     for (let index = 0; index < queue.length; index++) {
       const item = queue[index];
       try {
-        await apiClient.patch(`/api/v1/recommendations/${item.recommendationId}/outcome`, {
+        const response = await apiClient.patch(`/api/v1/recommendations/${item.recommendationId}/outcome`, {
           stage: item.stage,
           rating: item.rating,
           observedCongestion: item.observedCongestion,
         });
+        if (item.stage === 'rated' && item.observedCongestion) {
+          announceCrowdAnswer({ recommendationId: item.recommendationId, crowdAnswer: readCrowdAnswer(response) });
+        }
       } catch (err) {
         if (isPermanentFailure(err)) {
           // 몇 번을 보내도 같은 결과다. 이 항목만 버리고 계속 진행한다 — 여기서 멈추면

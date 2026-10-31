@@ -22,9 +22,10 @@ export default function ForgotPasswordPage() {
     if (!email.trim()) return;
     setBusy(true);
     try {
-      const { error } = await requestPasswordReset(email.trim());
+      const { error, captcha } = await requestPasswordReset(email.trim());
       if (error) {
-        toast.error(t('password.requestFailed'));
+        // 사람 확인(Turnstile) 거절은 '메일 실패' 와 다르다 — 다시 누르면 새 확인을 받는다.
+        toast.error(t(captcha ? 'login.captchaFailed' : 'password.requestFailed'));
         return;
       }
       setSent(true);

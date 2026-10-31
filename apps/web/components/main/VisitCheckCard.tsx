@@ -9,14 +9,21 @@
 //   (저장까지 끝나므로 탭을 다시 열어도 재노출 안 함, 다시 수락하면 새 루프).
 // 팔레트·포털 관례는 FestivalBanner/CongestionReportButton 을 따른다(한지 웜톤 + body 포털 + framer-motion).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
 import { getDueVisit, completeVisit, dismissVisitCheck, type PendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
-import { queueRecommendationOutcome, type ObservedCongestion, type OutcomeRating } from '@/lib/recommendationOutcomes';
+import {
+  CROWD_ANSWER_EVENT,
+  isUnrecordedCrowdAnswer,
+  queueRecommendationOutcome,
+  type CrowdAnswerDetail,
+  type ObservedCongestion,
+  type OutcomeRating,
+} from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 import { trackEvent } from '@/lib/usageEvents';
 import { useAccount } from '@/lib/account';
@@ -33,13 +40,34 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const [observedCongestion, setObservedCongestion] = useState<ObservedCongestion | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // 방문 확인 답을 서버가 저장하지 않았을 때(게스트의 같은 네트워크·30분 쿨다운·마이그레이션 전 — API crowd_answer
+  // not_recorded_*) 완료 카드에 중립 문장을 단다. 평가(방문 기록)는 저장됐으므로 '기록했어요' 는 그대로 맞다.
+  // 카드를 이미 닫았으면 같은 문장을 토스트로 알린다. 서버 응답은 큐 전송 뒤에 오므로 이벤트로 받는다.
+  const [answerNotRecorded, setAnswerNotRecorded] = useState(false);
+  const awaitingAnswerFor = useRef<string | null>(null);
+  const cardOpen = useRef(false);
+  useEffect(() => {
+    const onCrowdAnswer = (event: Event) => {
+      const detail = (event as CustomEvent<CrowdAnswerDetail>).detail;
+      if (!detail || detail.recommendationId !== awaitingAnswerFor.current) return;
+      awaitingAnswerFor.current = null;
+      if (!isUnrecordedCrowdAnswer(detail.crowdAnswer)) return;
+      if (cardOpen.current) setAnswerNotRecorded(true);
+      else showToast?.(t('visit.congestionNotRecorded'));
+    };
+    window.addEventListener(CROWD_ANSWER_EVENT, onCrowdAnswer);
+    return () => window.removeEventListener(CROWD_ANSWER_EVENT, onCrowdAnswer);
+  }, [showToast, t]);
 
   // 마운트 + 탭 복귀(visibilitychange) 때 방문 확인 대상 재확인.
   useEffect(() => {
     const check = () => {
       const d = getDueVisit();
       setDue(d);
-      if (!d) setStage('ask');
+      if (!d) {
+        setStage('ask');
+        cardOpen.current = false;
+      }
     };
     check();
     const onVis = () => {
@@ -63,6 +91,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const dismiss = () => {
     haptic('selection');
     dismissVisitCheck();
+    cardOpen.current = false;
     window.dispatchEvent(new Event('nextspot:trip-navigating'));
     setDue(null);
     setStage('ask');
@@ -88,6 +117,9 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const finishRating = (nextRating: OutcomeRating) => {
     haptic('confirm');
     completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating: nextRating });
+    awaitingAnswerFor.current = observedCongestion && due.recommendationId ? due.recommendationId : null;
+    cardOpen.current = true;
+    setAnswerNotRecorded(false);
     queueRecommendationOutcome(due.recommendationId, 'rated', {
       rating: nextRating,
       observedCongestion: observedCongestion ?? undefined,
@@ -160,12 +192,17 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
                 <div>
                 <p className="text-sm font-bold text-muk">{t('visit.thanks')}</p>
                 <p className="mt-1 text-[11px] leading-snug text-muk-soft">{t('visit.askDesc')}</p>
+                {answerNotRecorded && (
+                  <p className="mt-1 text-[11px] leading-snug text-muk-soft" data-testid="visit-congestion-not-recorded">
+                    {t('visit.congestionNotRecorded')}
+                  </p>
+                )}
                 </div>
               </div>
               <Link href="/mypage/coupons" className="toss-pressable rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
                 {t('mypage.menuCoupons')}
               </Link>
-              <button type="button" onClick={() => { haptic('selection'); setDue(null); setStage('ask'); }} className="toss-pressable text-xs font-bold text-muk-soft">
+              <button type="button" onClick={() => { haptic('selection'); cardOpen.current = false; setAnswerNotRecorded(false); setDue(null); setStage('ask'); }} className="toss-pressable text-xs font-bold text-muk-soft">
                 {t('common.close')}
               </button>
             </div>

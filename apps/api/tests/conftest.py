@@ -150,7 +150,8 @@ def _isolate_report_cooldowns():
         reports._last_report_by_ip,
         reports._last_availability_report_at,
         reports._last_availability_report_by_ip,
-        report_slots.GUEST_SHADOW_VOTES_BY_IP,  # 방문 확인 게스트 그림자 답(10-31)
+        report_slots.GUEST_ANSWER_VOTES_BY_IP,  # 방문 확인 게스트 답(10-31)
+        report_slots.GUEST_ANSWER_LAST_BY_USER,
     )
     for store in stores:
         store.clear()

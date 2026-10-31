@@ -174,8 +174,11 @@ class Settings(BaseSettings):
     # 켜기 전에 관리자 GET /api/v1/admin/metrics/guest-answers 의 2주 숫자를 본다. 웹 안내 문구(visit.guestCongestionNote)도 함께 바꾼다.
     # ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
     GUEST_CROWD_ANSWERS_LIVE: bool = False
-    # 게스트 답 네트워크 키(IPv4 /24 · IPv6 /64 대역 HMAC — app/core/network_key.py)의 비밀 키. 비어 있으면 JWT_SECRET 에서
-    # 파생한다(따로 정하지 않아도 동작). 바꾸면 이전 키와 이어지지 않는다(보관 30일이라 그 뒤로는 무관). 로그·문서에 값을 쓰지 않는다.
+    # 게스트 답 네트워크 키(IPv4 /24 · IPv6 /64 대역 HMAC — app/core/network_key.py)의 비밀 키.
+    # **운영에서는 전용 값을 넣는다**(32바이트 이상 무작위). 비어 있으면 JWT_SECRET 에서 파생하는데, 이건 비상용 폴백이다 —
+    # JWT_SECRET 을 회전하면 네트워크 키가 말없이 바뀌어, 회전 전후 30일 창의 '같은 네트워크' 판정(그림자 측정의 겹침 비율,
+    # 실시간 모드의 '서로 다른 네트워크 둘' 조건)이 끊긴다. 이 값을 바꿀 때도 같은 일이 생긴다(보관 30일이라 그 뒤로는 무관).
+    # 로그·문서에 값을 쓰지 않는다.
     NETWORK_HASH_SALT: str = ""
 
     # CORS Settings

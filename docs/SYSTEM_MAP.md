@@ -516,7 +516,7 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
   `congestion_logs` 로 투영하지 않으므로 지도·순위·corroborated 어디에도 들어가지 않는다. 계정 사용자 동작은 그대로다.
 - 실시간 스위치 `GUEST_CROWD_ANSWERS_LIVE`(기본 꺼짐)를 켜면 `guest_live` 가 되고, 게스트끼리만의 일치는 서로 다른
   네트워크 키 2개 이상이거나 ±30분 같은 단계의 verified 실측이 있어야 corroborated 가 된다.
-- **1인 1표**: 같은 IP·같은 장소 30분 한 계정 규칙(10-30 제보 경로)을 방문 확인에도 건다 — `app/core/report_slots.py`
+- **1인 1표**: 같은 IP·같은 장소 30분 한 계정 규칙(10-30 제보 경로)을 **게스트** 방문 답에도 건다(+ 같은 게스트·장소 30분 쿨다운). 등록 사용자 방문 답은 제한 없음 — `app/core/report_slots.py`. 막히면 평가만 저장하고 응답 `crowd_answer` 로 알린다(`not_recorded_shared_network` · `not_recorded_cooldown` · `not_recorded_pending_migration`). 인메모리 IP 표는 창 + 최대 1분 뒤 지운다
   로 공용화(원본 IP 는 이 프로세스 메모리 표의 키로 최대 30분만 있고 DB·로그에 없다). 막히면 429 대신 평가만 저장하고
   응답 `crowd_answer` 로 알린다(오프라인 큐가 멈추지 않게).
 - **네트워크 키**: `app/core/network_key.py` 가 IPv4 /24 · IPv6 /64 대역을 서버 비밀값(`NETWORK_HASH_SALT`, 없으면

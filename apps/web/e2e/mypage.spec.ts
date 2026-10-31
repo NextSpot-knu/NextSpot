@@ -135,10 +135,10 @@ test('the impact page shows only counted numbers — no baseless zero tiles or p
 });
 
 for (const [locale, footer] of [
-  ['ko', '최종 업데이트 · 2026-10-23'],
-  ['en', 'Last updated · 2026-10-23'],
-  ['ja', '最終更新 · 2026-10-23'],
-  ['zh', '最后更新 · 2026-10-23'],
+  ['ko', '최종 업데이트 · 2026-10-31'],
+  ['en', 'Last updated · 2026-10-31'],
+  ['ja', '最終更新 · 2026-10-31'],
+  ['zh', '最后更新 · 2026-10-31'],
 ] as const) {
   test(`${locale} privacy footer shows the update date, not a contest edition`, async ({ page }) => {
     await stubApis(page, { role: 'tourist', is_anonymous: true }, UNAUTHORIZED);

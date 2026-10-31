@@ -5,7 +5,7 @@
 // 서버 최소 6자)가 사용자 실수로 흔히 발생한다. 이를 일반 실패와 구분하지 않으면
 // "다시 시도해 주세요" 안내가 영원히 실패하는 재시도를 유도한다.
 
-export type SignUpFailReason = 'email_exists' | 'weak_password' | 'unknown';
+export type SignUpFailReason = 'email_exists' | 'weak_password' | 'captcha' | 'unknown';
 
 interface AuthErrorLike {
   /** GoTrue error_code (supabase-js v2.43+ AuthError.code). 없을 수 있다. */
@@ -15,6 +15,16 @@ interface AuthErrorLike {
   status?: number | null;
 }
 
+/**
+ * GoTrue 가 사람 확인(CAPTCHA) 때문에 거절했는가 — code captcha_failed 또는 메시지 'captcha protection: …'.
+ * Supabase CAPTCHA 는 프로젝트 전체 설정이라 가입·로그인·재설정 메일이 모두 이 거절을 받을 수 있다(lib/authCaptcha).
+ * 자격증명·서버 장애보다 먼저 가린다 — '비밀번호가 틀렸다' 로 읽히면 사용자는 맞는 비밀번호를 계속 다시 친다.
+ */
+export function isCaptchaRejection(error: AuthErrorLike | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === 'captcha_failed' || /captcha/i.test(error.message ?? '');
+}
+
 const EMAIL_EXISTS_CODES = new Set(['email_exists', 'user_already_exists']);
 const EMAIL_EXISTS_MESSAGE = /already (?:been )?registered/i;
 const WEAK_PASSWORD_MESSAGE = /password should be at least/i;
@@ -22,6 +32,7 @@ const WEAK_PASSWORD_MESSAGE = /password should be at least/i;
 /** 가입 에러를 안내 문구용 원인으로 분류한다. 에러가 없으면 null. */
 export function classifySignUpError(error: AuthErrorLike | null | undefined): SignUpFailReason | null {
   if (!error) return null;
+  if (isCaptchaRejection(error)) return 'captcha';
   if (error.code && EMAIL_EXISTS_CODES.has(error.code)) return 'email_exists';
   if (error.code === 'weak_password') return 'weak_password';
   const message = error.message ?? '';
@@ -44,6 +55,8 @@ export type SignInFailReason =
   | 'email_not_confirmed'
   /** 5xx · 네트워크 단절 · 타임아웃 — 사용자 잘못이 아니다. */
   | 'server'
+  /** 사람 확인(Turnstile)을 통과하지 못했다 — 비밀번호 문제가 아니다. */
+  | 'captcha'
   | 'unknown';
 
 const INVALID_CREDENTIALS_CODES = new Set(['invalid_credentials', 'invalid_grant']);
@@ -65,6 +78,7 @@ export function classifySignInError(error: AuthErrorLike | null | undefined): Si
   const message = error.message ?? '';
   const code = error.code ?? '';
 
+  if (isCaptchaRejection(error)) return 'captcha';
   if (INVALID_CREDENTIALS_CODES.has(code)) return 'invalid_credentials';
   if (code === 'email_not_confirmed' || EMAIL_NOT_CONFIRMED_MESSAGE.test(message)) return 'email_not_confirmed';
   if (INVALID_CREDENTIALS_MESSAGE.test(message)) return 'invalid_credentials';
