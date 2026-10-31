@@ -301,8 +301,9 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
           <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} weeklyStats={weeklyStats} />
           {demo && <DemoTodaySummary />}
           <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
+          {/* 같은 부모의 형제 key 는 서로 달라야 한다 — 브리핑과 같은 facility.id 를 쓰면 React 가 중복 key 오류를 낸다 */}
           <StatsSection
-            key={facility.id}
+            key={`stats-${facility.id}`}
             facilityId={facility.id}
             demo={demo}
             saleActive={saleActive}
