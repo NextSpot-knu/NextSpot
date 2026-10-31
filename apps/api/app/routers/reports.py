@@ -45,6 +45,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import get_registered_user
 from app.core.client_ip import client_ip
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.report_slots import CONGESTION_VOTES_BY_IP, release_report_slot, reserve_report_slot
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
@@ -170,6 +171,28 @@ def _coerce_level(level: float | str) -> float:
     return float(level)
 
 
+# 지역 격리 DB 가드의 거절(마이그레이션 20261101090000) — 자식 표 트리거(P0001 facility_region_not_public).
+_REGION_REJECTIONS = ("facility_region_not_public",)
+
+
+def _region_rejected(exc: Exception) -> bool:
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return any(marker in text for marker in _REGION_REJECTIONS)
+
+
+async def _public_facility(facility_id: str, columns: str) -> dict | None:
+    """공개 지역(경주) 시설 한 곳. 다른 지역·없음은 None — 지역은 쿼리 안에서 건다(region 컬럼 전이면 경주 폴백)."""
+
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select(columns).eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
+    rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
+    return rows[0] if rows else None
+
+
 @router.post("/reports/availability", response_model=AvailabilityReportResponse)
 async def report_availability(
     req: AvailabilityReportRequest,
@@ -182,14 +205,8 @@ async def report_availability(
     only two-user agreement to corroborated evidence. A single report never affects
     recommendation eligibility. Guest (anonymous) sessions are rejected with 403.
     """
-    facility = await asyncio.to_thread(
-        supabase_admin.table("facilities")
-        .select("id")
-        .eq("id", req.facility_id)
-        .limit(1)
-        .execute
-    )
-    if not facility.data:
+    facility = await _public_facility(req.facility_id, "id")
+    if not facility:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
     slot = reserve_report_slot(
@@ -215,6 +232,9 @@ async def report_availability(
         )
     except Exception as exc:
         release_report_slot(slot)
+        if _region_rejected(exc):
+            # 공개 지역이 아닌 시설 — DB 트리거(reject_non_public_region_facility)가 막았다. 없는 시설과 같다.
+            raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.") from None
         logger.error(
             "availability_report_failed",
             facility_id=req.facility_id,
@@ -255,14 +275,9 @@ async def report_congestion(
     )
 
     # 1. 시설 존재 검증 (없는 facility_id 로의 FK 위반/유령 로그 방지). coupon_rate 는 제보 보상 발급 판정용.
-    fac_res = await asyncio.to_thread(
-        supabase_admin.table("facilities")
-        .select("id, capacity, coupon_rate")
-        .eq("id", req.facility_id)
-        .limit(1)
-        .execute
-    )
-    if not fac_res.data:
+    #    공개 지역(경주) 시설만 — 서울(개발자 전용) 시설은 없는 시설과 같은 404 다(쿼리 안에서 거른다).
+    facility_row = await _public_facility(req.facility_id, "id, capacity, coupon_rate")
+    if not facility_row:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
     # 1-1. 레이트리밋: 사용자·시설당 쿨다운 + IP·시설당 한 계정(스팸/조작 1차 차단, 상단 독스트링).
@@ -277,7 +292,7 @@ async def report_congestion(
         cooldown_detail=f"제보는 {int(_REPORT_COOLDOWN_SEC // 60)}분에 한 번만 가능합니다. 잠시 후 다시 시도해 주세요.",
     )
 
-    capacity = fac_res.data[0].get("capacity") or 0
+    capacity = facility_row.get("capacity") or 0
     current_count = round(capacity * level)
     now_str = datetime.now(timezone.utc).isoformat()
 
@@ -299,6 +314,8 @@ async def report_congestion(
         )
     except Exception as e:
         release_report_slot(slot)  # 저장하지 못한 시도는 쿨다운을 남기지 않는다
+        if _region_rejected(e):
+            raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.") from None
         logger.error("congestion_report_insert_failed", error=str(e), facility_id=req.facility_id)
         # 우리 쪽 장애는 503 이다(이 저장소의 규칙 — 중복만 409, 잘못된 입력은 422).
         # 500 은 프런트가 '다시 시도해도 소용없는 오류' 로 다루기 쉽고, 실제로는 Render
@@ -313,11 +330,11 @@ async def report_congestion(
     report_count = await _bump_report_count(current_user["id"])
     coupon_issued = False
     if report_count > 0 and report_count % _REWARD_EVERY == 0:
-        facility_row = fac_res.data[0]
         issue = await issue_coupon_if_partner(
             supabase_admin,
             current_user["id"],
             {"id": req.facility_id, "coupon_rate": facility_row.get("coupon_rate")},
+            region=PUBLIC_REGION,  # facility_row 는 _public_facility(경주로 거른 읽기)에서 왔다
         )
         coupon_issued = issue["coupon_issued"]
     # 다음 보상까지 남은 제보 수 = 다음 배수 - 현재 누적. (report_count=0 강등 시에도 _REWARD_EVERY.)

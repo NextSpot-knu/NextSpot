@@ -44,6 +44,7 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(parent_dir, ".env"))
 
 from app.core.config import settings  # noqa: E402
+from app.core.region import PUBLIC_REGION, apply_region  # noqa: E402
 from app.services.batch.city_photo import CITY_PHOTO_KEY, plan_city_photo  # noqa: E402
 from app.services.gyeongju_restaurant_service import get_gyeongju_restaurants  # noqa: E402
 from app.services.spot.travel import calculate_haversine_distance  # noqa: E402
@@ -248,11 +249,14 @@ async def run(*, apply: bool) -> dict[str, Any]:
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import fetch_all_rows, supabase_admin
 
+    # 경주 메뉴별음식점은 경주 자료다 — 대조·보강 대상도 공개 지역(경주) 시설만(SEOUL_TESTBED_PLAN S3).
+    region = PUBLIC_REGION
     facilities = fetch_all_rows(
         supabase_admin,
         "facilities",
         "id, name, address, latitude, longitude, contenttypeid, type, homepage, operating_hours, features, is_active,"
         " image_url, gallery_images",
+        apply_filters=lambda q: apply_region(q, region).order("id"),
     )
     now_iso = datetime.now(timezone.utc).isoformat()
     photos_on = city_photo_enabled()
@@ -275,7 +279,7 @@ async def run(*, apply: bool) -> dict[str, Any]:
             if not fid:
                 continue
             patch = {k: v for k, v in row.items() if k != "id"}
-            supabase_admin.table("facilities").update(patch).eq("id", fid).execute()
+            apply_region(supabase_admin.table("facilities").update(patch).eq("id", fid), region).execute()
             updated += 1
         print(f"[update] features 보강 {updated}건 완료")
     elif not apply:

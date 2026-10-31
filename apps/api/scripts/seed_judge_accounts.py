@@ -26,6 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.region import PUBLIC_REGION, apply_region  # noqa: E402
 from app.core.supabase import supabase_admin  # noqa: E402
 
 # 주최 측 지정 계정.
@@ -103,9 +104,12 @@ def _ensure_ownership(user_id: str, facility_ids: list[str]) -> None:
         if fid in have:
             print(f"      소유 유지: {fid[:8]}…")
             continue
-        fac = supabase_admin.table("facilities").select("name").eq("id", fid).limit(1).execute()
+        # 심사 계정은 공개 지역(경주) 가게만 받는다 — 서울(개발자 전용) 시설은 '없음'과 같다(S3).
+        fac = apply_region(
+            supabase_admin.table("facilities").select("name").eq("id", fid), PUBLIC_REGION
+        ).limit(1).execute()
         if not fac.data:
-            print(f"      ⚠️ 시설 없음, 건너뜀: {fid}")
+            print(f"      ⚠️ 시설 없음(또는 경주 밖), 건너뜀: {fid}")
             continue
         supabase_admin.table("facility_owners").insert({
             "facility_id": fid,

@@ -25,13 +25,13 @@
   한 건이 오늘의 '경보' 가 됐고, 반대로 관측이 하나도 없으면 화면이 '전 구역 정상' 이라고 말했다.
   관측이 없거나 전부 30분을 넘으면 judgement='unavailable'(판정 불가)다 — '정상' 이 아니다.
 """
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.authz import ROLE_ADMIN, require_role
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import supabase_client, fetch_all_rows
 from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.congestion_estimator_service import ANOMALY_LEVEL
@@ -112,10 +112,14 @@ def _predict_next_hour(facility_type: str, current_level: float, now_dt: datetim
 async def _fetch_facilities() -> list[dict]:
     """전체 시설의 (id, name, type, 좌표)만 페이지네이션 조회(공용 fetch_all_rows 를 워커 스레드로 오프로드)."""
     # id 정렬 — offset 페이지 사이에 행이 옮겨져도 시설이 중복·누락되지 않게(페이지 경계 고정).
-    return await asyncio.to_thread(
-        fetch_all_rows, supabase_client, "facilities", "id, name, type, latitude, longitude",
-        apply_filters=lambda q: q.order("id"),
-    )
+    # 관제(B2G)는 경주 시설만 — 서울은 내부 테스트베드라 관제 수치에 섞지 않는다.
+    def _read(with_region: bool) -> list[dict]:
+        return fetch_all_rows(
+            supabase_client, "facilities", "id, name, type, latitude, longitude",
+            apply_filters=lambda q: (apply_region(q, PUBLIC_REGION) if with_region else q).order("id"),
+        )
+
+    return await arun_region_scoped(_read, region=PUBLIC_REGION)
 
 
 @router.get("/status")

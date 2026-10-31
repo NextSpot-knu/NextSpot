@@ -65,6 +65,10 @@ class _FakeQuery:
         self._filters.append(("in", column, tuple(values)))
         return self
 
+    def is_(self, column: str, value) -> "_FakeQuery":
+        self._filters.append(("is", column, value))
+        return self
+
     def order(self, column: str, desc: bool = False) -> "_FakeQuery":
         self._orders.append((column, desc))
         return self
@@ -79,7 +83,7 @@ class _FakeQuery:
 
     def _matches(self, row: dict) -> bool:
         for op, column, value in self._filters:
-            cell = row.get(column)
+            cell = row.get(column, "gyeongju" if column == "region" else None)  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
             if op == "eq" and cell != value:
                 return False
             if op == "neq" and cell == value:
@@ -89,6 +93,8 @@ class _FakeQuery:
             if op == "lte" and not (cell is not None and cell <= value):
                 return False
             if op == "in" and cell not in value:
+                return False
+            if op == "is" and value == "null" and cell is not None:
                 return False
         return True
 

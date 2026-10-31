@@ -44,6 +44,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(parent_dir, ".env"))
 
 from app.services import llm_client
+from app.core.region import KNOWN_REGIONS, PUBLIC_REGION, apply_region
 # 분류 화이트리스트 단일 정본 — 라우터 분류 게이트·LLM 의도 분류와 같은 리스트를 공유한다(복사 금지).
 from app.services.voice_intent_service import _INTENT_CATEGORIES
 
@@ -216,7 +217,7 @@ async def propose_tags(row: dict, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -
     return validate_proposal(parsed, row)
 
 
-def fetch_candidate_rows() -> list[dict]:
+def fetch_candidate_rows(region: str = PUBLIC_REGION) -> list[dict]:
     """restaurant/cafe 를 id/name/type/features 로 SELECT(동기 — 스크립트 컨텍스트).
 
     결손 여부는 select_targets() 에서 파이썬으로 순수 필터링한다(JSONB 결손 판정을
@@ -232,15 +233,18 @@ def fetch_candidate_rows() -> list[dict]:
         supabase_admin,
         "facilities",
         "id, name, type, features",
-        apply_filters=lambda q: q.in_("type", list(TARGET_TYPES)).order("id"),
+        # 지역은 쿼리 안에서 건다 — 기본은 공개 지역(경주). 서울(개발자 전용)은 --region seoul 로만(S3).
+        apply_filters=lambda q: apply_region(q.in_("type", list(TARGET_TYPES)), region).order("id"),
     )
 
 
-def apply_update(facility_id, merged_features: dict) -> None:
+def apply_update(facility_id, merged_features: dict, *, region: str = PUBLIC_REGION) -> None:
     """features 병합 결과 1건 UPDATE — --apply 경로 전용(테스트는 이 함수만 모킹해 쓰기 0회 검증)."""
     from app.core.supabase import supabase_admin  # 지연 임포트 — dry-run 경로는 쓰기 클라이언트 불필요
 
-    supabase_admin.table("facilities").update({"features": merged_features}).eq("id", facility_id).execute()
+    apply_region(
+        supabase_admin.table("facilities").update({"features": merged_features}).eq("id", facility_id), region
+    ).execute()
 
 
 def write_report(path: Path, payload: dict) -> None:
@@ -249,7 +253,8 @@ def write_report(path: Path, payload: dict) -> None:
 
 
 async def run(args: argparse.Namespace) -> int:
-    rows = fetch_candidate_rows()
+    region = getattr(args, "region", PUBLIC_REGION) or PUBLIC_REGION
+    rows = fetch_candidate_rows(region=region)
     targets = select_targets(rows)
     if args.limit:
         targets = targets[: args.limit]
@@ -287,7 +292,7 @@ async def run(args: argparse.Namespace) -> int:
         if args.apply:
             merged = merge_tagging(row.get("features"), proposal, tagged_at)
             try:
-                apply_update(row["id"], merged)
+                apply_update(row["id"], merged, region=region)
                 applied += 1
                 entry["status"] = "applied"
                 print(f"[apply] {name}: {proposal['category']} / {', '.join(proposal['cuisine_tags'])}")
@@ -328,6 +333,10 @@ def main() -> None:
     parser.add_argument(
         "--report", default=str(DEFAULT_REPORT_PATH),
         help=f"감사 보고서 JSON 경로(기본 {DEFAULT_REPORT_PATH})",
+    )
+    parser.add_argument(
+        "--region", default=PUBLIC_REGION, choices=sorted(KNOWN_REGIONS),
+        help=f"태깅할 지역(기본 {PUBLIC_REGION} — 서울은 개발자 전용 지역이라 명시해야 한다)",
     )
     args = parser.parse_args()
     sys.exit(asyncio.run(run(args)))

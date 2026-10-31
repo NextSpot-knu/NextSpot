@@ -51,6 +51,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(parent_dir, ".env"))
 
 from app.services import llm_client  # noqa: E402 — sys.path 부트스트랩 뒤 임포트(scripts/* ruff 예외)
+from app.core.region import KNOWN_REGIONS, PUBLIC_REGION, apply_region  # noqa: E402
 
 # 번역 대상 로케일 — ko(원문)는 제외. 프런트 4로케일(ko/en/ja/zh) 중 ko 를 뺀 셋(I18nProvider 참고).
 SUPPORTED_LOCALES: tuple[str, ...] = ("en", "ja", "zh")
@@ -299,8 +300,9 @@ async def translate_facility(
     return results, purge
 
 
-def fetch_candidate_rows() -> list[dict]:
-    """facilities 에서 overview 가 있는 행만 id/name/overview/features 로 SELECT(동기 — 스크립트 컨텍스트,
+def fetch_candidate_rows(region: str = PUBLIC_REGION) -> list[dict]:
+    """facilities 에서 overview 가 있는 ``region`` 행만 id/name/overview/features 로 SELECT(동기 — 스크립트 컨텍스트,
+    기본은 공개 지역(경주) — 서울(개발자 전용)은 ``--region seoul`` 로만 번역한다(SEOUL_TESTBED_PLAN S3).
     admin.py 등 라우터의 asyncio.to_thread 오프로드는 불필요 — DB I/O 를 막아도 이벤트루프 경합 상대가 없다).
 
     force/limit 등 나머지 조건은 select_targets() 에서 파이썬으로 순수 필터링한다(JSONB 키 존재
@@ -315,7 +317,7 @@ def fetch_candidate_rows() -> list[dict]:
         supabase_admin,
         "facilities",
         "id, name, overview, features",
-        apply_filters=lambda q: q.not_.is_("overview", "null").order("id"),
+        apply_filters=lambda q: apply_region(q.not_.is_("overview", "null"), region).order("id"),
     )
 
 
@@ -335,7 +337,8 @@ async def run(args: argparse.Namespace) -> int:
         print("[translate] --via-en 은 en 을 대상 로케일로 가질 수 없습니다(--locales 확인). 중단합니다.")
         return 1
 
-    rows = fetch_candidate_rows()
+    region = getattr(args, "region", PUBLIC_REGION) or PUBLIC_REGION
+    rows = fetch_candidate_rows(region=region)
     if args.fill_missing:
         targets = select_targets_fill_missing(rows, locales)
     else:
@@ -408,17 +411,17 @@ async def run(args: argparse.Namespace) -> int:
         # 관리자 작업이 같은 행의 다른 features 키를 갱신했을 때 낡은 스냅샷으로 덮지 않게 한다.
         # (재조회~UPDATE 사이의 극소 경합 창은 잔존 — 일 1회 배치 특성상 허용)
         try:
-            fresh = (
-                supabase_admin.table("facilities")
-                .select("features").eq("id", row["id"]).execute()
-            )
+            fresh = apply_region(
+                supabase_admin.table("facilities").select("features").eq("id", row["id"]), region
+            ).execute()
             base_features = (fresh.data[0].get("features") if fresh.data else None) or row.get("features")
         except Exception:  # noqa: BLE001 — 재조회 실패 시 기존 스냅샷으로 진행(종전 동작)
             base_features = row.get("features")
         merged_features = merge_overview_i18n(base_features, translations, purge_locales=purge)
         try:
-            supabase_admin.table("facilities").update({"features": merged_features}).eq(
-                "id", row["id"]
+            apply_region(
+                supabase_admin.table("facilities").update({"features": merged_features}).eq("id", row["id"]),
+                region,
             ).execute()
             updated += 1
             for locale in row_locales:
@@ -490,6 +493,10 @@ def main() -> None:
             "직번역이 한글 잔존으로 반복 실패한 로케일(주로 zh)의 결손 보충용 — "
             "en 소스에는 한글이 없어 잔존이 구조적으로 차단된다."
         ),
+    )
+    parser.add_argument(
+        "--region", default=PUBLIC_REGION, choices=sorted(KNOWN_REGIONS),
+        help=f"번역할 지역(기본 {PUBLIC_REGION} — 서울은 개발자 전용 지역이라 명시해야 한다)",
     )
     args = parser.parse_args()
 

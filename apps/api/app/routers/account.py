@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.authz import get_current_profile
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import get_current_user, supabase_admin, verify_supabase_token
 from app.services import reference_snapshot
 from app.core.verification_evidence import clear_verification_evidence
@@ -87,15 +88,11 @@ async def get_me(profile: dict = Depends(get_current_profile)):
     facility_ids = sorted(profile.get("facility_ids") or ())
     if facility_ids:
         try:
-            res = await asyncio.to_thread(
-                supabase_admin.table("facilities")
-                .select("id, name, type")
-                .in_("id", facility_ids)
-                .execute
-            )
+            # 소유 가게는 공개 지역(경주)만 — facility_owners 트리거가 이미 막지만 읽기도 지역을 건다(S3).
+            rows = await _public_facilities_by_id(facility_ids, "id, name, type")
             owned = [
                 OwnedFacility(id=str(r["id"]), name=r.get("name") or "", type=r.get("type") or "")
-                for r in (res.data or [])
+                for r in rows
             ]
         except Exception as exc:
             # 소유 목록을 못 읽으면 빈 배열로 둔다. 화면은 '인증 대기' 로 보이고,
@@ -158,6 +155,12 @@ def _is_duplicate_pending(exc: Exception) -> bool:
         or "bvr_pending_facility_uq" in text
         or "bvr_pending_freeform_uq" in text
     )
+
+
+def _region_rejected(exc: Exception) -> bool:
+    """지역 격리 DB 가드(마이그레이션 20261101090000)의 거절 — 자식 표 트리거 P0001 facility_region_not_public."""
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return "facility_region_not_public" in text
 
 
 def _is_missing_requested_role(exc: Exception) -> bool:
@@ -281,15 +284,15 @@ async def _ensure_facility_selectable(facility_id: str) -> None:
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.") from None
 
+    def _read(with_region: bool) -> list[dict]:
+        # 공개 지역(경주) 가게만 고를 수 있다 — 서울(개발자 전용) 가게는 없는 가게와 같은 422(S3).
+        query = supabase_admin.table("facilities").select("id").eq("id", str(facility_id)).eq("is_active", True)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("facilities")
-            .select("id")
-            .eq("id", str(facility_id))
-            .eq("is_active", True)
-            .limit(1)
-            .execute
-        )
+        rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
     except Exception as exc:
         logger.error(
             "verification_facility_lookup_failed", facility_id=str(facility_id), error=str(exc)
@@ -298,7 +301,7 @@ async def _ensure_facility_selectable(facility_id: str) -> None:
             status_code=503,
             detail="가게 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
         ) from None
-    if not res.data:
+    if not rows:
         raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.")
 
 
@@ -347,6 +350,10 @@ def _insert_failure(user_id: str, exc: Exception) -> HTTPException:
     if _is_duplicate_pending(exc):
         logger.info("verification_request_duplicate", user_id=user_id)
         return HTTPException(status_code=409, detail="이미 심사를 기다리는 신청이 있습니다.")
+    if _region_rejected(exc):
+        # 공개 지역이 아닌 가게 — DB 트리거(business_verification_requests)가 막았다. 고를 수 없는 가게와 같다.
+        logger.info("verification_request_region_rejected", user_id=user_id)
+        return HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.")
     logger.error("verification_request_insert_failed", user_id=user_id, error=str(exc))
     return HTTPException(
         status_code=503,
@@ -459,13 +466,23 @@ async def _facility_names(facility_ids: list[str]) -> dict[str, str | None]:
     거기서는 이름 대조가 승인의 근거라 없으면 안 된다).
     """
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("facilities").select("id, name").in_("id", facility_ids).execute
-        )
+        rows = await _public_facilities_by_id(facility_ids, "id, name")
     except Exception as exc:
         logger.warning("verification_mine_facility_names_failed", error=str(exc))
         return {}
-    return {str(row["id"]): row.get("name") for row in (res.data or []) if row.get("id")}
+    return {str(row["id"]): row.get("name") for row in rows if row.get("id")}
+
+
+async def _public_facilities_by_id(facility_ids: list[str], columns: str) -> list[dict]:
+    """공개 지역(경주) 시설만 id 로 읽는다 — 지역은 쿼리 안에서(region 컬럼 전이면 경주 폴백)."""
+
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select(columns).in_("id", facility_ids)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.execute().data or []
+
+    return await arun_region_scoped(_read, region=PUBLIC_REGION)
 
 
 @router.get("/verification-requests/mine")

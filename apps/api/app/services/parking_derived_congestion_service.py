@@ -52,6 +52,7 @@ from typing import Any
 
 import structlog
 
+from app.core.region import PUBLIC_REGION, apply_region, run_region_scoped
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.spot.travel import calculate_haversine_distance
 
@@ -299,11 +300,17 @@ def _load_active_facilities() -> list[dict[str, Any]]:
     **fetch_all_rows 여야 한다.** 단발 select 는 PostgREST 캡(1000)에 걸려 조용히 잘리는데
     오류가 아니라 200 이다 — 활성 1,669곳(2026-09-20 실측) 중 669곳이 이유 없이 추정에서 빠진다.
     """
-    rows = fetch_all_rows(
-        supabase_admin,
-        "facilities",
-        "id,latitude,longitude,is_active",
-        apply_filters=lambda query: query.order("id"),
+    # 경주 주차 실측 기반 — 경주 시설만(region 은 쿼리 안에서, 컬럼이 없으면 필터 없이).
+    rows = run_region_scoped(
+        lambda with_region: fetch_all_rows(
+            supabase_admin,
+            "facilities",
+            "id,latitude,longitude,is_active",
+            apply_filters=lambda query: (
+                apply_region(query, PUBLIC_REGION) if with_region else query
+            ).order("id"),
+        ),
+        region=PUBLIC_REGION,
     )
     return [row for row in rows if row.get("is_active", True)]
 

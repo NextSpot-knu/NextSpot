@@ -23,10 +23,11 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.failure_log import record_failure
+from app.core.region import PUBLIC_REGION, resolve_request_region
 from app.core.response_cache import (
     ResponseCache,
     assumed_time_bucket,
@@ -39,7 +40,13 @@ from app.services.availability_service import (
     fetch_effective_availability_map,
 )
 from app.services.area_demand_forecast_service import prefetch_area_demand_points
-from app.services.congestion_evidence import estimate_applies_to_arrival, load_current_estimates
+from app.services.congestion_evidence import (
+    ZONE_EVIDENCE_TIER,
+    estimate_applies_to_arrival,
+    load_current_estimates,
+    zone_arrival_level,
+)
+from app.services.crowd.zone_evidence import load_zone_readings
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.ranking import spot_ranking_sort_key
 from app.services.spot.score import calculate_spot_score
@@ -66,6 +73,7 @@ from app.routers.recommendations import (
     fetch_all_facilities,
     fetch_congestion_map,
     parse_assumed_time,
+    public_facility_view,
     _MAX_RECO_DISTANCE_M,
 )
 
@@ -252,6 +260,36 @@ def _congestion_label(level: float) -> str:
     return "한산"
 
 
+# 구역 근거(서울 S3) 정류지의 단계 이름 — reason_service._ZONE_BAND_LABEL 과 같은 말이다.
+_ZONE_BAND_LABEL = {
+    "relaxed": "한산",
+    "normal": "여유",
+    "slightly_busy": "보통",
+    "busy": "혼잡",
+}
+_ZONE_USUAL_SENTENCE = {
+    "busier": " 지금은 평소 이 시간보다 붐비는 편이에요.",
+    "usual": " 지금은 평소 이 시간과 비슷한 수준이에요.",
+    "quieter": " 지금은 평소 이 시간보다 한산한 편이에요.",
+}
+
+
+def _build_zone_stop_reason(order: int, facility: dict, arrival_offset_min: float, zone_crowd: dict) -> str:
+    """구역 근거 정류지의 사유 — '%' 없이 권역 단계로만 말한다(공급원 4단계를 퍼센트로 바꾸면 없는 정밀도다).
+
+    도착 시각 단계가 없으면(관측이 낡아 도착 시각을 말할 수 없다) 혼잡을 주장하지 않는다.
+    """
+    name = facility.get("name", "이곳")
+    when = "지금 바로" if order == 1 else f"약 {round(arrival_offset_min)}분 뒤"
+    label = _ZONE_BAND_LABEL.get(zone_crowd.get("arrival_band") or "")
+    zone_name = zone_crowd.get("zone_name")
+    if label is None or not zone_name:
+        return f"{order}번째 {name}: 약 {round(arrival_offset_min)}분 후 도착합니다. 취향·실제 이동시간·혜택 기준 추천입니다."
+    basis = " (예보 기준)" if zone_crowd.get("basis") == "provider_forecast" else ""
+    reason = f"{order}번째 코스 {name}: {when} 도착하면 {zone_name} 권역은 '{label}' 수준일 것으로 보여요{basis}."
+    return reason + _ZONE_USUAL_SENTENCE.get(zone_crowd.get("usual_comparison") or "", "")
+
+
 def _build_stop_reason(
     order: int,
     facility: dict,
@@ -260,6 +298,9 @@ def _build_stop_reason(
     current_congestion: float | None,
 ) -> str:
     """정직·결정적 한국어 사유. LLM 미사용(코스는 재현 가능해야 함)."""
+    zone_crowd = facility.get("zone_crowd")
+    if isinstance(zone_crowd, dict):
+        return _build_zone_stop_reason(order, facility, arrival_offset_min, zone_crowd)
     name = facility.get("name", "이곳")
     if predicted_congestion is None:
         return f"{order}번째 {facility['name']}: 약 {round(arrival_offset_min)}분 후 도착합니다. 취향·실제 이동시간·혜택 기준 추천입니다."
@@ -293,8 +334,16 @@ async def _evaluate_candidate(
     preferred_categories: list[str],
     user_id: str,
     estimates: dict | None = None,
+    *,
+    region: str = PUBLIC_REGION,
+    zone_readings: dict | None = None,
+    wall_now: datetime | None = None,
 ) -> dict:
     """현재 위치/누적 시각에서 후보 하나를 평가한다.
+
+    서울 S3 — ``region`` 이 공개 지역(경주)이 아니면 경주 학습 모델로 도착 혼잡을 예측하지 않고, 구역 근거가
+    있으면 그 **도착 시각** 혼잡(``zone_arrival_level`` — 벽시계 ``wall_now`` 로 관측 나이를 잰다)을 보여 준다.
+    기본값이면 종전과 같다.
 
     - route: 호출부가 슬롯 단위로 **한 번에** 구한 현재 위치→후보 보행 경로(분/m/근거).
       여기서 다시 길찾기를 하지 않는 이유는 호출부 주석 참조(같은 출발점에서 Dijkstra 반복).
@@ -306,9 +355,12 @@ async def _evaluate_candidate(
     travel_min, dist = route.duration_min, route.distance_m
     arrival_offset = cum_offset_min + travel_min
     arrival_dt = now + timedelta(minutes=arrival_offset)
+    is_public_region = region == PUBLIC_REGION
     # predict_congestion 은 동기(로컬 sklearn) — 이벤트 루프 비블로킹 위해 워커 스레드로 오프로드.
-    predicted_congestion = await asyncio.to_thread(
-        predict_congestion, facility["type"], arrival_dt.hour, arrival_dt.weekday()
+    # 경주에서 학습한 모델은 다른 지역의 도착 혼잡을 말하지 않는다(아래 구역 근거가 그 자리를 맡는다).
+    predicted_congestion = (
+        await asyncio.to_thread(predict_congestion, facility["type"], arrival_dt.hour, arrival_dt.weekday())
+        if is_public_region else None
     )
     # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 '현재
     # 혼잡'(재배치기여의 기준선)으로 쓴다. facility 자체는 여러 라운드에 걸쳐 재평가될 수 있어(선택
@@ -325,8 +377,31 @@ async def _evaluate_candidate(
     # now(가정 시각 또는 현재)를 넘겨 모델 예측·업종 예측 기준선이 코스가 쓰는 기준 시각을 따라가게
     # 한다(추정·실측의 '지금' 신선도는 벽시계로 재므로 영향 없다 — build_candidate_evidence docstring).
     evidence = await build_candidate_evidence(
-        facility, congestion_now.get(facility["id"]), estimates, now=now
+        facility, congestion_now.get(facility["id"]), estimates, now=now,
+        **({} if is_public_region else {
+            "region": region, "zone_readings": zone_readings, "wall_now": wall_now,
+        }),
     )
+    zone_crowd = None
+    if evidence.get("evidence_tier") == ZONE_EVIDENCE_TIER:
+        # 정류지에 보이는 숫자는 '도착 시점' 값이다 — 구역 근거도 도착 시각 규칙으로(score 와 같은 함수·같은 시각).
+        evidence_now = wall_now or datetime.now(timezone.utc)
+        arrival = zone_arrival_level(evidence, arrival_dt, wall_now=evidence_now)
+        if arrival is not None:
+            predicted_congestion = arrival.level
+        chosen_zone = next(
+            (z for z in evidence.get("zones") or []
+             if str(z.get("id")) == str(arrival.zone_id if arrival is not None else evidence.get("zone_id"))),
+            {},
+        )
+        zone_crowd = {
+            "zone_name": chosen_zone.get("name"),
+            "arrival_band": arrival.band if arrival is not None else None,
+            "basis": arrival.basis if arrival is not None else None,
+            "observed_at": chosen_zone.get("observed_at"),
+            "forecast_target_at": arrival.forecast_target_at if arrival is not None else None,
+            "usual_comparison": chosen_zone.get("usual_comparison") if evidence.get("is_current") else None,
+        }
 
     # 화면에 싣는 추정 — 순위의 시간비용에는 들어가지 않는다(evidence["source"] 는 그대로라
     # score 의 measured/model 경로가 이것을 보지 못한다. area_stats_rules 후보의 '이미 붐빈다'
@@ -367,9 +442,12 @@ async def _evaluate_candidate(
         **facility,
         "current_count": (
             round(facility.get("capacity", 0) * predicted_congestion)
-            if predicted_congestion is not None else None
+            if predicted_congestion is not None and zone_crowd is None else None
         ),
     }
+    if zone_crowd is not None:
+        # 구역 근거 표시(권역 이름·도착 단계·근거·관측 시각). 권역 단계는 인원이 아니라 current_count 는 비운다.
+        scored_facility["zone_crowd"] = zone_crowd
     scored_facility.pop(CONGESTION_OVERRIDE_KEY, None)
     score_res = await calculate_spot_score(
         user_id=user_id,
@@ -393,6 +471,9 @@ async def _evaluate_candidate(
         travel_time_override=route.duration_min,
         travel_distance_override=route.distance_m,
         travel_source=route.source,
+        # 서울 S3 — 경주면 넘기지 않는다(종전과 같은 인자). 채점의 기준 시각(depart_time)은 정류지 누적 시각이고
+        # 구역 관측의 나이는 실제 벽시계로 잰다.
+        **({} if is_public_region else {"region": region, "evidence_now": wall_now}),
     )
 
     return {
@@ -422,7 +503,7 @@ async def _evaluate_candidate(
 _course_cache = ResponseCache("course_plan")
 
 
-def _course_cache_key(req: CourseRequest) -> tuple:
+def _course_cache_key(req: CourseRequest, region: str = PUBLIC_REGION) -> tuple:
     """_build_course 의 출력을 바꿀 수 있는 입력을 **빠짐없이** 담은 키.
 
       · user_id — 선호 벡터·preferred_categories·calculate_spot_score 가 사용자별이다.
@@ -436,8 +517,10 @@ def _course_cache_key(req: CourseRequest) -> tuple:
 
     핀·순서 지정 요청도 그냥 캐시한다(건너뛰지 않는다). 둘 다 키에 통째로 들어가 있으므로
     '다른 요청' 은 자동으로 다른 키가 되고, 같은 배치를 다시 그리는 경우에만 적중한다.
+
+      · region — 요청 지역(서버가 역할로 정한 값). 공개 지역(경주)이면 넣지 않는다 — 경주 키는 그대로다.
     """
-    return (
+    key = (
         req.user_id,
         *round_location(req.user_lat, req.user_lng),
         tuple(sorted(set(req.types or ()))),
@@ -446,15 +529,21 @@ def _course_cache_key(req: CourseRequest) -> tuple:
         model_signature(req.context),
         assumed_time_bucket(parse_assumed_time(req.assumed_at)),
     )
+    return key if region == PUBLIC_REGION else (*key, ("region", region))
 
 
-async def _course_or_503(req: CourseRequest, current_user: dict) -> CoursePlan:
+async def _course_or_503(
+    req: CourseRequest, current_user: dict, request: Request | None = None
+) -> CoursePlan:
     """두 엔드포인트가 공유하는 가드 + 예외 처리."""
     logger.info("course_request", user_id=req.user_id, types=req.types, sequence=req.sequence)
 
     # 소유권 가드(IDOR 방지): 본문 user_id 는 토큰 주체와 일치해야 한다(타인 선호벡터 조회 차단).
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
+
+    # 요청 지역은 **캐시보다 먼저** 정한다(헤더 없으면 I/O 없이 경주). 키와 파이프라인이 같은 값을 받는다.
+    region = await resolve_request_region(request, current_user) if request is not None else PUBLIC_REGION
 
     # 이 아래는 네트워크 의존 호출이 6곳이다(사용자·시설 조회, 사장님 부스트, 선호벡터
     # 조회/갱신, 혼잡도, 후보 평가). 예전에는 그 중 하나만 흔들려도 그대로 500 "Internal
@@ -469,7 +558,7 @@ async def _course_or_503(req: CourseRequest, current_user: dict) -> CoursePlan:
         # 캐시는 예외 처리 **안쪽**이다 — 미스가 그대로 파이프라인 호출이라 위 503 강등·
         # record_failure 경로가 종전과 똑같이 돈다. 실패는 캐시에 남지 않는다.
         return await _course_cache.get_or_compute(
-            _course_cache_key(req), lambda: _build_course(req)
+            _course_cache_key(req, region), lambda: _build_course(req, region)
         )
     except HTTPException:
         raise
@@ -496,6 +585,7 @@ async def _course_or_503(req: CourseRequest, current_user: dict) -> CoursePlan:
 @router.post("/courses/recommend", response_model=list[CourseStop])
 async def recommend_course(
     req: CourseRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """정류지 배열만 돌려주는 **기존 계약**. 바꾸지 않는다.
@@ -504,13 +594,14 @@ async def recommend_course(
     바꾸면 새 API 가 먼저 뜨는 창에서 구 번들의 `Array.isArray(data) ? data : []` 가 false 로
     떨어져 **장애가 '갈 곳 없음'으로 보인다.** 새 정보가 필요한 화면은 /courses/plan 을 쓴다.
     """
-    plan = await _course_or_503(req, current_user)
+    plan = await _course_or_503(req, current_user, request)
     return plan.stops
 
 
 @router.post("/courses/plan", response_model=CoursePlan)
 async def plan_course(
     req: CourseRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """정류지 + 자리별 결과 + plan_id.
@@ -518,7 +609,7 @@ async def plan_course(
     /recommend 와 같은 계산이다(같은 _build_course). 다른 것은 봉투뿐 — 왜 나눴는지는
     /recommend docstring 참조.
     """
-    return await _course_or_503(req, current_user)
+    return await _course_or_503(req, current_user, request)
 
 
 def _empty_plan(
@@ -565,13 +656,20 @@ def _empty_plan(
     )
 
 
-async def _build_course(req: CourseRequest) -> CoursePlan:
-    """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다."""
+async def _build_course(req: CourseRequest, region: str = PUBLIC_REGION) -> CoursePlan:
+    """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다.
+
+    ``region`` 의 풀에서만 고른다 — 후보·핀·폴백이 전부 그 풀에서 나오므로 지역을 건너지 않는다.
+    """
     # 영업 근거는 여기서 받지 않는다 — 후보 풀이 정해진 뒤 그 몇 곳에만 붙인다(아래 참고).
     # 시설 행은 **공유 캐시 행 그대로**(깊은 복사 없이) 받는다. 아래 풀 확정까지는 읽기만
     # 하고, 풀이 정해지면 그 행들만 깊은 복사한다(1,600여 곳 전체 복사 → 풀 수십 곳).
     user_info, all_facilities = await asyncio.gather(
-        fetch_user(req.user_id), fetch_all_facilities(with_availability=False, copy_rows=False)
+        fetch_user(req.user_id),
+        fetch_all_facilities(
+            with_availability=False, copy_rows=False,
+            region=region,
+        ),
     )
 
     # 순서 지정(sequence) 정규화 — 무효 종류 제거, 코스 길이 상한까지만. 주어지면 types 를 대체한다.
@@ -692,16 +790,28 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     #
     # gather 에 함께 넣는다: 혼잡도·영업정보 왕복과 겹쳐 돌므로 예열이 벽시계 시간을 더하지
     # 않는다. 실패해도 예열 함수가 삼키고 `0` 을 돌려준다 — 최적화가 장애 지점이 되면 안 된다.
-    congestion_now, availability_by_id, _warmed_grids, estimates = await asyncio.gather(
-        fetch_congestion_map(pool_ids),
-        fetch_effective_availability_map(pool_ids),
-        prefetch_area_demand_points(
-            [(float(f["latitude"]), float(f["longitude"])) for f in pool
-             if f.get("latitude") is not None and f.get("longitude") is not None]
-        ),
-        # 추정 묶음(5분 캐시). 실패·지연은 None 으로 삼켜진다 — 코스는 추정 없이도 그대로 짜인다.
-        load_current_estimates(),
-    )
+    # 구역 관측의 신선도는 실제 벽시계로 잰다(아래 now 는 가정 시각일 수 있다).
+    wall_now = datetime.now(timezone.utc)
+    zone_readings: dict = {}
+    if region == PUBLIC_REGION:
+        congestion_now, availability_by_id, _warmed_grids, estimates = await asyncio.gather(
+            fetch_congestion_map(pool_ids),
+            fetch_effective_availability_map(pool_ids),
+            prefetch_area_demand_points(
+                [(float(f["latitude"]), float(f["longitude"])) for f in pool
+                 if f.get("latitude") is not None and f.get("longitude") is not None]
+            ),
+            # 추정 묶음(5분 캐시). 실패·지연은 None 으로 삼켜진다 — 코스는 추정 없이도 그대로 짜인다.
+            load_current_estimates(),
+        )
+    else:
+        # 다른 지역 — 공개 혼잡 로그(경주 전용)·주변 수요 예열·추정(경주 주차·관광 통계)을 읽지 않는다.
+        # 구역 관측은 풀 전체에 대해 **한 번** 받는다(자리마다 다시 읽지 않는다).
+        congestion_now, estimates = {}, None
+        availability_by_id, zone_readings = await asyncio.gather(
+            fetch_effective_availability_map(pool_ids),
+            load_zone_readings(pool_ids, region=region, wall_now=wall_now),
+        )
     pool = attach_availability_evidence(pool, availability_by_id)
     preferred_categories = user_info.get("preferred_categories", [])
     # 데모 '가정 시각'이 있으면 그 시각이 코스의 기준 '지금'이 된다 — 정류지별 누적 도착 시각,
@@ -864,6 +974,9 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             _evaluate_candidate(
                 f, route, cur_lat, cur_lng, cum_offset, now, congestion_now,
                 user_vector, preferred_categories, req.user_id, estimates,
+                **({} if region == PUBLIC_REGION else {
+                    "region": region, "zone_readings": zone_readings, "wall_now": wall_now,
+                }),
             )
             for f, route in zip(pick_from, routes, strict=True)
         ], return_exceptions=True)
@@ -994,7 +1107,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     stops = [
         CourseStop(
             order=i + 1,
-            facility=item["facility"],
+            facility=public_facility_view(item["facility"]),
             arrival_offset_min=item["arrival_offset_min"],
             predicted_congestion=(
                 round(item["predicted_congestion"], 3)
