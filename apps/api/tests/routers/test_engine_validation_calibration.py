@@ -235,9 +235,11 @@ def test_endpoint_returns_the_agreed_contract(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
+    # S4: 순위 관문(보고 전용)이 최상위 키 하나로 붙었다 — 여전히 정확한 집합이다. requirement 는 그대로다
+    # (관문 기준은 rank_gate 안에 산다).
     assert set(body) == {
         "state", "applied", "places", "window_days", "generated_at", "sample", "requirement",
-        "curve", "quality", "hour_shape", "gyeongju_effect", "reason",
+        "curve", "quality", "hour_shape", "gyeongju_effect", "reason", "rank_gate",
     }
     assert body["places"] == ["명동 관광특구", "동대문 관광특구"]
     assert body["window_days"] == 28
@@ -255,3 +257,36 @@ def test_endpoint_returns_the_agreed_contract(monkeypatch):
     assert set(body["hour_shape"]["seoul"][0]) >= {"hour", "weekday_mean", "weekend_mean", "n"}
     assert set(body["gyeongju_effect"]) == {"samples", "median_shift"}
     assert set(body["gyeongju_effect"]["samples"][0]) == {"raw", "calibrated"}
+    gate = body["rank_gate"]
+    assert set(gate) == {
+        "status", "enforced", "holdout_spearman", "pooled_spearman", "holdout_sites", "anomaly_rho",
+        "anomaly_rho_se", "anomaly_rho_ci_low", "anomaly_ci_method",
+        "min_anomaly_rho", "anomaly_slot_minutes", "min_holdout_spearman",
+        "mae_constant", "mae_calibrated", "beats_constant", "holdout_samples", "holdout_days",
+        "min_holdout_samples", "min_holdout_days", "definition", "reason",
+    }
+    # 6일 창 → 홀드아웃 2일 < 5일. 적용(applied=True)과 무관하게 관문은 판정하지 않는다 — 보고 전용이다.
+    assert gate["enforced"] is False and gate["status"] == "insufficient"
+    assert body["applied"] is True
+
+
+def test_rank_gate_is_null_when_there_is_nothing_to_judge(monkeypatch):
+    _install(monkeypatch, error=Exception(
+        "{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}"
+    ))
+    assert cal.build_report(28, now=NOW)["rank_gate"] is None
+
+    _install(monkeypatch, seoul=[])
+    assert cal.build_report(28, now=NOW)["rank_gate"] is None
+
+
+def test_rank_gate_judges_a_long_enough_window(monkeypatch):
+    _install(monkeypatch, seoul=_seoul_rows(days=15, per_day=40))
+    response = _client().get(
+        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=developer_headers()
+    )
+
+    assert response.status_code == 200
+    gate = response.json()["rank_gate"]
+    assert gate["status"] == "pass" and gate["holdout_days"] == 5
+    assert gate["holdout_spearman"] == 1.0 and gate["beats_constant"] is True
