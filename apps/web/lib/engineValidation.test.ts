@@ -70,25 +70,33 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 
 // --- 상태 문구: 수집 전 / 멈춤 / 모으는 중 / 판정 가능 ----------------------------
 {
-  // 수집 전 상태는 운영 중인 연동으로 말한다 — 마이그레이션 파일명·인증키·잡 이름은 화면에 내보내지 않는다.
+  // 실시간 데이터 리허설(§6 S6): 표가 없거나 행이 없는 상태를 '가동 중' 으로 말하지 않는다. 관리자 전용 화면이라
+  // 사람이 할 일(마이그레이션 파일·인증키·수집 잡)을 그대로 적는다 — 예전 판(심사 기간)은 이를 감췄다.
   const notMigrated = describeState(summary({ state: 'not_migrated', collection: null }), null);
-  assert.equal(notMigrated.tone, 'info');
-  assert.match(notMigrated.title, /서울 실시간 도시데이터 연동 가동 중/);
-  assert.match(notMigrated.detail, /10분 주기로 표본을 수집하는 중입니다/);
-  assert.doesNotMatch(notMigrated.detail, /20260920120000|\.sql|SEOUL_OPENDATA_KEY|pg_cron/, '내부 식별자를 화면에 내보내지 않는다');
+  assert.equal(notMigrated.tone, 'error');
+  assert.match(notMigrated.title, /수집 표가 없습니다 — 마이그레이션 미적용/);
+  assert.match(notMigrated.detail, /20260920120000_seoul_citydata_snapshots\.sql/);
+  assert.match(notMigrated.detail, /사람 작업/);
+  assert.doesNotMatch(notMigrated.title + notMigrated.detail, /가동 중|수집하는 중/, '표가 없는데 돌고 있다고 말하지 않는다');
 
   const empty = describeState(summary({ state: 'empty' }), null);
-  assert.match(empty.title, /서울 실시간 도시데이터 연동 가동 중/);
-  assert.doesNotMatch(empty.detail, /SEOUL_OPENDATA_KEY|pg_cron/);
-  assert.doesNotMatch(empty.title, /실패|오류/, '수집 전은 실패가 아니다');
+  assert.equal(empty.tone, 'warn');
+  assert.match(empty.title, /수집된 행이 없습니다/);
+  assert.match(empty.detail, /SEOUL_OPENDATA_KEY/);
+  assert.doesNotMatch(empty.title + empty.detail, /가동 중/);
 
   const stalled = describeState(summary({ state: 'stalled', collection: { ...summary().collection!, latest_age_minutes: 60 * 24 * 20 } }), null);
   assert.equal(stalled.tone, 'error');
+  assert.match(stalled.title, /수집 멈춤/);
   assert.match(stalled.detail, /20일/);
+  assert.doesNotMatch(stalled.detail, /자동으로 재시도/, '멈춘 수집을 곧 풀릴 것처럼 말하지 않는다');
 
   const collecting = describeState(summary(), place());
   assert.match(collecting.title, /실측 대조 1\.8시간째 · 집계 중/);
   assert.match(collecting.detail, /버킷 12개 수집 · 판정 기준 36개/);
+  assert.doesNotMatch(collecting.detail, /10분마다/, '주기를 모르면 10분이라고 지어내지 않는다');
+  const thirty = describeState(summary(), place({ cadence_minutes: 30 }));
+  assert.match(thirty.detail, /이 대상지는 30분마다 수집합니다/);
 
   const ready = describeState(summary({ state: 'ready' }), place({ sufficient: true, hours_covered: 80, days_covered: 4, bucket_count: 480 }));
   assert.equal(ready.tone, 'ok');
@@ -164,6 +172,15 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   assert.equal(rows.length, 4, '끊긴 구간에 null 행을 끼워 선을 잇지 않는다');
   assert.equal(rows[2].actual, null);
   assert.equal(rows[3].actualGrade, '보통');
+
+  // 30분 주기 대상지: 10분 간격으로 보면 모든 점 사이가 '끊김' 이 되어 선이 하나도 이어지지 않는다.
+  const thirty = [
+    point('2026-09-21T00:10:00+00:00', 0.1),
+    point('2026-09-21T00:40:00+00:00', 0.2),
+    point('2026-09-21T01:10:00+00:00', 0.3),
+  ];
+  assert.equal(chartRows(thirty).length, 5, '10분 간격으로 보면 끊김 2개가 끼어든다');
+  assert.equal(chartRows(thirty, 30).length, 3, '실제 간격(30분)으로 보면 이어진다');
 }
 
 // --- 혼동표 칸 ---------------------------------------------------------------------
@@ -203,12 +220,15 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 // 메뉴에서 들어갈 수 있어야 하고, 출처 표기(공공누리 1유형)와 한 곳 주의가 화면에 있어야 한다.
 {
   const sidebar = readFileSync(join(WEB, 'components/AdminSidebar.tsx'), 'utf8');
-  assert.match(sidebar, /'엔진 검증', path: '\/admin\/engine-validation'/);
+  assert.match(sidebar, /'실시간 데이터 리허설', path: '\/admin\/engine-validation'/);
   const page = readFileSync(join(WEB, 'app/admin/engine-validation/page.tsx'), 'utf8');
   assert.match(page, /SEOUL_ATTRIBUTION/);
   assert.match(page, /sampleCaveat/);
   assert.match(page, /summaryPath/);
-  assert.match(page, /엔진 검증 — 서울 실시간 도시데이터/);
+  assert.match(page, /실시간 데이터 리허설 — 서울 실시간 도시데이터/);
+  assert.match(page, /RehearsalStatusPanel/);
+  assert.match(page, /DecisionQualityPanel/);
+  assert.doesNotMatch(page, /가동 중/, '수집 상태를 고정 문구로 단정하지 않는다');
   assert.match(page, /경주 ITS 공영주차 실시간 점유율/);
   assert.match(page, /10분 주기로 갱신되는 실측 데이터/);
   assert.doesNotMatch(page, /§|docs\/|level_est|표본 없음/, '심사 화면에 내부 참조를 남기지 않는다');

@@ -29,6 +29,7 @@ import {
   type CalibrationView,
   type Tone,
 } from '@/lib/engineValidation';
+import { calibrationPace, type PipelineTarget } from '@/lib/rehearsalStatus';
 
 type LoadState =
   | { status: 'loading' }
@@ -43,7 +44,8 @@ const TONE_BOX: Record<Tone, string> = {
   error: 'bg-rose-500/10 border-rose-500/30 text-rose-700',
 };
 
-export function SeoulCalibrationPanel() {
+// targets: 요약 응답의 대상지별 수집 상태(주기). 보정 관문을 채우는 속도를 주기로 말하는 데만 쓴다 — 없으면 그 줄을 생략한다.
+export function SeoulCalibrationPanel({ targets = [] }: { targets?: PipelineTarget[] } = {}) {
   const [reloadKey, setReloadKey] = useState(0);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
 
@@ -141,6 +143,10 @@ export function SeoulCalibrationPanel() {
               {data.curve?.fitted_at && <span>적합 시각 {formatKst(data.curve.fitted_at)}</span>}
             </p>
           )}
+          {data && (() => {
+            const pace = calibrationPace(data.places, targets, data.sample.paired_buckets, data.requirement.min_paired_buckets);
+            return pace ? <p className="text-[11px] text-hanok-muted mt-1">{pace}</p> : null;
+          })()}
         </div>
       )}
 

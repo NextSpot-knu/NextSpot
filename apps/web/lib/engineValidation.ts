@@ -78,6 +78,10 @@ export interface PlaceSummary {
   zero_live_lot_buckets: number;
   sufficient: boolean;
   normalization: { method: string; max_midpoint: number | null; max_midpoint_bucket_at: string | null };
+  /** 설정 주기(분). 지금 설정에 없는 대상지면 null. 이전 서버는 이 필드가 없다. */
+  cadence_minutes?: number | null;
+  /** 실제 버킷 간격 중앙값(분) — 최소 표본이 몇 시간인지, 차트 끊김 간격을 이 값으로 정한다. */
+  median_bucket_gap_minutes?: number | null;
   metrics: ValidationMetric[];
   omitted_metrics: OmittedMetric[];
   confusion: { labels: string[]; matrix: number[][]; total: number };
@@ -110,6 +114,10 @@ export interface ValidationSummary {
   omitted_metrics: OmittedMetric[];
   collection: CollectionStatus | null;
   places: PlaceSummary[];
+  /** 대상지별 수집 상태 — lib/rehearsalStatus.ts 의 parsePipeline 으로 읽는다(이전 서버는 없다). */
+  pipeline?: unknown;
+  /** 결정 품질(S4) — lib/rehearsalStatus.ts 의 parseDecisionQuality. */
+  decision_quality?: unknown;
 }
 
 const STATES: readonly ValidationState[] = ['not_migrated', 'empty', 'stalled', 'collecting', 'ready'];
@@ -195,19 +203,25 @@ function formatAge(minutes: number | null): string {
 /** 수집·판정 상태를 한 줄 제목 + 설명으로. place 는 선택된 대상지(없으면 전체 기준). */
 export function describeState(summary: ValidationSummary, place: PlaceSummary | null): StateNotice {
   const collection = summary.collection;
+  // 표가 없거나 행이 없는 상태를 '가동 중' 으로 말하지 않는다(§6 S6). 할 일을 그대로 적는다.
   switch (summary.state) {
     case 'not_migrated':
+      return {
+        tone: 'error',
+        title: '수집 표가 없습니다 — 마이그레이션 미적용',
+        detail: `${summary.migration} 을 Supabase SQL Editor 에서 적용하고 스키마 캐시를 새로 읽혀야 수집·지표가 시작됩니다(사람 작업).`,
+      };
     case 'empty':
       return {
-        tone: 'info',
-        title: '서울 실시간 도시데이터 연동 가동 중',
-        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
+        tone: 'warn',
+        title: '수집된 행이 없습니다',
+        detail: '표는 있지만 한 줄도 쌓이지 않았습니다 — 서울 인증키(SEOUL_OPENDATA_KEY)와 pg_cron 수집 잡을 확인하세요.',
       };
     case 'stalled':
       return {
         tone: 'error',
-        title: '수집 재연결 대기',
-        detail: `다음 주기에 자동으로 재시도합니다. 최근 ${summary.window_days}일 구간의 마지막 대조 표본은 ${formatAge(collection?.latest_age_minutes ?? null)}에 수집되었습니다.`,
+        title: `수집 멈춤 — 최근 ${summary.window_days}일 안에 행이 없습니다`,
+        detail: `마지막 행은 ${formatAge(collection?.latest_age_minutes ?? null)}입니다. 아래 대상지별 수집 상태에서 마지막 시도와 오류를 확인하세요.`,
       };
     default:
       break;
@@ -218,11 +232,13 @@ export function describeState(summary: ValidationSummary, place: PlaceSummary | 
     ? ` 최근 대조 표본은 ${formatAge(collection.latest_age_minutes)} 기준이며 다음 주기에 자동으로 갱신됩니다.`
     : '';
   const sufficient = place ? place.sufficient : summary.state === 'ready';
+  const cadence = place?.cadence_minutes;
+  const refresh = typeof cadence === 'number' && cadence > 0 ? ` 이 대상지는 ${cadence}분마다 수집합니다.` : '';
   if (!sufficient) {
     return {
       tone: collection?.stale ? 'warn' : 'info',
       title: `실측 대조 ${formatDuration(hours)}째 · 집계 중`,
-      detail: `버킷 ${buckets}개 수집 · 판정 기준 ${summary.min_samples}개. 값은 10분마다 갱신됩니다.${staleSuffix}`,
+      detail: `버킷 ${buckets}개 수집 · 판정 기준 ${summary.min_samples}개.${refresh}${staleSuffix}`,
     };
   }
   return {
@@ -515,17 +531,22 @@ export function formatPopulationRange(min: number | null, max: number | null): s
 export function describeAlternativesState(data: AlternativesResponse): StateNotice {
   switch (data.state) {
     case 'not_migrated':
+      return {
+        tone: 'error',
+        title: '수집 표가 없습니다 — 마이그레이션 미적용',
+        detail: '원본 표가 없어 실측 인구가 없습니다. 위 수집 상태의 할 일을 먼저 처리해야 합니다.',
+      };
     case 'empty':
       return {
-        tone: 'info',
-        title: '서울 실시간 도시데이터 연동 가동 중',
-        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
+        tone: 'warn',
+        title: '시연 권역의 행이 없습니다',
+        detail: '홍대·연남동·합정역 행이 한 줄도 없습니다 — 수집 대상지 설정과 수집 잡을 확인하세요.',
       };
     case 'stale':
       return {
         tone: 'warn',
         title: `최근 관측 기준 — 마지막 실측 ${formatAge(data.latest_age_minutes)}`,
-        detail: '수집 주기는 10분입니다. 아래 값은 가장 최근에 받은 관측이며, 관측 시각과 함께 표시합니다.',
+        detail: `신선도 기준(${data.stale_after_minutes}분, 대상지 수집 주기로 정함)보다 오래됐습니다. 아래 값은 가장 최근에 받은 관측이며, 관측 시각과 함께 표시합니다.`,
       };
     default:
       return {
@@ -698,11 +719,16 @@ export function describeCalibrationState(
   const need = data.requirement;
   switch (data.state) {
     case 'not_migrated':
+      return {
+        tone: 'error',
+        title: '수집 표가 없습니다 — 마이그레이션 미적용',
+        detail: '원본 표가 없어 보정 쌍을 만들 수 없습니다. 위 수집 상태의 할 일을 먼저 처리해야 합니다.',
+      };
     case 'empty':
       return {
-        tone: 'info',
-        title: '서울 실시간 도시데이터 연동 가동 중',
-        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
+        tone: 'warn',
+        title: '보정 쌍이 없습니다',
+        detail: '보정 대상지(명동·동대문)의 주차·인구 쌍이 한 건도 없습니다 — 위 수집 상태에서 두 대상지를 확인하세요.',
       };
     case 'insufficient':
       return {

@@ -46,7 +46,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from app.services import engine_validation_metrics as metrics
 from app.services.spot.travel import (
@@ -83,7 +83,10 @@ DEMO_CLUSTER: tuple[DemoPlace, ...] = (
 
 DEFAULT_ORIGIN = DEMO_CLUSTER[0].area_nm
 
-# 수집 주기가 10분이다. 최신 버킷이 이보다 오래됐으면 "지금" 이라고 말하지 않는다.
+# 최신 버킷이 이보다 오래됐으면 "지금" 이라고 말하지 않는다. 이 값은 **주기를 모를 때의 기본값**(10분 주기
+# 시절의 기준)이다. 라우터는 대상지별 주기로 정한 기준(`seoul_collection_status.stale_after_minutes` —
+# max(30, 2 × 주기 + 5): 20분 대상지면 45분)을 `build_places(stale_after=…)` 로 넘긴다. 30분 고정이면
+# 20분 주기의 홍대 권역이 한 번만 늦어도(나이 최대 약 24분 → 44분) '지금이 아님' 으로 뒤집힌다.
 STALE_AFTER_MINUTES = 30
 
 # 정규화(동률 가늠자)와 '이 장소의 평소 대비' 표시를 위해 보는 창. 지표 창(14일)보다 짧다 —
@@ -217,8 +220,12 @@ def build_places(
     *,
     origin: str,
     now: datetime,
+    stale_after: Mapping[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    """시연 권역 3곳 카드. **행이 없어도 3장을 다 만든다** — 빈 카드가 곧 '아직 안 들어왔다' 라는 사실이다."""
+    """시연 권역 3곳 카드. **행이 없어도 3장을 다 만든다** — 빈 카드가 곧 '아직 안 들어왔다' 라는 사실이다.
+
+    `stale_after` 는 대상지 이름 → 신선도 기준(분). 없거나 빠진 대상지는 `STALE_AFTER_MINUTES`(30분).
+    """
     observations = latest_by_place(rows)
     origin_place = next(place for place in DEMO_CLUSTER if place.area_nm == origin)
     hour = now.astimezone(_KST).hour
@@ -226,6 +233,7 @@ def build_places(
     for place in DEMO_CLUSTER:
         observation = observations.get(place.area_nm)
         is_origin = place.area_nm == origin
+        threshold = int((stale_after or {}).get(place.area_nm, STALE_AFTER_MINUTES))
         straight_m = calculate_haversine_distance(
             origin_place.latitude, origin_place.longitude, place.latitude, place.longitude
         )
@@ -264,7 +272,8 @@ def build_places(
                 "bucket_at": _iso(observation.bucket_at) if observation else None,
                 "observed_at": _iso(observation.observed_at) if observation else None,
                 "age_minutes": round(age, 1) if age is not None else None,
-                "stale": age is not None and age > STALE_AFTER_MINUTES,
+                "stale": age is not None and age > threshold,
+                "stale_after_minutes": threshold,
                 "congest_lvl": observation.congest_lvl if observation else None,
                 "grade": grade,
                 "level": level,
