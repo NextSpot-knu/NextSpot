@@ -58,6 +58,7 @@ def _isolate(monkeypatch):
     monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", FAKE_KEY)
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", DEFAULT_TARGETS)
     monkeypatch.setattr(settings, "TOURAPI_KEY", "")
+    monkeypatch.setattr(seoul, "_probe_table", lambda: None)
     yield
     seoul.reset_state()
 
@@ -159,13 +160,17 @@ def test_default_schedule_primary_calls_and_per_bucket_ceiling():
     per_bucket = [len(seoul.due_targets(schedule, _at_bucket(n))[0]) for n in range(144)]
     assert sum(per_bucket) == 720 == 3 * 144 + 4 * 48 + 2 * 48
     assert sorted(set(per_bucket)) == [3, 5, 7]
-    # pg_cron 요청 제한 90초: 조회는 _FETCH_CONCURRENCY 개씩 동시다. 차례인 대상지가 전부 요청 제한(10초)
-    # 까지 걸리고 관광 성분 조회(15초)도 시간 초과인 최악 = ceil(7/4)×10 + 15 = 35초. 나머지가 저장(대상지당
-    # upsert 2번)의 몫인데, httpx 10초가 단계별 제한이라는 점까지 생각해 조회 몫을 제한의 절반 아래로 묶는다.
+    # pg_cron 요청 제한 90초. httpx 제한은 단계별(연결·읽기 덩어리마다)이라 곱셈으로는 상한이 안 나온다 —
+    # 그래서 시간은 마감으로 묶는다. 여기서는 (1) 정상 최악(전부 연결 5 + 읽기 10 까지)이 조회 마감 안이고
+    # (2) 마감들이 90초 안에 응답을 돌려줄 순서로 놓였는지 본다.
     waves = math.ceil(max(per_bucket) / seoul._FETCH_CONCURRENCY)
-    fetch_worst = waves * seoul._REQUEST_TIMEOUT_SECONDS + seoul._TOURISM_TIMEOUT_SECONDS
-    assert (waves, fetch_worst) == (2, 35.0)
-    assert fetch_worst <= 90 / 2
+    timeout = seoul._SEOUL_HTTP_TIMEOUT
+    nominal_fetch = waves * (timeout.connect + timeout.read)
+    assert (waves, nominal_fetch) == (2, 30.0)
+    # 홍대(첫 묶음)의 관광 성분 조회는 둘째 묶음과 겹치지만, 겹치지 않는다고 쳐도 마감 안이다.
+    assert nominal_fetch + seoul._TOURISM_TIMEOUT_SECONDS <= seoul._FETCH_DEADLINE_SECONDS
+    assert seoul._PROBE_TIMEOUT_SECONDS + seoul._FETCH_DEADLINE_SECONDS < seoul._RUN_DEADLINE_SECONDS
+    assert seoul._WRITE_TIMEOUT_SECONDS < seoul._RUN_DEADLINE_SECONDS <= 90 - 10
 
 
 def test_worst_case_assumes_retry_job_from_20260920140000():
@@ -316,6 +321,66 @@ def test_concurrent_fetch_is_bounded_and_isolates_slow_and_failed_targets(monkey
     assert status["targets"][broken]["error_code"] == "seoul_timeout"
     assert status["targets"][slow]["state"] == "stored"
     assert status["zone_snapshots"]["stored_count"] == 6
+
+
+def test_fetch_deadline_keeps_finished_targets_and_marks_the_rest_timeout(monkeypatch):
+    """조회 마감까지 못 끝낸 대상지만 seoul_timeout — 끝낸 대상지는 그대로 저장된다."""
+    monkeypatch.setattr(seoul, "_FETCH_DEADLINE_SECONDS", 0.2)
+    stuck = "북촌한옥마을"
+
+    async def fetch(_client, _key, area_nm):
+        await asyncio.sleep(5 if area_nm == stuck else 0.01)
+        return copy.deepcopy(_payload_for(area_nm))
+
+    legacy: list[dict] = []
+    monkeypatch.setattr(seoul, "fetch_citydata", fetch)
+    monkeypatch.setattr(seoul, "_upsert_row", legacy.append)
+    monkeypatch.setattr(crowd_store, "_upsert_row", lambda _row: None)
+
+    result = asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT))
+
+    expected = HONGDAE_CLUSTER + JONGNO
+    assert [t["area_nm"] for t in result["targets"]] == expected
+    by_name = {t["area_nm"]: t for t in result["targets"]}
+    assert by_name[stuck]["state"] == "failed" and by_name[stuck]["error_code"] == "seoul_timeout"
+    assert [row["area_nm"] for row in legacy] == [name for name in expected if name != stuck]
+    assert result["state"] == "partial"
+
+
+def test_stalled_write_is_bounded_and_later_targets_still_written(monkeypatch):
+    """기존 표 upsert 하나가 멈춰도 그 대상지만 seoul_persistence_timeout 이고 나머지는 쓴다."""
+    import time as _time
+
+    monkeypatch.setattr(seoul, "_WRITE_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", f"{HONGDAE},연남동,합정역")
+    written: list[str] = []
+
+    def upsert(row):
+        if row["area_nm"] == "연남동":
+            _time.sleep(0.5)  # 스레드 안의 동기 upsert 가 멈춘 상황(취소할 수 없다)
+        written.append(row["area_nm"])
+
+    recorder = _wire(monkeypatch)
+    monkeypatch.setattr(seoul, "_upsert_row", upsert)
+    result = asyncio.run(seoul.collect_seoul_citydata(now=_at_bucket(6)))
+
+    states = {t["area_nm"]: (t["state"], t["error_code"]) for t in result["targets"]}
+    assert states == {
+        HONGDAE: ("stored", None),
+        "연남동": ("failed", "seoul_persistence_timeout"),
+        "합정역": ("stored", None),
+    }
+    assert [row["zone_id"] for row in recorder.zone] == ["seoul:POI007", "seoul:POI053"]
+
+
+def test_run_deadline_skips_writes_when_no_time_is_left(monkeypatch):
+    monkeypatch.setattr(seoul, "_RUN_DEADLINE_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", HONGDAE)
+    recorder = _wire(monkeypatch)
+    result = asyncio.run(seoul.collect_seoul_citydata(now=_at_bucket(6)))
+    assert recorder.legacy == [] and recorder.zone == []
+    assert result["targets"][0]["error_code"] == "seoul_persistence_timeout"
+    assert result["zone_snapshots"]["state"] == "skipped"
 
 
 def test_bucket_with_nobody_due_calls_nothing(monkeypatch):

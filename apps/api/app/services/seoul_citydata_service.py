@@ -82,7 +82,13 @@ MIGRATION = "20260920120000_seoul_citydata_snapshots.sql"
 
 _BASE_URL = "http://openapi.seoul.go.kr:8088"
 _HOST = "openapi.seoul.go.kr"
-_REQUEST_TIMEOUT_SECONDS = 10.0
+# 서울 API 호출 한 번의 httpx 제한. httpx 의 값은 **단계별**이다(연결·쓰기·풀 대기 각각, 읽기는 덩어리마다):
+#   · connect 5초 — 정상 연결은 1초 안이다. 연결이 5초 넘게 안 되면 그 버킷은 버린다(다음 차례가 있다).
+#   · read 10초  — 서울시 서버가 응답을 만드는 시간(대상지 1곳, 실측 1~3초)을 넉넉히 덮는다.
+#   · write·pool 5초 — 요청 본문이 없고(GET), 동시 4개라 풀(기본 100)을 기다릴 일이 사실상 없다.
+# 단계별 제한이라 한 호출의 상한은 이 합보다 길 수 있다(읽기 덩어리가 천천히 이어지면). 그래서 아래
+# _FETCH_DEADLINE_SECONDS 가 조회 단계 **전체**를 다시 묶는다.
+_SEOUL_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 # 산식이 바뀌면 올린다. 지표 모듈(engine_validation_metrics)은 최신 버전 행끼리만 비교한다.
 # 구성: 주차 2km 가중 점유율(cell_demand_level) · 0.7/0.3 혼합(blend_level) · 보정 f = 항등.
@@ -261,9 +267,11 @@ def get_collection_status() -> dict[str, Any]:
 
 def reset_state() -> None:
     """테스트 격리용."""
-    global _status
+    global _status, _table_confirmed
     _status = _initial_status()
     _tourism_cache.clear()
+    _tourism_inflight.clear()
+    _table_confirmed = False
 
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
@@ -643,8 +651,11 @@ async def fetch_citydata(client: httpx.AsyncClient, key: str, area_nm: str) -> A
 
 # ── 관광 성분(선택) ───────────────────────────────────────────────────────────
 
-# {area_nm: (만료 monotonic, KST 날짜, level)}. 집중률은 **하루 한 값**이라 10분마다 부를 이유가 없다.
-_tourism_cache: dict[str, tuple[float, str, float | None]] = {}
+# {(시군구 코드, KST 날짜): (만료 monotonic, 집중률 행 또는 None=실패)}. 집중률은 **하루 한 값**이고
+# 시군구 단위로 받으므로, 같은 시군구의 대상지(홍대·연남동·합정역 = 마포구 11440)가 몇 곳이든 한 번만 받는다.
+_tourism_cache: dict[tuple[int, str], tuple[float, list[dict[str, Any]] | None]] = {}
+# 같은 (시군구, 날짜) 를 동시에 찾는 대상지들이 한 번의 조회를 함께 기다리게 하는 진행 중 작업.
+_tourism_inflight: dict[tuple[int, str], asyncio.Task] = {}
 _TOURISM_TTL_SECONDS = 6 * 3600.0
 _TOURISM_FAIL_TTL_SECONDS = 3600.0
 _TOURISM_TIMEOUT_SECONDS = 15.0
@@ -700,23 +711,46 @@ async def tourism_level_for(area_nm: str, *, date_kst: str) -> float | None:
         return None
     if not (settings.TOURAPI_KEY or "").strip():
         return None
-    cached = _tourism_cache.get(area_nm)
-    now = time.monotonic()
-    if cached and cached[1] == date_kst and cached[0] > now:
-        return cached[2]
+    rows = await _signgu_rows(profile.signgu_code, date_kst)
+    if rows is None:
+        return None
+    return match_tourism_level(rows, profile.tourism_names, date_kst)
+
+
+async def _fetch_signgu_rows(signgu_code: int, date_kst: str) -> list[dict[str, Any]] | None:
+    """시군구 집중률을 한 번 받아 캐시에 넣는다. **예외를 내지 않는다**(실패는 None, 짧게 캐시)."""
+    key = (signgu_code, date_kst)
     try:
-        rows = await asyncio.wait_for(
-            _load_signgu_concentration(profile.signgu_code), timeout=_TOURISM_TIMEOUT_SECONDS
-        )
-        level = match_tourism_level(rows, profile.tourism_names, date_kst)
+        rows = await asyncio.wait_for(_load_signgu_concentration(signgu_code), timeout=_TOURISM_TIMEOUT_SECONDS)
         ttl = _TOURISM_TTL_SECONDS
     except Exception as exc:  # noqa: BLE001 — 관광 성분은 선택이다. 미승인(403)·타임아웃 모두 None
         # 예외 문자열에는 serviceKey 가 든 URL 이 섞일 수 있어 종류만 남긴다.
-        logger.warning("seoul_tourism_level_unavailable", area_nm=area_nm, error_type=type(exc).__name__)
-        level = None
+        logger.warning("seoul_tourism_level_unavailable", signgu_code=signgu_code, error_type=type(exc).__name__)
+        rows = None
         ttl = _TOURISM_FAIL_TTL_SECONDS
-    _tourism_cache[area_nm] = (now + ttl, date_kst, level)
-    return level
+    _tourism_cache[key] = (time.monotonic() + ttl, rows)
+    return rows
+
+
+def _forget_inflight(key: tuple[int, str], task: asyncio.Task) -> None:
+    if _tourism_inflight.get(key) is task:
+        del _tourism_inflight[key]
+
+
+async def _signgu_rows(signgu_code: int, date_kst: str) -> list[dict[str, Any]] | None:
+    """(시군구, 날짜) 의 집중률 행. 캐시 → 진행 중 조회 합류 → 새 조회 순서. 실패는 None."""
+    key = (signgu_code, date_kst)
+    cached = _tourism_cache.get(key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    loop = asyncio.get_running_loop()
+    task = _tourism_inflight.get(key)
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = loop.create_task(_fetch_signgu_rows(signgu_code, date_kst))
+        _tourism_inflight[key] = task
+        task.add_done_callback(lambda done, key=key: _forget_inflight(key, done))
+    # shield: 기다리던 대상지 하나가 취소돼도(조회 마감) 같은 조회를 기다리는 다른 대상지는 계속 받는다.
+    return await asyncio.shield(task)
 
 
 # ── 저장 ──────────────────────────────────────────────────────────────────────
@@ -746,6 +780,35 @@ async def _persist(row: dict[str, Any]) -> None:
             raise SeoulSnapshotPersistenceError("migration_not_applied") from None
         logger.error("seoul_citydata_persist_failed", area_nm=row.get("area_nm"), error_type=type(exc).__name__)
         raise SeoulSnapshotPersistenceError("seoul_persistence_failed") from None
+
+
+def _probe_table() -> None:
+    supabase_admin.table(TABLE).select("id").limit(0).execute()
+
+
+# 표가 있다는 것을 한 번 확인하면 프로세스가 사는 동안 다시 묻지 않는다(표는 사라지지 않는다).
+_table_confirmed = False
+_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+async def _ensure_table_present() -> None:
+    """조회 **전에** 저장 표가 있는지 본다. 없으면 migration_not_applied — 서울 API 를 한 번도 부르지 않는다.
+
+    동시 조회로 바꾼 뒤 표가 없으면 버킷마다 차례 수(최대 7회)만큼 호출을 버리게 됐다(순차 시절 1회).
+    확인 자체가 실패하면(네트워크·시간 초과 등) 판정을 미루고 수집을 계속한다 — 그 경우에도 저장 단계의
+    첫 행에서 같은 코드로 멈추므로 결과는 같고, 확인 실패가 수집을 막지는 않는다.
+    """
+    global _table_confirmed
+    if _table_confirmed:
+        return
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_probe_table), timeout=_PROBE_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001
+        if is_missing_table(exc):
+            raise SeoulSnapshotPersistenceError("migration_not_applied") from None
+        logger.warning("seoul_citydata_table_probe_failed", error_type=type(exc).__name__)
+        return
+    _table_confirmed = True
 
 
 _LATEST_COLUMNS = (
@@ -799,10 +862,22 @@ def _observation_or_none(parsed: dict[str, Any], fetched_at: datetime):
         return None
 
 
-# 서울 API 동시 요청 상한. 버킷당 최대 7곳을 순서대로 부르면 최악(전부 시간 초과) 70초 + 관광 15초로
-# pg_cron 요청 제한(90초)에 너무 가깝다. 4개씩 부르면 ceil(7/4) = 2 묶음 → 20초. 서울 API 에 한꺼번에
-# 몰지 않도록 상한은 작게 둔다.
+# ── 시간 예산(pg_cron 요청 제한 90초) ──────────────────────────────────────────
+# 서울 API 동시 요청 상한. 서울 API 에 한꺼번에 몰지 않도록 작게 둔다.
 _FETCH_CONCURRENCY = 4
+# 조회 단계(서울 호출 + 파싱 + 관광 성분) 전체 마감. 못 끝낸 대상지는 seoul_timeout 으로 남기고, 끝낸
+# 대상지의 결과는 그대로 쓴다. 정상 최악(전부 단계 제한까지): 연결 5 + 읽기 10 = 15초 × ceil(7/4) = 2 묶음
+# = 30초, 첫 묶음의 홍대 관광 성분 조회(최대 15초)는 둘째 묶음과 겹친다 → 약 30~35초. 45초는 그 위에
+# 읽기 덩어리 지연을 조금 허용하는 값이다.
+_FETCH_DEADLINE_SECONDS = 45.0
+# 기존 표 upsert 한 번의 제한. Supabase 클라이언트의 httpx 제한(120초, core/supabase.py)보다 짧게
+# 묶는다. 시간을 넘기면 그 대상지는 seoul_persistence_timeout 이고, 스레드의 upsert 는 취소할 수 없어
+# **뒤늦게 성공할 수 있다**(같은 버킷 upsert 라 중복 행은 생기지 않는다 — 결과에 실패로 적힌 행이 표에는
+# 있을 수 있다는 뜻이다).
+_WRITE_TIMEOUT_SECONDS = 8.0
+# 실행 전체 마감(표 확인 + 조회 + 저장 + 이중 저장). 90초에서 응답 전송 여유 10초를 뺐다. 저장 단계는
+# 남은 시간 안에서만 돌고, 남은 시간이 없으면 남은 대상지는 쓰지 않고 seoul_persistence_timeout 으로 남긴다.
+_RUN_DEADLINE_SECONDS = 80.0
 
 
 def _failed_result(area_nm: str, error_code: str, upstream_code: str | None = None) -> dict[str, Any]:
@@ -852,6 +927,37 @@ async def _prepare_one(
     return _Prepared(area_nm, parsed=parsed, row=row, stale=stale, fetched_at=fetched_at)
 
 
+async def _prepare_all(
+    key: str, due: list[str], *, now: datetime | None, bucket_at: datetime
+) -> list[_Prepared]:
+    """차례인 대상지를 동시에(상한 _FETCH_CONCURRENCY) 조회한다. 마감(_FETCH_DEADLINE_SECONDS)까지 못
+    끝낸 대상지는 취소하고 seoul_timeout 으로 남긴다 — 끝낸 대상지의 결과는 잃지 않는다. 순서는 설정 순서."""
+    if not due:
+        return []
+    semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
+    async with httpx.AsyncClient(timeout=_SEOUL_HTTP_TIMEOUT, follow_redirects=False) as client:
+        tasks = [
+            asyncio.create_task(
+                _prepare_one(client, key, area_nm, now=now, bucket_at=bucket_at, semaphore=semaphore)
+            )
+            for area_nm in due
+        ]
+        _done, pending = await asyncio.wait(tasks, timeout=_FETCH_DEADLINE_SECONDS)
+        for task in pending:
+            task.cancel()
+        if pending:
+            # 취소가 끝날 때까지 기다린다(클라이언트를 닫기 전에 — 열린 요청을 남기지 않게).
+            await asyncio.gather(*pending, return_exceptions=True)
+            logger.warning("seoul_citydata_fetch_deadline", unfinished=len(pending))
+    prepared: list[_Prepared] = []
+    for area_nm, task in zip(due, tasks):
+        if task in pending or task.cancelled():
+            prepared.append(_Prepared(area_nm, failure=_failed_result(area_nm, "seoul_timeout")))
+        else:
+            prepared.append(task.result())
+    return prepared
+
+
 def _stored_result(prepared: _Prepared) -> dict[str, Any]:
     row = prepared.row or {}
     return {
@@ -881,8 +987,11 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
 
     대상지 하나의 실패는 그 대상지 결과에만 남고 나머지는 계속 돈다. 예외로 끝나는 경우는
     '어느 대상지도 시도할 수 없는' 넷뿐이다 — 키 없음·대상지 없음·주기 표기 오류·표 없음(마이그레이션
-    미적용). 표가 없으면 저장 단계의 첫 행에서 멈춘다. 조회는 이미 동시에 끝났으므로 그 버킷의 차례
-    (최대 7곳)만큼은 호출 한도를 쓴다 — 순차 시절(첫 대상지에서 멈춤)보다 최대 6회 더 쓴다.
+    미적용). 표가 없으면 **조회 전에** 멈춘다(`_ensure_table_present` — 서울 API 호출 0회). 확인이
+    실패해 판정을 못 했을 때만 저장 단계의 첫 행에서 같은 코드로 멈춘다.
+
+    시간 예산: 조회 단계 전체 45초 마감(못 끝낸 대상지는 seoul_timeout), 저장은 실행 시작부터 80초 안에서
+    한 번에 8초까지(넘기면 seoul_persistence_timeout). pg_cron 요청 제한 90초 안에 응답을 돌려준다.
 
     차례인 대상지가 하나도 없는 버킷이면 아무것도 부르지 않고 ``state='ok'``(0건)로 끝난다.
     """
@@ -904,28 +1013,37 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
     run_bucket = bucket_start(run_at)
     due, skipped = due_targets(schedule, run_at)
     key = settings.SEOUL_OPENDATA_KEY.strip()
+    started = time.monotonic()
+
+    if due:
+        try:
+            await _ensure_table_present()
+        except SeoulSnapshotPersistenceError:
+            _record_failure_status("migration_not_applied", run_at)
+            raise
 
     results: list[dict[str, Any]] = []
     observations: list[Any] = []
-    # pg_cron 요청 제한은 90초다. 조회는 최대 4개씩 동시에 한다 — 기본 설정의 버킷당 최대 7곳이면
-    # ceil(7/4) = 2 묶음 × 요청 제한 10초 = 20초, 관광 성분 조회(최대 15초, 홍대만 · 6시간 캐시)가 그 뒤에
-    # 붙어도 35초다. 나머지(약 55초)가 저장(기존 표 + 정규화 표, 대상지당 upsert 2번)의 몫이다.
-    # httpx 의 10초는 단계(연결·읽기)마다의 제한이라 실제 최악은 이보다 길 수 있다 — 그래서 여유를 크게 둔다.
-    semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
-        prepared_list = await asyncio.gather(*(
-            _prepare_one(client, key, area_nm, now=now, bucket_at=run_bucket, semaphore=semaphore)
-            for area_nm in due
-        ))
+    # 시간 예산(pg_cron 요청 제한 90초) — 위 _FETCH_DEADLINE_SECONDS · _WRITE_TIMEOUT_SECONDS ·
+    # _RUN_DEADLINE_SECONDS 주석. 조회 ≤ 45초, 저장은 실행 시작부터 80초 안에서만.
+    prepared_list = await _prepare_all(key, due, now=now, bucket_at=run_bucket)
 
     # 저장은 설정 순서대로 하나씩 — 표가 없을 때 첫 행에서 멈추는 동작과 행 순서를 결정적으로 지킨다.
     for prepared in prepared_list:
         area_nm = prepared.area_nm
+        remaining = _RUN_DEADLINE_SECONDS - (time.monotonic() - started)
         if prepared.failure is not None:
             result = prepared.failure
+        elif remaining <= 0:
+            result = _failed_result(area_nm, "seoul_persistence_timeout")
         else:
             try:
-                await _persist(prepared.row or {})
+                await asyncio.wait_for(
+                    _persist(prepared.row or {}), timeout=min(_WRITE_TIMEOUT_SECONDS, remaining)
+                )
+            except asyncio.TimeoutError:
+                logger.error("seoul_citydata_persist_timeout", area_nm=area_nm)
+                result = _failed_result(area_nm, "seoul_persistence_timeout")
             except SeoulSnapshotPersistenceError as exc:
                 if exc.code == "migration_not_applied":
                     _record_failure_status("migration_not_applied", run_at)
@@ -949,8 +1067,17 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
     # 정규화 이중 저장 — 위 기존 행과 같은 버킷(run_bucket). 표가 없으면 migration_not_applied 상태만 남는다.
     # persist_observations 는 예외를 내지 않지만, 여기서 한 번 더 막는다 — 이중 저장이 수집 응답을 500 으로
     # 만들거나 아래 _status 갱신을 건너뛰게 해서는 안 된다.
+    # 이중 저장도 실행 마감 안에서만 — 남은 시간이 없으면 하지 않는다(다음 버킷이 같은 일을 한다).
+    remaining = _RUN_DEADLINE_SECONDS - (time.monotonic() - started)
     try:
-        zone_snapshots = await crowd_store.persist_observations(observations, bucket_at=run_bucket)
+        if observations and remaining <= 0:
+            raise asyncio.TimeoutError
+        zone_snapshots = await asyncio.wait_for(
+            crowd_store.persist_observations(observations, bucket_at=run_bucket), timeout=max(remaining, 0.001)
+        )
+    except asyncio.TimeoutError:
+        logger.error("zone_crowd_snapshot_dual_write_timeout")
+        zone_snapshots = {"state": "failed", "stored_count": 0, "errors": {"*": "zone_snapshot_timeout"}}
     except Exception as exc:  # noqa: BLE001
         logger.error("zone_crowd_snapshot_dual_write_failed", error_type=type(exc).__name__)
         zone_snapshots = {"state": "failed", "stored_count": 0, "errors": {"*": "zone_snapshot_failed"}}
