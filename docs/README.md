@@ -39,6 +39,7 @@
 | [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) | 혼잡 엔진 계획 — 서울 실시간 도시데이터를 검증 지역으로, 경주는 주차·집중률 기반 "추정 모드". 확정·구현됨(2026-09-20, D1~D6 결정 완료) | living | 2026-10-31 |
 | [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) | 제품 평가와 다음 작업 계획 — 최신 소식(공모전 우수상·모두의 창업 로컬 트랙 1라운드·실서비스 창업 방향), 관광객·사장님·기관·공통 관점 평가, 단계별 개선안(Phase 0~3), 결정 D1~D9, 진행 상황(§7) | living | 2026-10-31 |
 | [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) | 서울 테스트베드 — 경주 통신사 데이터 확보 전에 서울 공공 실시간 API 로 실시간 유동인구 기반 시스템(공급원 어댑터·구역 모델·실측 순위·분산 결정 재생 평가)을 미리 구축·검증하는 계획 + 통신사 데이터 계약 명세 초안. **질문 Q1~Q8 답 대기** | living | 2026-10-31 |
+| [`CROWD_DATA_CONTRACT.md`](./CROWD_DATA_CONTRACT.md) | 경주 유동인구(통신사) 데이터 요구 명세 — 견적·계약용(50m 목표 · 250m 이하 · 10분 · 지연 15분 · 8주 이력 · 라이선스 · 개인정보), `CrowdObservation` 필드 대응, 전환 체크리스트(S5) | living | 2026-10-31 |
 
 ## 심사 자료 (`docs/contest/`)
 
