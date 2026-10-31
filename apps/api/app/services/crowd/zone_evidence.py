@@ -279,6 +279,20 @@ def reading_from_snapshot(
     )
 
 
+def select_latest_reading(
+    rows_newest_first: Sequence[Mapping[str, Any]], zone: ZoneDefinition
+) -> ZoneReading | None:
+    """한 구역의 관측 행들(최신순: bucket_at desc, observed_at desc) → 처음 통과한 행의 관측. 없으면 None.
+
+    ``_load_region_state_sync`` 의 구역별 선택과 같은 규칙이다(오프라인 재생 S4 도 이 함수를 쓴다).
+    """
+    for row in rows_newest_first:
+        reading = reading_from_snapshot(row, zone)
+        if reading is not None:
+            return reading
+    return None
+
+
 def zone_reading_dict(reading: ZoneReading, *, wall_now: datetime) -> dict[str, Any]:
     """관측 → JSON 친화 dict(점수 근거의 ``zones`` 항목 · 내부 지도의 구역 칸)."""
     return {
@@ -573,13 +587,9 @@ def _load_region_state_sync(region: str, wall_now: datetime) -> _RegionState:
     # (기준선 RPC 가 이 순위용 경로의 시간 예산을 쓰지 않게).
     readings: dict[str, ZoneReading] = {}
     for zone_id, rows in rows_by_zone.items():
-        zone = zones[zone_id]
-        for row in rows:  # 최신순 — 처음 통과한 행이 이 구역의 최신 유효 관측
-            reading = reading_from_snapshot(row, zone)
-            if reading is None:
-                continue
+        reading = select_latest_reading(rows, zones[zone_id])
+        if reading is not None:
             readings[zone_id] = reading
-            break
     state = _RegionState(zones=zones, readings=readings)
     with _lock:
         _region_cache[region] = (wall_now, state)
