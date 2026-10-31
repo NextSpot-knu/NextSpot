@@ -1,7 +1,8 @@
 """서울 실시간 도시데이터(OA-21285) 수집기 — 혼잡 엔진 **검증용 정답** 적재.
 
-`docs/CONGESTION_ENGINE_PLAN.md` §5.3 Phase 1. 대상지(기본: 홍대 관광특구 1곳)마다 통합 API 를
-10분에 한 번 부르고, 같은 응답에 함께 오는 두 가지를 한 행에 저장한다:
+`docs/CONGESTION_ENGINE_PLAN.md` §5.3 Phase 1. 대상지(`SEOUL_CITYDATA_TARGETS`)마다 통합 API 를
+**자기 차례인 10분 버킷에** 한 번 부르고(대상지별 주기 — 아래 '대상지별 주기'), 같은 응답에 함께 오는
+두 가지를 한 행에 저장한다:
 
   · 정답   — `LIVE_PPLTN_STTS`: 서울시 인구 혼잡 4등급·인구 범위·서울시 자체 예측(FCST_PPLTN)
   · 추정   — `PRK_STTS` 의 실시간 주차장으로 **경주와 같은 추정기**를 돌린 값(level_est)
@@ -15,6 +16,19 @@
 `parking_derived_congestion_service.cell_demand_level`(2km 거리·면수 가중 점유율)을 **그대로** 쓴다.
 서울만의 식을 두면 "서울에서 맞았다" 가 경주 추정기에 대한 증거가 아니게 된다(§5.1 한 산식, 두 지역).
 달라지는 것은 측정 지점 하나다 — 경주는 0.005° 격자 중심, 서울은 **대상지(핫스팟) 기준 좌표**다.
+
+## 정규화 이중 저장(`docs/SEOUL_TESTBED_PLAN.md` §3 · S1)
+
+저장에 성공한 대상지는 `crowd.seoul_provider` 로 정규화(`CrowdObservation`)해 `zone_crowd_snapshots` 에도
+쓴다. 이 저장은 **기존 경로를 바꾸지 않는다** — 표가 아직 없거나(마이그레이션 `20261031120000` 미적용)
+실패해도 수집 결과·응답 코드는 그대로이고, 상태(`zone_snapshots`)에만 남는다.
+
+## 대상지별 주기(`docs/SEOUL_TESTBED_PLAN.md` §6 S2)
+
+버킷은 여전히 UTC 10분(`bucket_start`)이다. 설정에서 대상지마다 `이름@N+P` 로 주기를 줄 수 있고, 그
+대상지는 버킷 번호 n(1970-01-01 UTC 부터 센 10분 칸)이 `n % N == P` 일 때만 불린다. 표기가 없으면
+N=1(매 버킷)이다. pg_cron 의 주·보충 호출은 그대로 같은 엔드포인트를 부르고, **차례 판정은 여기서**
+한다 — 보충 호출도 그 버킷의 차례인 대상지만 다시 부른다. 산수는 `config.SEOUL_CITYDATA_TARGETS` 주석.
 
 ## 키는 URL 경로에 있다
 
@@ -45,6 +59,8 @@ import structlog
 from app.core.config import settings
 from app.core.supabase import supabase_admin
 from app.services.congestion_estimator_service import blend_level
+from app.services.crowd import seoul_provider as crowd_seoul
+from app.services.crowd import store as crowd_store
 from app.services.parking_derived_congestion_service import (
     MAX_SNAPSHOT_AGE,
     ParkingLot,
@@ -148,6 +164,22 @@ _TARGET_PROFILES: dict[str, TargetProfile] = {
     "동대문 관광특구": TargetProfile(
         latitude=37.5707, longitude=127.0094, signgu_code=11140, tourism_names=(),
     ),
+    # ── 종로 유산 권역(S2, 2026-10-31) ─────────────────────────────────────
+    # 황리단길(대릉원·첨성대·한옥 카페)과 닮은 '걸어서 이어지는 유산·한옥 골목' 권역. 좌표는 서울시
+    # 주요 121장소 영역(WGS84 다각형)의 넓이 중심이다(crowd.seoul_provider.SEOUL_ZONES 와 같은 값).
+    # 집중률 관광지 이름은 확인하지 않아 비운다(관광 성분 None → 주차 단독, 위 홍대 주석과 같은 원칙).
+    "경복궁": TargetProfile(
+        latitude=37.579876, longitude=126.976764, signgu_code=11110, tourism_names=(),
+    ),
+    "북촌한옥마을": TargetProfile(
+        latitude=37.582236, longitude=126.984001, signgu_code=11110, tourism_names=(),
+    ),
+    "인사동": TargetProfile(
+        latitude=37.573863, longitude=126.986063, signgu_code=11110, tourism_names=(),
+    ),
+    "창덕궁·종묘": TargetProfile(
+        latitude=37.578695, longitude=126.993351, signgu_code=11110, tourism_names=(),
+    ),
 }
 
 
@@ -205,6 +237,10 @@ def _initial_status() -> dict[str, Any]:
         "last_success_at": None,
         "error_code": None,
         "targets": {},
+        # 마지막 실행에서 차례가 아니라 부르지 않은 대상지(대상지별 주기).
+        "skipped_targets": [],
+        # 정규화 이중 저장(zone_crowd_snapshots) 결과 — crowd.store.persist_observations 의 상태.
+        "zone_snapshots": None,
     }
 
 
@@ -213,7 +249,13 @@ _status: dict[str, Any] = _initial_status()
 
 def get_collection_status() -> dict[str, Any]:
     """마지막 수집 결과(프로세스 메모리). 재시작하면 비어 있다 — DB 최신 행과 함께 본다."""
-    return {**_status, "targets": {name: dict(value) for name, value in _status["targets"].items()}}
+    zone_snapshots = _status.get("zone_snapshots")
+    return {
+        **_status,
+        "targets": {name: dict(value) for name, value in _status["targets"].items()},
+        "skipped_targets": list(_status.get("skipped_targets") or []),
+        "zone_snapshots": dict(zone_snapshots) if isinstance(zone_snapshots, dict) else None,
+    }
 
 
 def reset_state() -> None:
@@ -229,14 +271,90 @@ def _normalize_target_name(name: str) -> str:
     return " ".join(str(name or "").split())
 
 
+@dataclass(frozen=True)
+class TargetSchedule:
+    """대상지 하나의 수집 차례. 버킷 번호 n 에서 ``n % every == offset`` 이면 부른다."""
+
+    area_nm: str
+    every: int = 1
+    offset: int = 0
+
+    def is_due(self, bucket_index: int) -> bool:
+        return bucket_index % self.every == self.offset
+
+
+# 하루 버킷 수(144)보다 긴 주기는 '하루에 한 번도 안 부를 수 있다' 는 뜻이라 받지 않는다.
+_MAX_EVERY = 144
+_CADENCE = re.compile(r"^(?P<every>\d{1,3})(?:\+(?P<offset>\d{1,3}))?$")
+
+
+def _split_target_spec(raw: str) -> tuple[str, str | None]:
+    """`이름@N+P` → (이름, 'N+P'). '@' 가 없으면 (이름, None)."""
+    name, sep, cadence = raw.partition("@")
+    return _normalize_target_name(name), (cadence.strip() if sep else None)
+
+
+def _parse_cadence(text: str | None) -> tuple[int, int] | None:
+    if text is None:
+        return 1, 0
+    match = _CADENCE.match(text.replace(" ", ""))
+    if not match:
+        return None
+    every = int(match.group("every"))
+    offset = int(match.group("offset") or 0)
+    if not 1 <= every <= _MAX_EVERY or not 0 <= offset < every:
+        return None
+    return every, offset
+
+
 def configured_targets() -> list[str]:
-    """SEOUL_CITYDATA_TARGETS(콤마 구분)를 순서 유지·중복 제거해 읽는다."""
+    """SEOUL_CITYDATA_TARGETS(콤마 구분)의 **이름만** 순서 유지·중복 제거해 읽는다(주기 표기는 뗀다)."""
     names: list[str] = []
     for raw in str(settings.SEOUL_CITYDATA_TARGETS or "").split(","):
-        name = _normalize_target_name(raw)
+        name, _ = _split_target_spec(raw)
         if name and name not in names:
             names.append(name)
     return names
+
+
+def configured_schedule() -> list[TargetSchedule]:
+    """대상지별 주기. 주기 표기가 틀리면 ``seoul_targets_invalid`` 로 멈춘다.
+
+    틀린 표기를 '매 버킷' 으로 너그럽게 읽으면 호출 한도(일 1,000회)를 조용히 넘길 수 있다 —
+    그래서 고칠 때까지 수집을 세우고 사람에게 알린다(503).
+    """
+    schedule: list[TargetSchedule] = []
+    seen: set[str] = set()
+    for raw in str(settings.SEOUL_CITYDATA_TARGETS or "").split(","):
+        name, cadence = _split_target_spec(raw)
+        if not name:
+            continue
+        parsed = _parse_cadence(cadence)
+        if parsed is None:
+            raise SeoulCitydataError("seoul_targets_invalid")
+        if name in seen:
+            continue
+        seen.add(name)
+        schedule.append(TargetSchedule(name, *parsed))
+    return schedule
+
+
+def bucket_index(moment: datetime) -> int:
+    """1970-01-01 UTC 부터 센 10분 버킷 번호(pg_cron 의 date_bin 경계와 같다)."""
+    return int((bucket_start(moment) - _EPOCH) // BUCKET)
+
+
+def due_targets(schedule: list[TargetSchedule], moment: datetime) -> tuple[list[str], list[str]]:
+    """(이 버킷에 부를 대상지, 차례가 아닌 대상지)."""
+    index = bucket_index(moment)
+    due = [item.area_nm for item in schedule if item.is_due(index)]
+    skipped = [item.area_nm for item in schedule if not item.is_due(index)]
+    return due, skipped
+
+
+def daily_call_budget(schedule: list[TargetSchedule]) -> int:
+    """주 호출만 센 하루 호출 수의 상한(하루 144 버킷). 보충 호출은 빼고 센다."""
+    return sum(math.ceil(144 / item.every) for item in schedule)
 
 
 def key_configured() -> bool:
@@ -353,9 +471,11 @@ def parse_citydata(payload: Any, requested_name: str) -> dict[str, Any]:
     ]
     prk_raw = citydata.get("PRK_STTS")
     prk_rows = [row for row in (prk_raw if isinstance(prk_raw, list) else []) if isinstance(row, dict)]
+    replace_yn = str(live.get("REPLACE_YN") or "").strip().upper() or None
     return {
         "area_cd": area_cd,
         "area_nm": area_nm,
+        "replace_yn": replace_yn if replace_yn in ("Y", "N") else None,
         "observed_at": observed_at,
         "congest_lvl": congest_lvl,
         "ppltn_min": ppltn_min,
@@ -584,9 +704,6 @@ async def tourism_level_for(area_nm: str, *, date_kst: str) -> float | None:
 
 # ── 저장 ──────────────────────────────────────────────────────────────────────
 
-_TABLE_MISSING_SIGNALS = ("pgrst205", "42p01", "could not find the table")
-
-
 def is_missing_table(exc: BaseException) -> bool:
     """`20260920120000_seoul_citydata_snapshots.sql` 이 아직 적용되지 않았는가.
 
@@ -594,14 +711,9 @@ def is_missing_table(exc: BaseException) -> bool:
     (parking_derived_congestion_service._is_missing_source_migration 과 같은 상황). 그때 500 을 내면
     '서버가 고장났다' 로 읽히지만 실제로는 **할 일이 하나 남았다** 는 뜻이라 409 로 구분한다.
     컬럼 부재(42703)는 여기 넣지 않는다 — 그건 미적용이 아니라 스키마 불일치다.
+    판정은 정규화 표와 같은 함수(`crowd.store.is_missing_table`)를 쓴다.
     """
-    code = str(getattr(exc, "code", "") or "").lower()
-    if code in {"pgrst205", "42p01"}:
-        return True
-    text = str(getattr(exc, "message", None) or exc).lower()
-    if any(signal in text for signal in _TABLE_MISSING_SIGNALS):
-        return True
-    return TABLE in text and "relation" in text and "does not exist" in text and "column" not in text
+    return crowd_store.is_missing_table(exc, TABLE)
 
 
 def _upsert_row(row: dict[str, Any]) -> None:
@@ -661,14 +773,25 @@ def _record_failure_status(code: str, run_at: datetime) -> None:
     _status.update({"state": "failed", "last_run_at": run_at.isoformat(), "error_code": code})
 
 
+def _observation_or_none(parsed: dict[str, Any], fetched_at: datetime):
+    """정규화 관측. 변환 버그가 기존 저장(이미 끝났다)의 결과를 바꾸지 않게 여기서 삼킨다."""
+    try:
+        return crowd_seoul.observation_from_parsed(parsed, fetched_at=fetched_at)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("seoul_crowd_observation_failed", area_nm=parsed.get("area_nm"), error_type=type(exc).__name__)
+        return None
+
+
 async def _collect_one(
     client: httpx.AsyncClient, key: str, area_nm: str, fetched_at: datetime
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Any]:
+    """(대상지 결과, 정규화 관측 또는 None). 관측은 기존 표 저장이 성공한 뒤에만 만든다."""
     payload = await fetch_citydata(client, key, area_nm)
     parsed = parse_citydata(payload, area_nm)
     tourism_level = await tourism_level_for(area_nm, date_kst=fetched_at.astimezone(_KST).date().isoformat())
     row, stale = build_snapshot_row(parsed, fetched_at=fetched_at, tourism_level=tourism_level)
     await _persist(row)
+    observation = _observation_or_none(parsed, fetched_at)
     return {
         "area_nm": area_nm,
         "state": "stored",
@@ -683,15 +806,17 @@ async def _collect_one(
         "parking_level": row["parking_level"],
         "tourism_level": row["tourism_level"],
         "level_est": row["level_est"],
-    }
+    }, observation
 
 
 async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, Any]:
-    """설정된 대상지를 한 번씩 수집해 10분 버킷에 저장한다.
+    """이 10분 버킷이 차례인 대상지를 한 번씩 수집해 저장한다.
 
     대상지 하나의 실패는 그 대상지 결과에만 남고 나머지는 계속 돈다. 예외로 끝나는 경우는
-    '어느 대상지도 시도할 수 없는' 셋뿐이다 — 키 없음·대상지 없음·표 없음(마이그레이션 미적용).
-    표가 없으면 첫 대상지에서 멈춘다: 나머지를 불러 봐야 저장할 곳이 없고 호출 한도만 쓴다.
+    '어느 대상지도 시도할 수 없는' 넷뿐이다 — 키 없음·대상지 없음·주기 표기 오류·표 없음(마이그레이션
+    미적용). 표가 없으면 첫 대상지에서 멈춘다: 나머지를 불러 봐야 저장할 곳이 없고 호출 한도만 쓴다.
+
+    차례인 대상지가 하나도 없는 버킷이면 아무것도 부르지 않고 ``state='ok'``(0건)로 끝난다.
     """
     run_at = now or _now()
     targets = configured_targets()
@@ -701,16 +826,26 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
     if not targets:
         _record_failure_status("seoul_targets_missing", run_at)
         raise SeoulCitydataError("seoul_targets_missing")
+    try:
+        schedule = configured_schedule()
+    except SeoulCitydataError as exc:
+        _record_failure_status(exc.code, run_at)
+        raise
+    due, skipped = due_targets(schedule, run_at)
     key = settings.SEOUL_OPENDATA_KEY.strip()
 
     results: list[dict[str, Any]] = []
+    observations: list[Any] = []
     # 순차 호출: 대상지 1곳 기준으로는 차이가 없고, 늘어나도 서울 API 에 동시 요청을 몰지 않는다.
-    # pg_cron 요청 제한 90초 안에 끝나야 하므로 대상지는 대략 6곳(10초 × 6 + 여유)까지가 안전하다.
+    # pg_cron 요청 제한 90초 안에 끝나야 하므로 **한 버킷에 차례인** 대상지는 대략 6곳(10초 × 6 + 여유)까지가
+    # 안전하다. 9곳을 매 버킷 부르지 않고 주기·차례를 나눠 두는 이유 중 하나다(기본 설정은 버킷당 최대 6곳).
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
-        for area_nm in targets:
+        for area_nm in due:
             fetched_at = now or _now()
             try:
-                result = await _collect_one(client, key, area_nm, fetched_at)
+                result, observation = await _collect_one(client, key, area_nm, fetched_at)
+                if observation is not None:
+                    observations.append(observation)
             except SeoulSnapshotPersistenceError as exc:
                 if exc.code == "migration_not_applied":
                     _record_failure_status("migration_not_applied", run_at)
@@ -731,6 +866,10 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
                 )
             results.append(result)
 
+    # 정규화 이중 저장 — 예외를 내지 않는다(표가 없으면 migration_not_applied 상태만 남는다).
+    # 버킷은 관측마다 받은 시각(fetched_at)으로 정한다 — 위 기존 행과 같은 규칙.
+    zone_snapshots = await crowd_store.persist_observations(observations)
+
     stored = [r for r in results if r["state"] == "stored"]
     failed = [r for r in results if r["state"] == "failed"]
     state = "ok" if not failed else ("partial" if stored else "failed")
@@ -740,6 +879,8 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
     _status["error_code"] = failed[0]["error_code"] if failed else None
     if stored:
         _status["last_success_at"] = finished_at.isoformat()
+    _status["skipped_targets"] = list(skipped)
+    _status["zone_snapshots"] = dict(zone_snapshots)
     for result in results:
         entry = {
             "state": result["state"],
@@ -760,7 +901,11 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
                 if kept in previous:
                     entry[kept] = previous[kept]
         _status["targets"][result["area_nm"]] = entry
-    logger.info("seoul_citydata_collected", state=state, stored=len(stored), failed=len(failed))
+    logger.info(
+        "seoul_citydata_collected",
+        state=state, stored=len(stored), failed=len(failed), skipped=len(skipped),
+        zone_snapshots=zone_snapshots["state"],
+    )
     return {
         "state": state,
         "run_at": run_at.isoformat(),
@@ -769,4 +914,7 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
         "stored_count": len(stored),
         "failed_count": len(failed),
         "targets": results,
+        # 아래 둘은 응답 모델(SeoulCollectResponse)에 없다 — 상태 화면(last_run)과 로그용.
+        "skipped_targets": skipped,
+        "zone_snapshots": zone_snapshots,
     }

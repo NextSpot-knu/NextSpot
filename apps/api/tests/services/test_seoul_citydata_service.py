@@ -51,6 +51,8 @@ SAMPLE_FETCHED_AT = datetime(2026, 9, 20, 3, 2, 0, tzinfo=KST).astimezone(timezo
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     seoul.reset_state()
+    # 정규화 이중 저장(zone_crowd_snapshots)은 test_seoul_citydata_cadence.py 가 본다 — 여기서는 버린다.
+    monkeypatch.setattr(seoul.crowd_store, "_upsert_row", lambda _row: None)
     monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", "")
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", HONGDAE)
     monkeypatch.setattr(settings, "TOURAPI_KEY", "")

@@ -79,6 +79,10 @@ DROP TABLE IF EXISTS public.facility_availability_reports CASCADE;
 -- users + facilities 를 함께 참조하는 표(부모 둘보다 반드시 먼저).
 DROP TABLE IF EXISTS public.user_coupons CASCADE;
 DROP TABLE IF EXISTS public.saved_facilities CASCADE;
+-- 구역 혼잡 계층(20261031120000) — facility_zones 는 facilities·zones 를, zone_crowd_snapshots 는 zones 를 참조.
+DROP TABLE IF EXISTS public.facility_zones CASCADE;
+DROP TABLE IF EXISTS public.zone_crowd_snapshots CASCADE;
+DROP TABLE IF EXISTS public.zones CASCADE;
 -- facilities 만 참조하는 표.
 DROP TABLE IF EXISTS public.merchant_timesales CASCADE;
 DROP TABLE IF EXISTS public.area_demand_snapshot_lots CASCADE;
