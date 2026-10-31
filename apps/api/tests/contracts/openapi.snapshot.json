@@ -76,6 +76,34 @@
     "title": "AccountMeResponse",
     "type": "object"
    },
+   "AnswerAgreement": {
+    "description": "같은 장소 ±30분 안에서 시각이 가장 가까운 기준값 하나와 혼잡 단계 띠(한산·보통·혼잡)가 같은 비율.",
+    "properties": {
+     "agree": {
+      "default": 0,
+      "title": "Agree",
+      "type": "integer"
+     },
+     "comparable": {
+      "default": 0,
+      "title": "Comparable",
+      "type": "integer"
+     },
+     "rate": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rate"
+     }
+    },
+    "title": "AnswerAgreement",
+    "type": "object"
+   },
    "AreaDemandForecastResponse": {
     "properties": {
      "available": {
@@ -1511,6 +1539,163 @@
      "available"
     ],
     "title": "GoldenHourResponse",
+    "type": "object"
+   },
+   "GuestAnswerAgreement": {
+    "properties": {
+     "guest_vs_measured": {
+      "$ref": "#/components/schemas/AnswerAgreement"
+     },
+     "guest_vs_registered": {
+      "$ref": "#/components/schemas/AnswerAgreement"
+     },
+     "registered_vs_measured": {
+      "$ref": "#/components/schemas/AnswerAgreement"
+     },
+     "registered_vs_registered": {
+      "$ref": "#/components/schemas/AnswerAgreement"
+     }
+    },
+    "required": [
+     "guest_vs_registered",
+     "guest_vs_measured",
+     "registered_vs_registered",
+     "registered_vs_measured"
+    ],
+    "title": "GuestAnswerAgreement",
+    "type": "object"
+   },
+   "GuestAnswerCounts": {
+    "properties": {
+     "guest_live": {
+      "default": 0,
+      "title": "Guest Live",
+      "type": "integer"
+     },
+     "guest_shadow": {
+      "default": 0,
+      "title": "Guest Shadow",
+      "type": "integer"
+     },
+     "registered": {
+      "default": 0,
+      "title": "Registered",
+      "type": "integer"
+     }
+    },
+    "title": "GuestAnswerCounts",
+    "type": "object"
+   },
+   "GuestAnswerNetworks": {
+    "properties": {
+     "answers_from_shared_networks": {
+      "default": 0,
+      "title": "Answers From Shared Networks",
+      "type": "integer"
+     },
+     "distinct_networks": {
+      "default": 0,
+      "title": "Distinct Networks",
+      "type": "integer"
+     },
+     "guest_answers_with_network": {
+      "default": 0,
+      "title": "Guest Answers With Network",
+      "type": "integer"
+     },
+     "same_place_cluster_answers": {
+      "default": 0,
+      "title": "Same Place Cluster Answers",
+      "type": "integer"
+     },
+     "same_place_cluster_share": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Same Place Cluster Share"
+     },
+     "shared_network_share": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Shared Network Share"
+     }
+    },
+    "title": "GuestAnswerNetworks",
+    "type": "object"
+   },
+   "GuestAnswerShadowMetrics": {
+    "properties": {
+     "agreement": {
+      "$ref": "#/components/schemas/GuestAnswerAgreement"
+     },
+     "answers": {
+      "$ref": "#/components/schemas/GuestAnswerCounts"
+     },
+     "days": {
+      "title": "Days",
+      "type": "integer"
+     },
+     "guest_accounts": {
+      "default": 0,
+      "title": "Guest Accounts",
+      "type": "integer"
+     },
+     "live": {
+      "title": "Live",
+      "type": "boolean"
+     },
+     "min_sample": {
+      "title": "Min Sample",
+      "type": "integer"
+     },
+     "networks": {
+      "$ref": "#/components/schemas/GuestAnswerNetworks"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+     },
+     "sample_status": {
+      "title": "Sample Status",
+      "type": "string"
+     },
+     "since": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Since"
+     }
+    },
+    "required": [
+     "days",
+     "live",
+     "answers",
+     "agreement",
+     "networks",
+     "min_sample",
+     "sample_status",
+     "notes"
+    ],
+    "title": "GuestAnswerShadowMetrics",
     "type": "object"
    },
    "HTTPValidationError": {
@@ -5619,6 +5804,55 @@
     ]
    }
   },
+  "/api/v1/admin/metrics/guest-answers": {
+   "get": {
+    "description": "게스트 방문 확인 체감 혼잡 그림자 모드 측정 — 답 수 · 일치율(계정 사용자·실측 대비) · 네트워크 겹침.\n\ndays 1~30(기본 14 — 그림자 모드 2주, 네트워크 키 보관 30일을 넘지 않는다). 비율은 표본 30건 미만이면 null 이고,\nsample_status·notes 가 무엇이 모자란지 말한다. live 는 지금 서버의 GUEST_CROWD_ANSWERS_LIVE 값이다.",
+    "operationId": "get_guest_answer_shadow_metrics_api_v1_admin_metrics_guest_answers_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 14,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/GuestAnswerShadowMetrics"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Guest Answer Shadow Metrics",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
   "/api/v1/admin/metrics/trend": {
    "get": {
     "description": "최근 days일(KST 일 단위, 오늘 포함) 현장 관측 혼잡·추천 결정 추이 — 과거→오늘 순 daily 배열.\n\navg_congestion·samples 는 현장 관측만 센다 — 관리자 입력(admin_override)·모의(simulated)·시드(seed)·\n주차 파생 추정(parking_derived)은 뺀다(excluded_sources). decisions·accepted·rejected 는 /metrics 의\n수락률과 같은 정의(모든 source, 내부 계정 제외)다. rec_total·rec_accepted 는 구 번들용 키다\n(browse 제외 추천 행 수·그중 수락 행 수, 내부 계정 제외).",
@@ -8247,7 +8481,7 @@
   },
   "/api/v1/recommendations/{recommendation_id}/outcome": {
    "patch": {
-    "description": "추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장).",
+    "description": "추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장).\n\n체감 혼잡(observed_congestion)은 게스트도 답할 수 있다. 게스트 답은 기본으로 그림자 모드다 — 저장만 하고\n실시간 혼잡 판정에는 넣지 않는다(DB 가 auth.users.is_anonymous 로 판정, GUEST_CROWD_ANSWERS_LIVE 로 켠다).\n1인 1표: 같은 IP·같은 장소에서는 30분에 한 계정의 답만 받는다(명시 제보와 같은 표 — app/core/report_slots.py).\n그림자 모드 게스트 답은 그 표를 읽기만 하고 게스트 전용 표에 자리를 잡는다 — 실시간에 안 들어가는 답이 계정 사용자의\n실시간 제보를 막지 않게.\n막히면 409/429 로 거절하지 않고 평가만 저장한다 — 방문 결과 큐(웹 lib/recommendationOutcomes)를 막지 않게.",
     "operationId": "record_recommendation_outcome_api_v1_recommendations__recommendation_id__outcome_patch",
     "parameters": [
      {

@@ -33,11 +33,9 @@
     (5분·1분)로 걸면 두 번째 계정이 5분 1초 뒤에 보내 그대로 corroborated 가 된다 — 늦출 뿐 막지 못한다.
     같은 와이파이 일행의 두 번째 제보도 막히지만, 같은 일행의 같은 관찰은 원래 '독립된 두 확인' 이 아니다.
   IP 키는 app/core/client_ip.py 의 해석(XFF 마지막 값)을 따른다. 검사와 자리 잡기는 await 없이 한 번에
-  한다(_reserve_report_slot) — 사이에 await 가 있으면 동시에 들어온 두 계정이 둘 다 검사를 통과한다.
+  한다(app/core/report_slots.reserve_report_slot — 방문 확인 체감 혼잡 경로와 공용, 혼잡 표도 함께 쓴다) — 사이에 await 가 있으면 동시에 들어온 두 계정이 둘 다 검사를 통과한다.
 """
 import asyncio
-import math
-import time
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -47,6 +45,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import get_registered_user
 from app.core.client_ip import client_ip
+from app.core.report_slots import CONGESTION_VOTES_BY_IP, release_report_slot, reserve_report_slot
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 # 이 문장이 **모든 authenticated 역할에 대해** 참이 된 시점과 그 전에 무엇이 열려 있었는지는
@@ -81,63 +80,11 @@ _last_report_at: dict[tuple[str, str], float] = {}
 _AVAILABILITY_COOLDOWN_SEC = 60.0
 _last_availability_report_at: dict[tuple[str, str], float] = {}
 
-# (IP, 시설) → (그 IP 에서 마지막으로 성공한 계정, 시각). 이 창 안에서는 같은 IP 의 **다른** 계정을 받지 않는다.
-# 길이는 DB 교차검증 창과 같다 — correlate_congestion_report_evidence(±30분) · record_facility_availability_report(최근 30분).
-_CORROBORATION_WINDOW_SEC = 1800.0
-_last_report_by_ip: dict[tuple[str, str], tuple[str, float]] = {}
+# (IP, 시설) → (그 IP 에서 마지막으로 성공한 계정, 시각). 창 안에서는 같은 IP 의 **다른** 계정을 받지 않는다.
+# 규칙·자리 잡기는 app/core/report_slots.py(방문 확인 체감 혼잡과 공용). 혼잡 표는 방문 확인 답과 **같은 표**를 쓴다 —
+# 같은 IP 에서 한 계정은 제보로, 다른 계정은 방문 확인으로 같은 장소에 표를 내는 것도 막는다.
+_last_report_by_ip = CONGESTION_VOTES_BY_IP
 _last_availability_report_by_ip: dict[tuple[str, str], tuple[str, float]] = {}
-
-_SHARED_IP_DETAIL = "같은 네트워크에서 다른 계정이 이 장소를 이미 알려 주었어요. 잠시 후 다시 시도해 주세요."
-
-_MISSING = object()
-
-
-def _reserve_report_slot(
-    *,
-    user_store: dict[tuple[str, str], float],
-    ip_store: dict[tuple[str, str], tuple[str, float]],
-    user_id: str,
-    ip: str,
-    facility_id: str,
-    cooldown_sec: float,
-    cooldown_detail: str,
-) -> tuple:
-    """두 겹 쿨다운을 검사하고, 통과하면 **같은 동기 구간에서** 자리를 잡는다(429 또는 되돌리기 토큰).
-
-    검사와 기록 사이에 await 가 없어야 동시에 들어온 두 요청이 함께 통과하지 못한다. 저장이 실패하면
-    호출부가 _release_report_slot 으로 되돌린다 — 실패한 시도가 쿨다운을 남기지 않게.
-    """
-    now_mono = time.monotonic()
-    user_key = (user_id, facility_id)
-    ip_key = (ip, facility_id)
-    last_at = user_store.get(user_key)
-    if last_at is not None and now_mono - last_at < cooldown_sec:
-        raise HTTPException(
-            status_code=429,
-            detail=cooldown_detail,
-            headers={"Retry-After": str(max(1, math.ceil(cooldown_sec - (now_mono - last_at))))},
-        )
-    ip_entry = ip_store.get(ip_key)
-    if ip_entry is not None and ip_entry[0] != user_id and now_mono - ip_entry[1] < _CORROBORATION_WINDOW_SEC:
-        raise HTTPException(
-            status_code=429,
-            detail=_SHARED_IP_DETAIL,
-            headers={"Retry-After": str(max(1, math.ceil(_CORROBORATION_WINDOW_SEC - (now_mono - ip_entry[1]))))},
-        )
-    token = (user_store, ip_store, user_key, ip_key, user_store.get(user_key, _MISSING), ip_store.get(ip_key, _MISSING))
-    user_store[user_key] = now_mono
-    ip_store[ip_key] = (user_id, now_mono)
-    return token
-
-
-def _release_report_slot(token: tuple) -> None:
-    """_reserve_report_slot 이 잡은 자리를 잡기 전 값으로 되돌린다."""
-    user_store, ip_store, user_key, ip_key, previous_user, previous_ip = token
-    for store, key, previous in ((user_store, user_key, previous_user), (ip_store, ip_key, previous_ip)):
-        if previous is _MISSING:
-            store.pop(key, None)
-        else:
-            store[key] = previous
 
 
 class CongestionReportRequest(BaseModel):
@@ -245,7 +192,7 @@ async def report_availability(
     if not facility.data:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
-    slot = _reserve_report_slot(
+    slot = reserve_report_slot(
         user_store=_last_availability_report_at,
         ip_store=_last_availability_report_by_ip,
         user_id=current_user["id"],
@@ -267,7 +214,7 @@ async def report_availability(
             ).execute
         )
     except Exception as exc:
-        _release_report_slot(slot)
+        release_report_slot(slot)
         logger.error(
             "availability_report_failed",
             facility_id=req.facility_id,
@@ -281,7 +228,7 @@ async def report_availability(
     if isinstance(payload, list):
         payload = payload[0] if payload else {}
     if not payload:
-        _release_report_slot(slot)
+        release_report_slot(slot)
         raise HTTPException(status_code=503, detail="영업 상태 저장 결과를 확인하지 못했습니다.")
     return AvailabilityReportResponse(success=True, **payload)
 
@@ -320,7 +267,7 @@ async def report_congestion(
 
     # 1-1. 레이트리밋: 사용자·시설당 쿨다운 + IP·시설당 한 계정(스팸/조작 1차 차단, 상단 독스트링).
     #      여기서 자리를 잡고, 저장이 실패하면 되돌린다.
-    slot = _reserve_report_slot(
+    slot = reserve_report_slot(
         user_store=_last_report_at,
         ip_store=_last_report_by_ip,
         user_id=current_user["id"],
@@ -351,7 +298,7 @@ async def report_congestion(
             supabase_admin.table("congestion_logs").insert(row).execute
         )
     except Exception as e:
-        _release_report_slot(slot)  # 저장하지 못한 시도는 쿨다운을 남기지 않는다
+        release_report_slot(slot)  # 저장하지 못한 시도는 쿨다운을 남기지 않는다
         logger.error("congestion_report_insert_failed", error=str(e), facility_id=req.facility_id)
         # 우리 쪽 장애는 503 이다(이 저장소의 규칙 — 중복만 409, 잘못된 입력은 422).
         # 500 은 프런트가 '다시 시도해도 소용없는 오류' 로 다루기 쉽고, 실제로는 Render

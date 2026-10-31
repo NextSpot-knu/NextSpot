@@ -358,7 +358,8 @@
     "feedbackTitle": "感觉如何？顺手上报一下拥挤度会很有帮助",
     "liked": "不错",
     "disliked": "一般",
-    "thanks": "已记录！下次推荐时会参考 🙌"
+    "thanks": "已记录！下次推荐时会参考 🙌",
+    "guestCongestionNote": "访客的回答会先用于改进推荐。登录后也会立即反映到地图的拥挤度上。"
   },
   "calm": {
     "chip": "现在人少",

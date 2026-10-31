@@ -15,6 +15,16 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.client_ip import client_ip
+from app.core.config import settings
+from app.core.network_key import network_key_hash
+from app.core.report_slots import (
+    CONGESTION_VOTES_BY_IP,
+    GUEST_SHADOW_VOTES_BY_IP,
+    SHARED_IP_DETAIL,
+    release_report_slot,
+    reserve_report_slot,
+    shared_ip_retry_after,
+)
 from app.core.failure_log import record_failure
 from app.core.response_cache import (
     ResponseCache,
@@ -1743,38 +1753,117 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
     return recommendation, facility
 
 
+# 방문 확인 체감 혼잡 답의 처리 결과(응답 crowd_answer). 값은 DB recommendation_outcomes.observed_answer_mode 와 같다.
+#   registered   계정 사용자 — 예전처럼 congestion_logs(user_report)로 옮겨져 지도·교차검증에 들어간다.
+#   guest_shadow 게스트 — 저장만(그림자 모드). 지도·추천·corroborated 에 들어가지 않는다(20261031130000 트리거).
+#   guest_live   게스트 — GUEST_CROWD_ANSWERS_LIVE 로 실시간 반영(교차검증은 네트워크·실측 조건이 붙는다).
+#   not_recorded_shared_network  같은 IP·같은 장소에서 30분 안에 다른 계정이 이미 답·제보했다 — 평가만 저장하고 답은 버린다.
+_CROWD_ANSWER_SHARED_NETWORK = "not_recorded_shared_network"
+# 응답에서 빼는 열 — 네트워크 키는 측정·교차검증용이라 클라이언트에 돌려줄 이유가 없다.
+_OUTCOME_PRIVATE_FIELDS = ("observed_network_hash",)
+
+
+def _is_missing_rpc_signature(message: str) -> bool:
+    """PostgREST 가 새 인자를 가진 RPC 를 못 찾았는가(마이그레이션 20261031130000 미적용 또는 스키마 캐시 미갱신)."""
+    return "PGRST202" in message or "Could not find the function" in message
+
+
+async def _call_outcome_rpc(params: dict, extra: dict) -> object:
+    """방문 결과 RPC 호출. 새 인자(network_hash·guest_answer_live)를 모르는 구 DB 면 옛 인자로 한 번 더 부른다.
+
+    그 경우 게스트 판정·그림자 분류는 DB 에 아직 없으므로 오늘과 같은 동작이 된다(배포 순서를 어겨도 깨지지 않게).
+    """
+    try:
+        return await asyncio.to_thread(
+            supabase_client.rpc("record_recommendation_outcome", {**params, **extra}).execute
+        )
+    except Exception as exc:
+        if not _is_missing_rpc_signature(str(exc)):
+            raise
+        logger.warning("recommendation_outcome_rpc_legacy_signature", hint="apply migration 20261031130000")
+        return await asyncio.to_thread(supabase_client.rpc("record_recommendation_outcome", params).execute)
+
+
 @router.patch("/recommendations/{recommendation_id}/outcome")
 async def record_recommendation_outcome(
     recommendation_id: str,
     req: RecommendationOutcomeRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    """추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장)."""
-    await resolve_feedback_target(recommendation_id, current_user)
+    """추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장).
+
+    체감 혼잡(observed_congestion)은 게스트도 답할 수 있다. 게스트 답은 기본으로 그림자 모드다 — 저장만 하고
+    실시간 혼잡 판정에는 넣지 않는다(DB 가 auth.users.is_anonymous 로 판정, GUEST_CROWD_ANSWERS_LIVE 로 켠다).
+    1인 1표: 같은 IP·같은 장소에서는 30분에 한 계정의 답만 받는다(명시 제보와 같은 표 — app/core/report_slots.py).
+    그림자 모드 게스트 답은 그 표를 읽기만 하고 게스트 전용 표에 자리를 잡는다 — 실시간에 안 들어가는 답이 계정 사용자의
+    실시간 제보를 막지 않게.
+    막히면 409/429 로 거절하지 않고 평가만 저장한다 — 방문 결과 큐(웹 lib/recommendationOutcomes)를 막지 않게.
+    """
+    recommendation, _facility = await resolve_feedback_target(recommendation_id, current_user)
+    observed = req.observed_congestion
+    is_guest = bool((current_user.get("payload") or {}).get("is_anonymous"))
+    crowd_answer: str | None = None
+    network_hash: str | None = None
+    slot = None
+    if observed is not None:
+        ip = client_ip(request)
+        facility_id = str(recommendation.get("recommended_facility_id") or "")
+        # 그림자 모드 게스트 답은 실시간 표를 읽기만 하고 자리는 게스트 그림자 표에 잡는다(report_slots 주석).
+        shadow_guest = is_guest and not settings.GUEST_CROWD_ANSWERS_LIVE
+        if facility_id:
+            try:
+                if shadow_guest and shared_ip_retry_after(
+                    CONGESTION_VOTES_BY_IP, user_id=current_user["id"], ip=ip, facility_id=facility_id
+                ) is not None:
+                    raise HTTPException(status_code=429, detail=SHARED_IP_DETAIL)
+                slot = reserve_report_slot(
+                    ip_store=GUEST_SHADOW_VOTES_BY_IP if shadow_guest else CONGESTION_VOTES_BY_IP,
+                    user_id=current_user["id"],
+                    ip=ip,
+                    facility_id=facility_id,
+                )
+            except HTTPException:
+                observed = None
+                crowd_answer = _CROWD_ANSWER_SHARED_NETWORK
+                logger.info("outcome_crowd_answer_shared_network", recommendation_id=recommendation_id)
+        if observed is not None and is_guest:
+            # 게스트 답에만 대역 해시를 남긴다(원본 IP 는 저장하지 않는다). 계정 사용자 답은 DB 트리거도 지운다.
+            network_hash = network_key_hash(ip)
+
+    params = {
+        "p_recommendation_id": recommendation_id,
+        "p_user_id": current_user["id"],
+        "p_stage": req.stage,
+        "p_rating": req.rating,
+        "p_observed_congestion": observed,
+    }
+    extra = {
+        "p_network_hash": network_hash,
+        "p_guest_answer_live": bool(settings.GUEST_CROWD_ANSWERS_LIVE) and observed is not None,
+    }
     try:
-        result = await asyncio.to_thread(
-            supabase_client.rpc("record_recommendation_outcome", {
-                "p_recommendation_id": recommendation_id,
-                "p_user_id": current_user["id"],
-                "p_stage": req.stage,
-                "p_rating": req.rating,
-                "p_observed_congestion": req.observed_congestion,
-            }).execute
-        )
+        result = await _call_outcome_rpc(params, extra)
     except Exception as exc:
+        if slot is not None:
+            release_report_slot(slot)
         message = str(exc)
         if "must be recorded first" in message or "cannot be changed" in message:
             raise HTTPException(status_code=409, detail="방문 결과 단계 순서가 올바르지 않습니다.")
         logger.error("recommendation_outcome_failed", recommendation_id=recommendation_id, error=message)
         raise HTTPException(status_code=500, detail="방문 결과 저장에 실패했습니다.")
-    if req.observed_congestion is not None:
-        # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
-        # 옮긴다 — 지도에 보이는 쓰기다.
-        reference_snapshot.mark_dirty("congestion")
     row = result.data
     if isinstance(row, list):
         row = row[0] if row else None
-    return {"success": True, "outcome": row}
+    if isinstance(row, dict):
+        if observed is not None:
+            crowd_answer = row.get("observed_answer_mode") or crowd_answer
+        row = {k: v for k, v in row.items() if k not in _OUTCOME_PRIVATE_FIELDS}
+    if observed is not None and crowd_answer != "guest_shadow":
+        # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
+        # 옮긴다 — 지도에 보이는 쓰기다. 게스트 그림자 답은 옮기지 않으므로 스냅샷을 흔들지 않는다.
+        reference_snapshot.mark_dirty("congestion")
+    return {"success": True, "outcome": row, "crowd_answer": crowd_answer}
 
 
 @router.post("/feedback")

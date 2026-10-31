@@ -54,6 +54,10 @@ services:
       # --- Kakao Local 장소검색(공중화장실 좌표) + Mobility 경로(선택) ---
       - key: KAKAO_REST_API_KEY
         sync: false
+      # --- 게스트 체감 혼잡 실시간 스위치 GUEST_CROWD_ANSWERS_LIVE(기본 false = 그림자 모드) · 네트워크 키 비밀값
+      #     NETWORK_HASH_SALT(비우면 JWT_SECRET 에서 파생) — 일부러 여기 envVars 로 넣지 않는다(기본값으로 충분, Blueprint 동기화가
+      #     정지된 서비스를 건드리지 않게). 켤 때는 Render 대시보드에서 GUEST_CROWD_ANSWERS_LIVE=true(재시작 1회).
+      #     근거·순서: docs/PRODUCT_EVALUATION_PLAN.md §6 D3, app/core/config.py. ---
       # --- LLM(국산 Upstage Solar) 인증키(선택 — 비어 있으면 LLM 보조 기능만 조용히 비활성) ---
       - key: UPSTAGE_API_KEY
         sync: false

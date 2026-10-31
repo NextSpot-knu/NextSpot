@@ -19,9 +19,15 @@ import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome, type ObservedCongestion, type OutcomeRating } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 import { trackEvent } from '@/lib/usageEvents';
+import { useAccount } from '@/lib/account';
 
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
+  // 게스트(익명 세션)의 체감 혼잡 답은 지금 그림자 모드다 — 저장은 되지만 지도 혼잡에는 바로 들어가지 않는다
+  // (API GUEST_CROWD_ANSWERS_LIVE · DB 20261031130000). '다른 여행자의 발걸음을 분산' 문구는 게스트에게 맞지 않아
+  // 따로 안내한다. 계정을 아직 모르면(조회 전·실패) 게스트로 본다 — 과장보다 덜 말하는 쪽이 낫다.
+  const { account } = useAccount();
+  const isGuest = !account || account.isAnonymous;
   const [due, setDue] = useState<PendingVisit | null>(null);
   const [stage, setStage] = useState<'ask' | 'congestion' | 'feedback' | 'completed'>('ask');
   const [observedCongestion, setObservedCongestion] = useState<ObservedCongestion | null>(null);
@@ -224,7 +230,9 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
             <div className="flex flex-col gap-3 pr-6">
               <div>
                 <p className="text-sm font-bold text-muk">{t('report.title')}</p>
-                <p className="mt-0.5 text-[11px] text-muk-soft">{t('report.footer')}</p>
+                <p className="mt-0.5 text-[11px] text-muk-soft" data-testid="visit-congestion-note">
+                  {t(isGuest ? 'visit.guestCongestionNote' : 'report.footer')}
+                </p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {([

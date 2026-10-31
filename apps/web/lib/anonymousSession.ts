@@ -1,9 +1,10 @@
 import type { Session } from '@supabase/supabase-js';
 import { createPublicClient } from './supabase';
+import { getTurnstileToken, TURNSTILE_SITE_KEY } from './turnstile';
 
 interface AnonymousAuthClient {
   getSession(): Promise<{ data: { session: Session | null } }>;
-  signInAnonymously(): Promise<{
+  signInAnonymously(credentials?: { options?: { captchaToken?: string } }): Promise<{
     data: { session: Session | null };
     error: { message: string } | null;
   }>;
@@ -35,6 +36,12 @@ export interface AnonymousSessionEnsurer {
 export function createAnonymousSessionEnsurer(
   getAuth: () => AnonymousAuthClient,
   now: () => number = Date.now,
+  /**
+   * 익명 로그인 직전에 사람 확인 토큰(Cloudflare Turnstile)을 받는다 — 없으면(사이트 키 미설정) 오늘과 똑같다.
+   * null·예외면 토큰 없이 한 번 시도한다: Supabase CAPTCHA 가 아직 꺼져 있으면 통과하고, 켜져 있으면 거절돼
+   * 아래 재시도 창마다 새 확인을 다시 받는다(사람을 조용히 잠그지 않는다 — lib/turnstile.ts 머리말).
+   */
+  getCaptchaToken?: () => Promise<string | null>,
 ): AnonymousSessionEnsurer {
   // 익명 세션 "생성 중"인 동안만 공유한다. 완료된 Session 객체를 영구 캐시하면 이메일 로그인이나
   // 로그아웃 뒤에도 과거 uid를 추천 본문에 넣게 되어 현재 JWT uid와 불일치(403)가 발생한다.
@@ -62,7 +69,17 @@ export function createAnonymousSessionEnsurer(
         }
         if (now() < nextAttemptAt) return null;
 
-        const signedIn = await auth.signInAnonymously();
+        let captchaToken: string | null = null;
+        if (getCaptchaToken) {
+          try {
+            captchaToken = await getCaptchaToken();
+          } catch (error) {
+            console.warn('[auth] 사람 확인(Turnstile) 토큰을 받지 못했습니다 — 토큰 없이 시도합니다.', error);
+          }
+        }
+        const signedIn = captchaToken
+          ? await auth.signInAnonymously({ options: { captchaToken } })
+          : await auth.signInAnonymously();
         if (signedIn.error || !signedIn.data.session) {
           recordFailure();
           console.warn('[auth] 익명 세션을 만들지 못했습니다.', signedIn.error?.message ?? 'no session');
@@ -96,4 +113,7 @@ export function createAnonymousSessionEnsurer(
 
 export const ensureAnonymousSession = createAnonymousSessionEnsurer(
   () => createPublicClient().auth as AnonymousAuthClient,
+  Date.now,
+  // 사이트 키가 있을 때만 Turnstile 을 싣는다(스크립트도 이때만 받는다).
+  TURNSTILE_SITE_KEY ? () => getTurnstileToken(TURNSTILE_SITE_KEY) : undefined,
 );

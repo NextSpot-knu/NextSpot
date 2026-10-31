@@ -142,6 +142,7 @@ def _isolate_report_cooldowns():
     'IP·시설당 한 계정' 규칙이 생기면서(2026-10-30) 사용자를 바꿔도 막힌다 — TestClient 의 요청은 전부 같은
     피어('testclient')에서 오므로, 앞 테스트의 제보가 다음 테스트의 다른 계정 제보를 429 로 만든다.
     """
+    from app.core import report_slots
     from app.routers import reports
 
     stores = (
@@ -149,6 +150,7 @@ def _isolate_report_cooldowns():
         reports._last_report_by_ip,
         reports._last_availability_report_at,
         reports._last_availability_report_by_ip,
+        report_slots.GUEST_SHADOW_VOTES_BY_IP,  # 방문 확인 게스트 그림자 답(10-31)
     )
     for store in stores:
         store.clear()

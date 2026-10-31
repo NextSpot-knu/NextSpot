@@ -358,7 +358,8 @@
     "feedbackTitle": "How was it? A quick crowd report helps a lot",
     "liked": "Liked it",
     "disliked": "Not great",
-    "thanks": "Recorded! We'll use it for your next picks 🙌"
+    "thanks": "Recorded! We'll use it for your next picks 🙌",
+    "guestCongestionNote": "As a guest, your answer is used to fine-tune recommendations first. Sign in to have it show on the crowd map right away."
   },
   "calm": {
     "chip": "Quiet now",

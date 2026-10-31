@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.config import settings as app_settings
 from app.core.authz import ROLE_ADMIN, forbid_judge_admin, get_current_profile, require_role
 from app.core.executors import run_admin_io
 from app.core.internal_accounts import filter_internal_roles, internal_ids_from_rows, is_internal_user
@@ -1866,3 +1867,149 @@ async def get_dashboard_briefing():
         get_impact(since=today_start),
     )
     return await briefing_service.generate_briefing(_briefing_view(today), impact)
+
+
+# =========================================================================
+# 게스트 방문 확인 체감 혼잡 — 그림자 모드 측정(PRODUCT_EVALUATION_PLAN §6 D3)
+# =========================================================================
+# 2주 그림자 모드 동안 '게스트 답을 실시간에 넣어도 되는가' 를 정할 숫자를 낸다. 집계는 DB 함수
+# guest_crowd_answer_shadow_metrics(20261031130000)가 하고(행·계정·네트워크 키는 밖으로 나오지 않는다),
+# 여기서는 비율과 '표본이 모자라다' 는 판정만 붙인다. 비율은 표본이 _SHADOW_MIN_SAMPLE 미만이면 null 이다 —
+# 몇 건으로 낸 일치율은 켤지 말지의 근거가 되지 못한다.
+_SHADOW_MIN_SAMPLE = 30
+
+
+class GuestAnswerCounts(BaseModel):
+    registered: int = 0
+    guest_shadow: int = 0
+    guest_live: int = 0
+
+
+class AnswerAgreement(BaseModel):
+    """같은 장소 ±30분 안에서 시각이 가장 가까운 기준값 하나와 혼잡 단계 띠(한산·보통·혼잡)가 같은 비율."""
+
+    comparable: int = 0
+    agree: int = 0
+    rate: float | None = None
+
+
+class GuestAnswerAgreement(BaseModel):
+    guest_vs_registered: AnswerAgreement
+    guest_vs_measured: AnswerAgreement
+    registered_vs_registered: AnswerAgreement
+    registered_vs_measured: AnswerAgreement
+
+
+class GuestAnswerNetworks(BaseModel):
+    guest_answers_with_network: int = 0
+    distinct_networks: int = 0
+    answers_from_shared_networks: int = 0
+    same_place_cluster_answers: int = 0
+    shared_network_share: float | None = None
+    same_place_cluster_share: float | None = None
+
+
+class GuestAnswerShadowMetrics(BaseModel):
+    days: int
+    since: str | None = None
+    live: bool
+    answers: GuestAnswerCounts
+    guest_accounts: int = 0
+    agreement: GuestAnswerAgreement
+    networks: GuestAnswerNetworks
+    min_sample: int
+    sample_status: str  # "ok" | "insufficient"
+    notes: list[str]
+
+
+def _int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _share(part: int, whole: int) -> float | None:
+    return round(part / whole, 3) if whole >= _SHADOW_MIN_SAMPLE else None
+
+
+def _agreement(raw) -> AnswerAgreement:
+    raw = raw if isinstance(raw, dict) else {}
+    comparable, agree = _int(raw.get("comparable")), _int(raw.get("agree"))
+    return AnswerAgreement(comparable=comparable, agree=agree, rate=_share(agree, comparable))
+
+
+def build_guest_answer_shadow_metrics(raw: dict, *, days: int, live: bool) -> GuestAnswerShadowMetrics:
+    """DB 집계(JSON)에 비율·표본 판정·안내 문장을 붙인다. 순수 함수 — 테스트가 직접 부른다."""
+    raw = raw if isinstance(raw, dict) else {}
+    answers_raw = raw.get("answers") if isinstance(raw.get("answers"), dict) else {}
+    answers = GuestAnswerCounts(**{k: _int(answers_raw.get(k)) for k in ("registered", "guest_shadow", "guest_live")})
+    agreement_raw = raw.get("agreement") if isinstance(raw.get("agreement"), dict) else {}
+    agreement = GuestAnswerAgreement(**{
+        key: _agreement(agreement_raw.get(key))
+        for key in ("guest_vs_registered", "guest_vs_measured", "registered_vs_registered", "registered_vs_measured")
+    })
+    net_raw = raw.get("networks") if isinstance(raw.get("networks"), dict) else {}
+    guest_total = answers.guest_shadow + answers.guest_live
+    with_network = _int(net_raw.get("guest_answers_with_network"))
+    shared = _int(net_raw.get("answers_from_shared_networks"))
+    clustered = _int(net_raw.get("same_place_cluster_answers"))
+    networks = GuestAnswerNetworks(
+        guest_answers_with_network=with_network,
+        distinct_networks=_int(net_raw.get("distinct_networks")),
+        answers_from_shared_networks=shared,
+        same_place_cluster_answers=clustered,
+        shared_network_share=_share(shared, with_network),
+        same_place_cluster_share=_share(clustered, with_network),
+    )
+
+    guest_comparable = max(agreement.guest_vs_registered.comparable, agreement.guest_vs_measured.comparable)
+    enough = guest_comparable >= _SHADOW_MIN_SAMPLE and with_network >= _SHADOW_MIN_SAMPLE
+    notes: list[str] = []
+    if guest_total == 0:
+        notes.append(f"최근 {days}일 게스트 답이 없습니다.")
+    if guest_comparable < _SHADOW_MIN_SAMPLE:
+        notes.append(
+            f"같은 장소·30분 안에 비교할 계정 사용자 답·실측이 있는 게스트 답이 {guest_comparable}건이라 "
+            f"일치율을 내지 않습니다({_SHADOW_MIN_SAMPLE}건부터)."
+        )
+    if with_network < _SHADOW_MIN_SAMPLE:
+        notes.append(
+            f"네트워크 키가 있는 게스트 답이 {with_network}건이라 겹침 비율을 내지 않습니다({_SHADOW_MIN_SAMPLE}건부터)."
+        )
+    if agreement.registered_vs_registered.rate is None and agreement.registered_vs_measured.rate is None:
+        notes.append("계정 사용자 답의 기준 일치율도 표본이 모자라 게스트와 나란히 비교할 수 없습니다.")
+    since = raw.get("since")
+    return GuestAnswerShadowMetrics(
+        days=_int(raw.get("days")) or days,
+        since=str(since) if since else None,
+        live=live,
+        answers=answers,
+        guest_accounts=_int(raw.get("guest_accounts")),
+        agreement=agreement,
+        networks=networks,
+        min_sample=_SHADOW_MIN_SAMPLE,
+        sample_status="ok" if enough else "insufficient",
+        notes=notes,
+    )
+
+
+@router.get("/metrics/guest-answers", response_model=GuestAnswerShadowMetrics)
+async def get_guest_answer_shadow_metrics(days: int = 14):
+    """게스트 방문 확인 체감 혼잡 그림자 모드 측정 — 답 수 · 일치율(계정 사용자·실측 대비) · 네트워크 겹침.
+
+    days 1~30(기본 14 — 그림자 모드 2주, 네트워크 키 보관 30일을 넘지 않는다). 비율은 표본 30건 미만이면 null 이고,
+    sample_status·notes 가 무엇이 모자란지 말한다. live 는 지금 서버의 GUEST_CROWD_ANSWERS_LIVE 값이다.
+    """
+    days = max(1, min(days, 30))
+    try:
+        res = await run_admin_io(
+            lambda: supabase_admin.rpc("guest_crowd_answer_shadow_metrics", {"p_days": days}).execute()
+        )
+    except Exception as exc:
+        logger.error("guest_answer_shadow_metrics_failed", error=str(exc))
+        raise HTTPException(status_code=503, detail="게스트 답 측정값을 불러오지 못했습니다(마이그레이션 20261031130000 적용 확인).")
+    raw = res.data
+    if isinstance(raw, list):
+        raw = raw[0] if raw else {}
+    return build_guest_answer_shadow_metrics(raw or {}, days=days, live=bool(app_settings.GUEST_CROWD_ANSWERS_LIVE))

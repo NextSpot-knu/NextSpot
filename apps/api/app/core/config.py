@@ -166,6 +166,18 @@ class Settings(BaseSettings):
     # 모르는 값은 memo. ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
     WALKING_ROUTE_KERNEL: str = "memo"
 
+    # 게스트 방문 확인 체감 혼잡을 실시간 판정에 넣을지(PRODUCT_EVALUATION_PLAN §6 D3) — 기본 꺼짐(그림자 모드).
+    # 꺼짐: 게스트 답은 recommendation_outcomes 에 guest_shadow 로 저장만 되고 congestion_logs(지도·추천·corroborated)에
+    #   들어가지 않는다. 켬: guest_live 로 user_report 가 되지만, 게스트가 낀 일치는 서로 다른 네트워크 둘 이상 또는
+    #   계정 사용자·실측 하나 이상이 있어야 corroborated 가 된다(DB 트리거 20261031130000). 게스트 여부는 DB 가
+    #   auth.users.is_anonymous 로 정하므로 이 값은 '게스트 답을 실시간으로 보내 달라는 요청' 일 뿐이다.
+    # 켜기 전에 관리자 GET /api/v1/admin/metrics/guest-answers 의 2주 숫자를 본다. 웹 안내 문구(visit.guestCongestionNote)도 함께 바꾼다.
+    # ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
+    GUEST_CROWD_ANSWERS_LIVE: bool = False
+    # 게스트 답 네트워크 키(IPv4 /24 · IPv6 /64 대역 HMAC — app/core/network_key.py)의 비밀 키. 비어 있으면 JWT_SECRET 에서
+    # 파생한다(따로 정하지 않아도 동작). 바꾸면 이전 키와 이어지지 않는다(보관 30일이라 그 뒤로는 무관). 로그·문서에 값을 쓰지 않는다.
+    NETWORK_HASH_SALT: str = ""
+
     # CORS Settings
     # 기본값은 와일드카드(미설정 환경에서 프런트가 막히지 않도록). 운영에서는 실제 도메인을
     # 콤마로 지정하면 main.py 가 자동으로 엄격 모드(해당 오리진만 + credentials)로 전환한다.

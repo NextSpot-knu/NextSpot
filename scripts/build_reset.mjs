@@ -124,6 +124,12 @@ DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;
 DROP FUNCTION IF EXISTS public.promote_recommendation_model(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT) CASCADE;
+-- 게스트 방문 확인 체감 혼잡 그림자 모드(20261031130000) — RPC 는 인자 둘이 늘었다(위 5인자는 구 DB 정리용).
+DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT, TEXT, BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.classify_outcome_congestion_answer() CASCADE;
+DROP FUNCTION IF EXISTS public.congestion_level_band(DOUBLE PRECISION) CASCADE;
+DROP FUNCTION IF EXISTS public.purge_expired_network_hashes() CASCADE;
+DROP FUNCTION IF EXISTS public.guest_crowd_answer_shadow_metrics(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
