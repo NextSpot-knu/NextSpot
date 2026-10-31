@@ -3,13 +3,15 @@
 // 실시간 데이터 리허설 — 서울 수집 파이프라인을 **있는 그대로** 보여 주는 블록.
 //
 // 대상지마다 주기·마지막 버킷·나이·채움률(분모 = 그 대상지의 차례였던 버킷)·호출 예산을 한 줄로 두고,
-// 정규화 표(zone_crowd_snapshots)와 결정 품질(S4)은 각자의 상태로 말한다. 판정은 서버가 하고(seoul_collection_status.py)
+// 정규화 표(zone_crowd_snapshots)와 결정 품질(S4)은 각자의 상태로 말한다. 결정 품질은 커밋된 재생 요약이 있으면
+// 권역마다 카드 하나(판정 배지 · 표본 · 적중률과 신뢰구간 · 한계 첫 줄)를 그린다. 판정은 서버가 하고(seoul_collection_status.py)
 // 문장은 lib/rehearsalStatus.ts 가 만든다 — 이 컴포넌트는 그리기만 한다.
 
-import { Activity, AlertCircle, AlertTriangle, CheckCircle2, Database, Info, Scale } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, CheckCircle2, Database, Hourglass, Info, MinusCircle, Scale, XCircle } from 'lucide-react';
 import { formatKst, type StateNotice, type Tone } from '@/lib/engineValidation';
 import {
   countedSinceLabel,
+  decisionQualityCards,
   describeBudget,
   describeDecisionQuality,
   describeLastRun,
@@ -20,7 +22,9 @@ import {
   formatFillRate,
   targetBadge,
   type DecisionQuality,
+  type DecisionQualityCard,
   type RehearsalPipeline,
+  type VerdictBadge,
 } from '@/lib/rehearsalStatus';
 
 const TONE_BOX: Record<Tone, string> = {
@@ -180,11 +184,88 @@ export function RehearsalStatusPanel({
   );
 }
 
+const VERDICT_ICON: Record<VerdictBadge['status'], typeof Info> = {
+  pass: CheckCircle2,
+  fail: XCircle,
+  insufficient: Hourglass,
+  not_evaluable: MinusCircle,
+  unknown: AlertTriangle,
+};
+
+function Badge({ label, tone, Icon }: { label: string; tone: Tone; Icon?: typeof Info }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${TONE_BOX[tone]} ${TONE_TEXT[tone]}`}>
+      {Icon && <Icon size={12} />}
+      {label}
+    </span>
+  );
+}
+
+/** 권역 하나의 재생 결과. 숫자와 정의만 쓴다 — 결론 문장은 판정 배지가 대신한다. */
+function DecisionQualityClusterCard({ card }: { card: DecisionQualityCard }) {
+  return (
+    <article
+      className="bg-hanok-card border border-hanok-line rounded-xl p-3 space-y-2 min-w-0"
+      aria-label={`결정 품질 — ${card.title}`}
+      data-testid={`decision-quality-${card.cluster}`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="font-bold text-hanok-ink text-sm">{card.title}</h4>
+        <Badge label={card.runBadge.label} tone={card.runBadge.tone} />
+        <Badge label={`V3 ${card.v3Badge.label}`} tone={card.v3Badge.tone} Icon={VERDICT_ICON[card.v3Badge.status]} />
+      </div>
+      {card.zones && <p className="text-[11px] text-hanok-muted break-words">{card.zones}</p>}
+      {card.unattainable && <p className="text-xs font-semibold text-amber-800 break-words">{card.unattainable}</p>}
+      {card.v3Reason && <p className="text-[11px] text-hanok-muted break-words">사유: {card.v3Reason}</p>}
+      <p className="text-xs text-hanok-ink tabular-nums break-words">{card.sampleLine}</p>
+      <p className="text-sm font-semibold text-hanok-ink tabular-nums break-words">{card.hitLine}</p>
+      <ul className="text-xs text-hanok-muted space-y-0.5 tabular-nums">
+        {card.contrastLines.map((line) => (
+          <li key={line} className="break-words">{line}</li>
+        ))}
+        {card.nowLine && <li className="break-words">{card.nowLine}</li>}
+      </ul>
+      <p className="text-xs text-hanok-ink tabular-nums break-words flex flex-wrap items-center gap-2">
+        <Badge label={`V4 ${card.v4Badge.label}`} tone={card.v4Badge.tone} Icon={VERDICT_ICON[card.v4Badge.status]} />
+        <span className="min-w-0 break-words">{card.v4Line}</span>
+      </p>
+      {card.thinNote && <p className="text-xs text-amber-800 break-words">{card.thinNote}</p>}
+      {card.notes.length > 0 && (
+        <ul className="text-[11px] text-hanok-muted list-disc pl-4 space-y-0.5">
+          {card.notes.map((note) => (
+            <li key={note} className="break-words">{note}</li>
+          ))}
+        </ul>
+      )}
+      {card.firstLimit && <p className="text-[11px] text-hanok-ink break-words">한계: {card.firstLimit}</p>}
+      {card.moreLimits.length > 0 && (
+        <details className="text-[11px] text-hanok-muted">
+          <summary className="cursor-pointer">한계 {card.moreLimits.length}개 더 보기</summary>
+          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+            {card.moreLimits.map((limit) => (
+              <li key={limit} className="break-words">{limit}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <p className="text-[10px] text-hanok-muted break-all">{card.criteriaLine}</p>
+    </article>
+  );
+}
+
 export function DecisionQualityPanel({ quality }: { quality: DecisionQuality | null }) {
+  const cards = decisionQualityCards(quality);
   return (
     <section className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm space-y-3" aria-label="결정 품질">
       <h3 className="text-lg font-bold text-hanok-ink">결정 품질 — 분산 추천이 도착 시점에 덜 붐비는 곳을 골랐나</h3>
       <Notice notice={describeDecisionQuality(quality)} />
+      {cards.length > 0 && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {cards.map((card) => (
+            <DecisionQualityClusterCard key={card.cluster} card={card} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }

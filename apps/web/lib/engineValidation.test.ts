@@ -12,7 +12,12 @@ import {
   formatMetricValue,
   formatSample,
   formatThreshold,
+  describeRankGate,
+  metricDetailRows,
+  parseCalibration,
+  parseRankGate,
   parseSummary,
+  RANK_GATE_TITLE,
   sampleCaveat,
   statusLabel,
   summaryPath,
@@ -133,6 +138,75 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   );
   assert.equal(formatThreshold(metric({ direction: 'report', threshold: null })), '기준 없음 · 보고용');
 
+  // S4 보강 필드 — 있으면 조건을 함께 쓰고, 없으면(이전 서버) 위 문장 그대로다.
+  assert.equal(
+    formatThreshold(metric({ key: 'spearman', unit: 'rho', threshold: 0.5, anomaly_threshold: 0.1, anomaly_rho: 0.2 })),
+    '≥ 0.50 · 시간대 평균을 뺀 ρ ≥ 0.10',
+  );
+  assert.equal(formatThreshold(metric({ cohen_kappa: 0.31, kappa_threshold: 0.2 })), '≥ 50% · κ ≥ 0.20');
+  assert.equal(
+    formatThreshold(metric({ key: 'grade_within_one', threshold: 0.8, weighted_kappa_linear: 0.4, kappa_threshold: 0.2 })),
+    '≥ 80% · 선형 가중 κ ≥ 0.20',
+  );
+  assert.equal(
+    formatThreshold(metric({
+      key: 'forecast_mae_30m', unit: 'mae', direction: 'lte', threshold: 0.19, baseline_mae: 0.2,
+      baseline_label: '시간대 평균(학습 날짜)', margin: 0.95,
+    })),
+    '시간대 평균(학습 날짜)(0.200)의 0.95배 이하',
+  );
+  assert.equal(
+    formatThreshold(metric({ unit: 'mae', direction: 'lte', threshold: null, baseline_mae: null, baseline_label: '시간대 평균(학습 날짜)', margin: 0.95 })),
+    '시간대 평균(학습 날짜)의 0.95배 이하',
+  );
+
+  // 덧붙임 줄 — 이전 서버 응답이면 하나도 없다(타일이 예전 그대로).
+  assert.deepEqual(metricDetailRows(metric({})), []);
+  assert.deepEqual(
+    metricDetailRows(metric({ key: 'spearman', unit: 'rho', anomaly_rho: 0.1234, anomaly_n: 120, anomaly_dates: 6, climatology_rho: null })),
+    [
+      { label: '시간대 평균을 뺀 ρ', value: '0.12 (n=120 · 6일)' },
+      { label: '시간대 평균만의 ρ(비교)', value: '—' },
+    ],
+  );
+  assert.deepEqual(
+    metricDetailRows(metric({ key: 'spearman', unit: 'rho', anomaly_rho: 0.16, anomaly_rho_ci_low: -0.067 })),
+    [
+      { label: '시간대 평균을 뺀 ρ', value: '0.16' },
+      { label: '시간대 평균을 뺀 ρ의 95% 하한(날짜 잭나이프)', value: '-0.07' },
+    ],
+  );
+  assert.deepEqual(
+    metricDetailRows(metric({
+      key: 'forecast_mae_30m', unit: 'mae', direction: 'lte', holdout_n: 40, holdout_dates: 3, raw_mae: 0.2111, raw_n: 120,
+      oracle_reference_label: '실측 지속 — 참고: 추정기는 쓸 수 없는 정보', oracle_reference_mae: 0.08,
+    })),
+    [
+      { label: '홀드아웃', value: 'n=40 · 3일' },
+      { label: '보정 전 전체 표본 MAE(보고용)', value: '0.211 (n=120)' },
+      { label: '실측 지속 — 참고: 추정기는 쓸 수 없는 정보', value: '0.080' },
+    ],
+  );
+  assert.deepEqual(
+    metricDetailRows(metric({
+      chance_agreement: 0.5, cohen_kappa: 0.25, rank_mapped_value: 0.55, rank_mapped_chance: 0.4, rank_mapped_n: 50,
+      rank_mapped_holdout_days: 3,
+    })),
+    [
+      { label: '우연 일치', value: '50.0%' },
+      { label: 'Cohen κ', value: '0.25' },
+      { label: '분위 경계 등급 일치(보고용)', value: '55.0% · 우연 40.0% (홀드아웃 n=50 · 3일)' },
+    ],
+  );
+  assert.deepEqual(
+    metricDetailRows(metric({ key: 'grade_within_one', chance_within_one: 0.81, weighted_kappa_linear: null, rank_mapped_value: null })),
+    [
+      { label: '우연히 ±1 이내', value: '81.0%' },
+      { label: '선형 가중 κ', value: '—' },
+      { label: '분위 경계 등급 일치(보고용)', value: '—' },
+    ],
+  );
+
   assert.equal(statusLabel('fail'), '개선 중');
   assert.equal(statusLabel('insufficient'), '집계 중');
   assert.equal(statusLabel('brand_new'), 'brand_new', '모르는 판정을 숨기지 않는다');
@@ -214,6 +288,70 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 {
   assert.equal(summaryPath(7), '/api/v1/admin/engine-validation/seoul/summary?days=7');
   assert.equal(summaryPath(99), '/api/v1/admin/engine-validation/seoul/summary?days=14');
+}
+
+// --- 보정 순위 관문(보고 전용) -----------------------------------------------------------
+// 제목이 '적용 기준 아님' 을 말한다 — 미달이어도 경주 적용 판정은 바뀌지 않는다. 이전 서버는 필드가 없다(null).
+{
+  const base = {
+    state: 'ready', applied: false, places: [], window_days: 28, generated_at: '', hour_shape: {},
+    sample: { paired_buckets: 0, days: 0 }, requirement: {}, curve: null, quality: null, gyeongju_effect: null, reason: null,
+  };
+  assert.equal(parseCalibration(base)!.rank_gate, null, '이전 서버 응답에는 관문 줄이 없다');
+  assert.equal(parseCalibration({ ...base, rank_gate: null })!.rank_gate, null);
+  assert.equal(parseRankGate({ enforced: false }), null, '상태가 없으면 모르는 모양');
+
+  const raw = {
+    status: 'fail', enforced: false, holdout_spearman: 0.21, anomaly_rho: 0.05, min_holdout_spearman: 0.3,
+    mae_constant: 0.18, mae_calibrated: 0.19, beats_constant: false, holdout_samples: 120, holdout_days: 6,
+    min_holdout_samples: 36, min_holdout_days: 5, definition: '홀드아웃 순위 상관과 상수 대비 MAE', reason: '홀드아웃 ρ 0.2100 < 0.30',
+  };
+  const gate = parseCalibration({ ...base, rank_gate: raw })!.rank_gate!;
+  assert.equal(gate.status, 'fail');
+  const view = describeRankGate(gate);
+  assert.equal(view.title, RANK_GATE_TITLE);
+  assert.equal(view.title, '순위 관문(참고 — 적용 기준 아님)');
+  assert.deepEqual(view.badge, { label: '미달', tone: 'warn' });
+  assert.deepEqual(view.lines, [
+    '홀드아웃 순위 상관 ρ(대상지 안) 0.21 / 기준 ≥ 0.30',
+    '홀드아웃 MAE — 보정 곡선 0.190 vs 대상지별 학습 평균 상수 0.180 (상수보다 낮지 않음)',
+    '홀드아웃 120점 · 6일 / 최소 36점 · 5일',
+    '시간대 평균을 뺀 ρ(참고) 0.05',
+  ]);
+  // 대상지 안 ρ 와 섞은 ρ 를 함께 보내는 서버(S4 검토) — 섞은 ρ 는 참고 줄이다.
+  const withSites = describeRankGate(parseRankGate({ ...raw, pooled_spearman: 0.74, holdout_sites: 2 })!);
+  assert.equal(withSites.lines[0], '홀드아웃 순위 상관 ρ(대상지 안 · 2곳) 0.21 / 기준 ≥ 0.30');
+  assert.ok(withSites.lines.includes('대상지를 섞은 ρ(참고) 0.74'));
+  assert.equal(view.reason, '홀드아웃 ρ 0.2100 < 0.30');
+
+  const thin = describeRankGate(parseRankGate({ status: 'insufficient', enforced: false, holdout_samples: 3, holdout_days: 1 })!);
+  assert.deepEqual(thin.badge, { label: '표본 부족', tone: 'info' });
+  assert.equal(thin.lines[0], '홀드아웃 순위 상관 ρ(대상지 안) —');
+  assert.equal(thin.lines.length, 3, '참고 ρ 가 없으면 그 줄을 쓰지 않는다');
+  assert.notEqual(describeRankGate({ ...gate, enforced: true }).title, RANK_GATE_TITLE, '적용 기준이 되면 제목이 달라진다');
+
+  // 이상치 ρ 가 판정 조건인 서버(S4 검토 2차) — 하루 모양만 따라 그리면 이상치 ρ 가 없다('—', 0 이 아니다).
+  const clockOnly = describeRankGate(parseRankGate({
+    ...raw, holdout_spearman: 0.62, beats_constant: true, anomaly_rho: null, min_anomaly_rho: 0.1, anomaly_slot_minutes: 10,
+  })!);
+  assert.ok(clockOnly.lines.includes('시간대 평균(10분 칸 학습 날짜)을 뺀 ρ — / 기준 ≥ 0.10'));
+  assert.ok(!clockOnly.lines.some((line) => line.includes('(참고) —')));
+  const tracked = describeRankGate(parseRankGate({ ...raw, anomaly_rho: 0.34, min_anomaly_rho: 0.1, anomaly_slot_minutes: 10 })!);
+  assert.equal(tracked.lines[tracked.lines.length - 1], '시간대 평균(10분 칸 학습 날짜)을 뺀 ρ 0.34 / 기준 ≥ 0.10');
+  assert.equal(parseRankGate(raw)!.anomaly_rho_ci_low, null, '하한이 없는 이전 서버는 null — 줄이 그대로다');
+
+  // 날짜 잭나이프 95% 하한 > 0 도 판정 조건인 서버(S4 검토 3차) — 같은 줄에 하한을 싣는다.
+  const withCi = describeRankGate(parseRankGate({
+    ...raw, anomaly_rho: 0.15, min_anomaly_rho: 0.1, anomaly_slot_minutes: 10, anomaly_rho_ci_low: -0.19,
+  })!);
+  assert.equal(
+    withCi.lines[withCi.lines.length - 1],
+    '시간대 평균(10분 칸 학습 날짜)을 뺀 ρ 0.15 / 기준 ≥ 0.10 · 95% 하한(날짜 잭나이프) -0.19 > 0',
+  );
+  const ciNull = describeRankGate(parseRankGate({
+    ...raw, anomaly_rho: 0.34, min_anomaly_rho: 0.1, anomaly_slot_minutes: 10, anomaly_rho_ci_low: null,
+  })!);
+  assert.equal(ciNull.lines[ciNull.lines.length - 1], '시간대 평균(10분 칸 학습 날짜)을 뺀 ρ 0.34 / 기준 ≥ 0.10');
 }
 
 // --- 화면 배선 --------------------------------------------------------------------

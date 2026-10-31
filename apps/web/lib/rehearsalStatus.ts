@@ -95,11 +95,82 @@ export interface RehearsalPipeline {
   zones: ZonesStatus | null;
 }
 
+/** S4 재생 요약 한 권역(`decision_quality_summary/3`) — 서버 검사기(crowd/decision_quality.py)를 통과한 것만 온다. */
+export interface DecisionQualityCluster {
+  cluster: string;
+  zones: string[];
+  run_label: 'pilot' | 'confirmatory' | 'exploratory' | string;
+  criteria_version: string;
+  code_version: string | null;
+  period: { first_decision_at: string | null; last_decision_at: string | null; days: number };
+  n_decisions: number;
+  days: number;
+  episodes: number;
+  n_disagree: number;
+  headroom: number | null;
+  opportunity_rate: number | null;
+  hit_rate: Record<'engine' | 'nearest' | 'climatology_choice' | 'current_band_greedy' | 'random' | 'oracle', number | null>;
+  hit_vs_now: { engine: number | null; stay: number | null };
+  harm_rate: { engine: number | null; nearest: number | null };
+  verdicts: {
+    V3: {
+      status: string;
+      criterion: string;
+      diff: number | null;
+      /** 부트스트랩 95% 구간(보여 주는 값). */
+      ci_low: number | null;
+      ci_high: number | null;
+      ci_label: string | null;
+      /** 날짜 군집 t 하한. */
+      ci_low_t: number | null;
+      /** 판정 하한 = 부트스트랩·날짜 군집 t 하한 중 작은 쪽 — 통과는 이것이 0 보다 커야 한다. */
+      gate_low: number | null;
+      n: number;
+      /** 서로 다른 (출발지·버킷) 수 — 최소 표본 판정은 결정 수 n 이 아니라 이것으로 한다. 이전 요약은 없다(null). */
+      n_distinct: number | null;
+      days: number;
+      n_disagree: number;
+      /** 엔진≠가장 가까운 곳인 서로 다른 (출발지·버킷) 수. 이전 요약은 없다(null). */
+      n_disagree_distinct: number | null;
+      headroom: number | null;
+      /** null = 모집단이 비어 달성 가능 여부를 모른다(headroom 없음). */
+      criterion_attainable: boolean | null;
+      reason: string | null;
+    };
+    V4: {
+      status: string;
+      recommendation: string;
+      lead_bin: number;
+      mae_provider: number | null;
+      mae_persistence: number | null;
+      n: number | null;
+      days: number | null;
+      reason: string | null;
+    };
+    V2: { status: string; share_crowd_gt_travel: number | null };
+  };
+  contrasts: Record<'engine_minus_climatology' | 'engine_minus_greedy', CiBlock>;
+  thin_cluster: boolean;
+  alternatives_per_origin: number;
+  notes: string[];
+  limits: string[];
+}
+
+export interface CiBlock {
+  diff: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+}
+
 export interface DecisionQuality {
-  state: 'not_evaluated' | string;
+  /** not_evaluated(요약 없음) · evaluated(요약 있음) · invalid_summary(요약 파일 오류). 모르는 모양은 not_evaluated 로 읽는다. */
+  state: 'not_evaluated' | 'evaluated' | 'invalid_summary';
   stage: string;
   criterion: string;
-  result: unknown;
+  /** evaluated 일 때만 채운다(cluster 이름순 — 서버 순서 그대로). */
+  clusters: DecisionQualityCluster[];
+  /** invalid_summary 일 때 '<파일명>: <문제>'. */
+  reason: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,14 +231,123 @@ export function parsePipeline(raw: unknown): RehearsalPipeline | null {
   };
 }
 
+const isNum = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const numOrNull = (value: unknown): number | null => (isNum(value) ? value : null);
+const strOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+const strList = (value: unknown): string[] =>
+  Array.isArray(value) ? (value as unknown[]).filter((item): item is string => typeof item === 'string') : [];
+
+function rateBlock<K extends string>(raw: unknown, keys: readonly K[]): Record<K, number | null> {
+  const block = isRecord(raw) ? raw : {};
+  return Object.fromEntries(keys.map((key) => [key, numOrNull(block[key])])) as Record<K, number | null>;
+}
+
+const HIT_POLICIES = ['engine', 'nearest', 'climatology_choice', 'current_band_greedy', 'random', 'oracle'] as const;
+const CI_KEYS = ['diff', 'ci_low', 'ci_high'] as const;
+
+/** 요약 한 권역. 판정(V3)·권역 이름·표본 수가 없으면 모르는 모양 — null. */
+function parseCluster(raw: unknown): DecisionQualityCluster | null {
+  if (!isRecord(raw) || typeof raw.cluster !== 'string' || !isRecord(raw.verdicts)) return null;
+  const verdicts = raw.verdicts;
+  const v3 = isRecord(verdicts.V3) ? verdicts.V3 : null;
+  if (!v3 || typeof v3.status !== 'string' || !isNum(raw.n_decisions) || !isNum(raw.days)) return null;
+  const v4 = isRecord(verdicts.V4) ? verdicts.V4 : {};
+  const v2 = isRecord(verdicts.V2) ? verdicts.V2 : {};
+  const period = isRecord(raw.period) ? raw.period : {};
+  const contrasts = isRecord(raw.contrasts) ? raw.contrasts : {};
+  return {
+    cluster: raw.cluster,
+    zones: strList(raw.zones),
+    run_label: typeof raw.run_label === 'string' ? raw.run_label : 'exploratory',
+    criteria_version: typeof raw.criteria_version === 'string' ? raw.criteria_version : '—',
+    code_version: strOrNull(raw.code_version),
+    period: {
+      first_decision_at: strOrNull(period.first_decision_at),
+      last_decision_at: strOrNull(period.last_decision_at),
+      days: isNum(period.days) ? period.days : 0,
+    },
+    n_decisions: raw.n_decisions,
+    days: raw.days,
+    episodes: isNum(raw.episodes) ? raw.episodes : 0,
+    n_disagree: isNum(raw.n_disagree) ? raw.n_disagree : 0,
+    headroom: numOrNull(raw.headroom),
+    opportunity_rate: numOrNull(raw.opportunity_rate),
+    hit_rate: rateBlock(raw.hit_rate, HIT_POLICIES),
+    hit_vs_now: rateBlock(raw.hit_vs_now, ['engine', 'stay'] as const),
+    harm_rate: rateBlock(raw.harm_rate, ['engine', 'nearest'] as const),
+    verdicts: {
+      V3: {
+        status: v3.status,
+        criterion: typeof v3.criterion === 'string' ? v3.criterion : '',
+        diff: numOrNull(v3.diff),
+        ci_low: numOrNull(v3.ci_low),
+        ci_high: numOrNull(v3.ci_high),
+        ci_label: strOrNull(v3.ci_label),
+        ci_low_t: numOrNull(v3.ci_low_t),
+        gate_low: numOrNull(v3.gate_low),
+        n: isNum(v3.n) ? v3.n : raw.n_decisions,
+        n_distinct: numOrNull(v3.n_distinct),
+        days: isNum(v3.days) ? v3.days : raw.days,
+        n_disagree: isNum(v3.n_disagree) ? v3.n_disagree : 0,
+        n_disagree_distinct: numOrNull(v3.n_disagree_distinct),
+        headroom: numOrNull(v3.headroom),
+        // 참/거짓이 아니면(null · 빠짐) 모른다 — '달성 가능' 으로도 '구조상 달성 불가' 로도 단정하지 않는다.
+        criterion_attainable: typeof v3.criterion_attainable === 'boolean' ? v3.criterion_attainable : null,
+        reason: strOrNull(v3.reason),
+      },
+      V4: {
+        status: typeof v4.status === 'string' ? v4.status : 'not_evaluable',
+        recommendation: typeof v4.recommendation === 'string' ? v4.recommendation : 'undetermined',
+        lead_bin: isNum(v4.lead_bin) ? v4.lead_bin : 30,
+        mae_provider: numOrNull(v4.mae_provider),
+        mae_persistence: numOrNull(v4.mae_persistence),
+        n: numOrNull(v4.n),
+        days: numOrNull(v4.days),
+        reason: strOrNull(v4.reason),
+      },
+      V2: { status: typeof v2.status === 'string' ? v2.status : 'report', share_crowd_gt_travel: numOrNull(v2.share_crowd_gt_travel) },
+    },
+    contrasts: {
+      engine_minus_climatology: rateBlock(contrasts.engine_minus_climatology, CI_KEYS),
+      engine_minus_greedy: rateBlock(contrasts.engine_minus_greedy, CI_KEYS),
+    },
+    thin_cluster: raw.thin_cluster === true,
+    alternatives_per_origin: isNum(raw.alternatives_per_origin) ? raw.alternatives_per_origin : 0,
+    notes: strList(raw.notes),
+    limits: strList(raw.limits),
+  };
+}
+
+export const DECISION_QUALITY_SCHEMA = 'decision_quality_summary/3';
+
+/**
+ * `decision_quality` 블록 → 화면이 아는 모양. **모르는 모양(새 스키마·깨진 요약·모르는 상태)은 not_evaluated 로 읽는다** —
+ * 반쯤 읽은 숫자를 결과처럼 보이게 하지 않는다. 블록 자체가 없으면(이전 서버) null.
+ */
 export function parseDecisionQuality(raw: unknown): DecisionQuality | null {
   if (!isRecord(raw) || typeof raw.state !== 'string') return null;
-  return {
-    state: raw.state,
+  const base = {
     stage: typeof raw.stage === 'string' ? raw.stage : 'S4',
     criterion: typeof raw.criterion === 'string' ? raw.criterion : '',
-    result: raw.result ?? null,
+    clusters: [] as DecisionQualityCluster[],
+    reason: null as string | null,
   };
+  if (raw.state === 'invalid_summary') {
+    return { ...base, state: 'invalid_summary', reason: typeof raw.reason === 'string' ? raw.reason : null };
+  }
+  if (
+    raw.state === 'evaluated' &&
+    isRecord(raw.result) &&
+    raw.result.schema_version === DECISION_QUALITY_SCHEMA &&
+    Array.isArray(raw.result.clusters)
+  ) {
+    const parsed = (raw.result.clusters as unknown[]).map(parseCluster);
+    const clusters = parsed.filter((cluster): cluster is DecisionQualityCluster => cluster !== null);
+    if (clusters.length > 0 && clusters.length === parsed.length) {
+      return { ...base, state: 'evaluated', clusters };
+    }
+  }
+  return { ...base, state: 'not_evaluated' };
 }
 
 // --- 대상지 한 줄 -------------------------------------------------------------------
@@ -355,16 +535,229 @@ export function describeZones(zones: ZonesStatus | null): StateNotice {
 
 // --- 결정 품질(S4) -------------------------------------------------------------------
 
-/** 결정 품질은 S4 재생 평가가 만든다. 그 전에는 숫자 자리를 만들지 않고 '아직 없음' 만 말한다. */
+/**
+ * 블록 맨 위 알림. 결과가 없으면 숫자 자리를 만들지 않고 '아직 없음' 만 말한다. 요약 파일이 틀렸으면 숫자 없이
+ * 어느 파일의 무엇이 틀렸는지만 — 일부 권역만 보여 '그 권역만 평가됐다' 로 읽히게 두지 않는다(서버도 같은 규칙).
+ */
 export function describeDecisionQuality(quality: DecisionQuality | null): StateNotice {
-  if (!quality || quality.state === 'not_evaluated' || quality.result === null || quality.result === undefined) {
+  const stage = quality?.stage ?? 'S4';
+  if (quality?.state === 'invalid_summary') {
+    return {
+      tone: 'warn',
+      title: `${stage} 결정 품질 요약 파일 오류 — 수치를 표시하지 않습니다`,
+      detail: `${quality.reason ?? '요약 파일을 읽지 못했습니다'}. 재생 산출물(out/decision_quality/<권역>.json)을 이름·내용 그대로 다시 커밋해야 합니다.`,
+    };
+  }
+  if (!quality || quality.state !== 'evaluated' || quality.clusters.length === 0) {
     return {
       tone: 'info',
-      title: `${quality?.stage ?? 'S4'} 재생 평가 전 — 아직 없음`,
+      title: `${stage} 재생 평가 전 — 아직 없음`,
       detail: `분산 결정 재생 평가가 아직 돌지 않았습니다. 결과가 생기기 전에는 수치를 표시하지 않습니다.${quality?.criterion ? ` 합격 기준: ${quality.criterion}.` : ''}`,
     };
   }
-  return { tone: 'info', title: `${quality.stage} 결과 수신`, detail: '결과 표시는 S4 와 함께 추가됩니다.' };
+  const names = quality.clusters.map((cluster) => clusterLabel(cluster.cluster)).join(' · ');
+  return {
+    tone: 'info',
+    title: `${stage} 분산 결정 재생 결과 — ${names}`,
+    detail: `과거 실측으로 '붐비는 출발지에서 고른 대안이 도착 때 덜 붐볐나' 를 다시 돌린 결과입니다.${quality.criterion ? ` 합격 기준: ${quality.criterion}.` : ''}`,
+  };
+}
+
+const CLUSTER_LABEL: Record<string, string> = {
+  hongdae: '홍대 권역',
+  jongno: '종로 유산 권역',
+  validation: '검증 대상지',
+};
+
+export function clusterLabel(cluster: string): string {
+  return CLUSTER_LABEL[cluster] ?? cluster;
+}
+
+const RUN_LABEL: Record<string, { label: string; tone: Tone }> = {
+  pilot: { label: '예비 — 기준 확정 전', tone: 'warn' },
+  confirmatory: { label: '확인', tone: 'info' },
+  exploratory: { label: '탐색', tone: 'info' },
+};
+
+/** 실행 성격 배지. 예비(pilot)는 기준을 확정하기 전 결과라 눈에 띄게 둔다. */
+export function runLabelBadge(runLabel: string): { label: string; tone: Tone } {
+  return RUN_LABEL[runLabel] ?? { label: runLabel, tone: 'warn' };
+}
+
+export type VerdictStatus = 'pass' | 'fail' | 'insufficient' | 'not_evaluable';
+
+const VERDICT_LABEL: Record<VerdictStatus, string> = {
+  pass: '통과',
+  fail: '미달',
+  insufficient: '표본 부족',
+  not_evaluable: '평가 불가',
+};
+const VERDICT_TONE: Record<VerdictStatus, Tone> = { pass: 'ok', fail: 'error', insufficient: 'info', not_evaluable: 'info' };
+
+export interface VerdictBadge {
+  status: VerdictStatus | 'unknown';
+  label: string;
+  tone: Tone;
+}
+
+/** 판정 배지(아이콘·글자·색을 함께 쓴다 — 색만으로 말하지 않는다). 모르는 상태는 이름 그대로, 통과 색 없이. */
+export function verdictBadge(status: string): VerdictBadge {
+  if (Object.prototype.hasOwnProperty.call(VERDICT_LABEL, status)) {
+    const known = status as VerdictStatus;
+    return { status: known, label: VERDICT_LABEL[known], tone: VERDICT_TONE[known] };
+  }
+  return { status: 'unknown', label: status, tone: 'warn' };
+}
+
+const V4_RECOMMENDATION: Record<string, string> = {
+  provider_forecast: '서울시 예측',
+  persistence: '지속(지금 값 유지)',
+  undetermined: '미정',
+};
+
+const REASON_TOKEN: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [/^n_distinct<(\d+)$/, (m) => `붐비는 출발지의 서로 다른 (출발지·버킷) ${m[1]}개 미만`],
+  [/^crowded_days<(\d+)$/, (m) => `붐빈 날 ${m[1]}일 미만`],
+  [/^episodes<(\d+)$/, (m) => `에피소드 ${m[1]}개 미만`],
+  [/^n_disagree_distinct<(\d+)$/, (m) => `엔진≠가장 가까운 곳인 서로 다른 (출발지·버킷) ${m[1]}개 미만`],
+  [/^disagree_days<(\d+)$/, (m) => `불일치가 있는 날 ${m[1]}일 미만`],
+  [/^forecasts_disabled$/, () => '예측 반출 없음'],
+  [/^empty_replicates>1%$/, () => '빈 재표본 1% 초과'],
+  [/^no_estimate$/, () => '차를 계산할 수 없음'],
+  [/^no_day_cluster_interval$/, () => '날짜 군집 t 구간을 계산할 수 없음'],
+  [/^diff<([\d.]+)$/, (m) => `차가 기준 +${(Number(m[1]) * 100).toFixed(0)}%p 미만`],
+  [/^gate_low<=0\(day_cluster_t\)$/, () => '판정 하한 ≤ 0 (날짜 군집 t 하한이 부트스트랩 하한보다 낮음)'],
+  [/^gate_low<=0\(bootstrap\)$/, () => '판정 하한 ≤ 0 (부트스트랩 하한)'],
+  [/^mae_provider>=mae_persistence$/, () => '서울시 예측 MAE 가 지속보다 낮지 않음'],
+  [/^exact_provider<exact_persistence$/, () => '서울시 예측 정확 일치율이 지속보다 낮음'],
+  [/^unattainable_by_construction$/, () => '구조상 달성 불가'],
+];
+
+/** V3 사유 코드('insufficient: n_distinct<100, …; unattainable_by_construction') → 한국어. 모르는 토큰은 그대로 둔다. */
+export function describeV3Reason(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const tokens = reason
+    .split(/[;,]/)
+    .map((part) => part.replace(/^\s*insufficient:\s*/, '').trim())
+    .filter(Boolean);
+  const words = tokens.map((token) => {
+    for (const [pattern, render] of REASON_TOKEN) {
+      const match = token.match(pattern);
+      if (match) return render(match);
+    }
+    return token;
+  });
+  return words.length > 0 ? Array.from(new Set(words)).join(' · ') : null;
+}
+
+function pct(value: number | null | undefined): string {
+  return isNum(value) ? `${(Math.round(value * 1000) / 10).toFixed(1)}%` : '—';
+}
+
+function signedPoints(value: number): string {
+  const rounded = Math.round(value * 1000) / 10;
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '';
+  return `${sign}${Math.abs(rounded).toFixed(1)}`;
+}
+
+/** 비율의 차 → '+7.0%p'. 없으면 '—'. */
+export function formatPointDiff(value: number | null | undefined): string {
+  return isNum(value) ? `${signedPoints(value)}%p` : '—';
+}
+
+/** 95% CI → '[+2.0, +12.0]'(%p). 한쪽이라도 없으면 '[—]'. */
+export function formatPointCi(low: number | null | undefined, high: number | null | undefined): string {
+  return isNum(low) && isNum(high) ? `[${signedPoints(low)}, ${signedPoints(high)}]` : '[—]';
+}
+
+const APPROXIMATE_CI = 'approximate (blocks < 20)';
+
+export interface DecisionQualityCard {
+  cluster: string;
+  title: string;
+  zones: string;
+  runBadge: { label: string; tone: Tone };
+  v3Badge: VerdictBadge;
+  /** criterion_attainable=false 일 때만 — 통과가 구조적으로 불가능하다는 사실(미달·표본 부족과 다른 말이다). */
+  unattainable: string | null;
+  v3Reason: string | null;
+  sampleLine: string;
+  hitLine: string;
+  contrastLines: string[];
+  /** '지금보다 덜 붐빔' 은 머물기 기준값과 함께만 — 머물러도 시간이 지나면 덜 붐빌 수 있어서 홀로 세우지 않는다. */
+  nowLine: string | null;
+  v4Badge: VerdictBadge;
+  v4Line: string;
+  thinNote: string | null;
+  notes: string[];
+  /** 한계 첫 줄(서울에는 사용자가 없다) — 카드에 항상 보인다. */
+  firstLimit: string | null;
+  moreLimits: string[];
+  criteriaLine: string;
+}
+
+/** 서로 다른 (출발지·버킷) 수 — 최소 표본 판정의 단위. 이전 요약(값 없음)은 아무것도 붙이지 않는다. */
+function distinct(value: number | null): string {
+  return isNum(value) ? `(서로 다른 출발지·버킷 ${value})` : '';
+}
+
+function mae(value: number | null): string {
+  return isNum(value) ? value.toFixed(3) : '—';
+}
+
+/** 요약 한 권역 → 카드 문장. 문장은 숫자와 정의만 말한다(스스로를 평가하는 말 · 결론을 앞질러 쓰는 말을 쓰지 않는다). */
+export function decisionQualityCard(cluster: DecisionQualityCluster): DecisionQualityCard {
+  const v3 = cluster.verdicts.V3;
+  const v4 = cluster.verdicts.V4;
+  const approx = v3.ci_label === APPROXIMATE_CI ? ', 근사' : '';
+  const hit = cluster.hit_rate;
+  const contrast = (label: string, block: CiBlock) =>
+    `${label} 대비 차 ${formatPointDiff(block.diff)} (95% CI ${formatPointCi(block.ci_low, block.ci_high)}${approx})`;
+  const now = cluster.hit_vs_now;
+  const v4Sample = isNum(v4.n) ? ` (n=${v4.n}${isNum(v4.days) ? ` · ${v4.days}일` : ''})` : '';
+  const [firstLimit, ...moreLimits] = cluster.limits;
+  const { first_decision_at: first, last_decision_at: last } = cluster.period;
+  const period = first && last ? `${first}~${last}` : '기간 —';
+  return {
+    cluster: cluster.cluster,
+    title: clusterLabel(cluster.cluster),
+    zones: cluster.zones.join(' · '),
+    runBadge: runLabelBadge(cluster.run_label),
+    v3Badge: verdictBadge(v3.status),
+    unattainable: v3.criterion_attainable !== false
+      ? null
+      : `구조상 달성 불가 — 오라클(도착 때 정답을 아는 선택)과 가장 가까운 곳의 적중률 차(여유) ${pct(v3.headroom)}가 기준 +10%p 에 못 미칩니다`,
+    v3Reason: describeV3Reason(v3.reason),
+    sampleLine: `n=${v3.n}${distinct(v3.n_distinct)} · ${v3.days}일 · 불일치 ${v3.n_disagree}${distinct(v3.n_disagree_distinct)} · 여유 ${pct(v3.headroom)}`,
+    hitLine: `엔진 적중 ${pct(hit.engine)} vs 가장 가까운 곳 ${pct(hit.nearest)} (차 ${formatPointDiff(v3.diff)}, 95% CI ${formatPointCi(v3.ci_low, v3.ci_high)}${approx}${
+      isNum(v3.gate_low) ? ` · 판정 하한 ${formatPointDiff(v3.gate_low)}` : ''
+    })`,
+    contrastLines: [
+      contrast('시간대 평균 선택', cluster.contrasts.engine_minus_climatology),
+      contrast('현재 등급 탐욕', cluster.contrasts.engine_minus_greedy),
+    ],
+    nowLine:
+      isNum(now.engine) && isNum(now.stay)
+        ? `참고 — 도착 때 출발 시점보다 덜 붐빔: 엔진 ${pct(now.engine)} · 머물기 ${pct(now.stay)}`
+        : null,
+    v4Badge: verdictBadge(v4.status),
+    v4Line: `V4 리드 ${v4.lead_bin}분 — 권장 ${V4_RECOMMENDATION[v4.recommendation] ?? v4.recommendation} · MAE 서울시 예측 ${mae(v4.mae_provider)} vs 지속 ${mae(v4.mae_persistence)}${v4Sample}${
+      v4.status === 'fail' && v4.reason ? ` · 사유: ${describeV3Reason(v4.reason)}` : ''
+    }`,
+    thinNote: cluster.thin_cluster
+      ? `대안이 출발지마다 ${cluster.alternatives_per_origin}곳뿐인 작은 권역입니다 — 엔진과 가장 가까운 곳이 갈리는 경우가 적어 참고 결과로 읽습니다.`
+      : null,
+    notes: cluster.notes,
+    firstLimit: firstLimit ?? null,
+    moreLimits,
+    criteriaLine: `기준 ${cluster.criteria_version}${cluster.code_version ? ` · 코드 ${cluster.code_version}` : ''} · ${period} · 붐비는 출발지 결정만`,
+  };
+}
+
+/** evaluated 일 때만 카드(권역 이름순 — 서버 순서 그대로). 그 밖에는 빈 목록. */
+export function decisionQualityCards(quality: DecisionQuality | null): DecisionQualityCard[] {
+  if (!quality || quality.state !== 'evaluated') return [];
+  return quality.clusters.map(decisionQualityCard);
 }
 
 // --- 지표 표본 기간 ------------------------------------------------------------------

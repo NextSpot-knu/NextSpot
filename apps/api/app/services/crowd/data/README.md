@@ -19,6 +19,11 @@
   범위를 쓴다. 규칙은 [`zone_footprint.py`](../zone_footprint.py) 한 곳에만 있다.
 - **검사** — `tests/scripts/test_zone_footprint.py` 가 파일이 있으면 9곳과 정확히 맞는지 확인하고, 없으면 건너뛴다.
 
+## `decision_quality/<cluster>.json` — S4 재생 집계 요약
+
+- 분산 결정 재생이 만든 권역별 요약(≤ 16KB)만 둔다. **원본 반출 CSV 는 절대 두지 않는다.** 규칙은
+  [`decision_quality/README.md`](decision_quality/README.md).
+
 ## 지키는 것
 
 - 이 폴더의 좌표는 **서버 전용**이다. 웹 번들로 내보내지 않는다(서울은 개발자 전용 지역 — 지리 정보도
