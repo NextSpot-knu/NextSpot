@@ -7,13 +7,17 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
+import { getInternalRegionInfrastructures } from "@/lib/api-client";
+import { useRegion } from "@/lib/regionContext";
+import { getActiveRegion, isPublicRegion } from "@/lib/regionRuntime";
+import { isWithinPack } from "@/lib/regionPacks";
+import { zoneEvidenceFromBreakdown, zoneEvidenceLines } from "@/lib/zoneEvidence";
 import { apiClient, httpStatus, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse, type AvailabilityReportResult } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent } from "@/lib/voice/voiceIntent";
 import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
 import { buildRankedCardSentence } from "@/lib/voice/voiceReason";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
-import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
@@ -151,6 +155,7 @@ interface MiniMapProps {
 
 const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) => {
   const t = useT();
+  const { isPublic, regionName } = useRegion();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<kakao.maps.Map | null>(null);
   const [isSimulation, setIsSimulation] = useState(false);
@@ -196,7 +201,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
         {/* 위치 핀 */}
         <span className="relative z-10 text-lg" aria-hidden="true">📍</span>
         <div className="relative z-10 text-center leading-tight">
-          <div className="text-[11px] font-semibold text-muk">{t("recommend.mapPreviewRegion")}</div>
+          <div className="text-[11px] font-semibold text-muk">{isPublic ? t("recommend.mapPreviewRegion") : t("region.mapPreview", { region: regionName })}</div>
           <div className="text-[10px] text-muk-soft mt-0.5">{t("recommend.mapPreviewLabel")}</div>
         </div>
       </div>
@@ -227,6 +232,19 @@ interface OriginalFacility {
 // The core content wrapper component that handles Search Params
 function RecommendContent() {
   const { t, locale } = useI18n();
+  // 지금 지역(S3) — 경주는 GYEONGJU_PACK(REGION 값 그대로)이라 좌표·지오펜스·문구·요청이 오늘과 같다. 내부 검증 지역은
+  // 원래 장소를 내부 경로에서 읽고(Supabase 직접 읽기 없음), 경주 전용 기능(추정 피드·제보·공유)을 감춘다.
+  const { pack, isPublic, regionName } = useRegion();
+  const regionFeatures = pack.features;
+  // 구역 근거의 'N분 전 관측' 시계 — 구역 근거가 있는 지역(내부 검증 지역)에서만 1분 박자로 돈다. 경주는 null 그대로.
+  const [zoneNowMs, setZoneNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!regionFeatures.zoneLayer) return;
+    const tick = () => setZoneNowMs(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 60000);
+    return () => window.clearInterval(timer);
+  }, [regionFeatures.zoneLayer]);
   // 운영자 '혼잡' 경계 — 추정 배지 등급 전용(지도·코스와 같은 선). 기존 실측 배지는 0.75 고정 그대로다.
   const busyAt = useBusyThreshold();
   const searchParams = useSearchParams();
@@ -357,11 +375,11 @@ function RecommendContent() {
   // (무거운 Render 호출 + 버려지는 추천 기록 — 통합 10-07 e2e 가 잡았다).
   const [lat, setLat] = useState<number>(() => {
     const value = paramLat && paramLng ? parseFloat(paramLat) : NaN;
-    return Number.isFinite(value) ? value : REGION.center.lat;
+    return Number.isFinite(value) ? value : pack.center.lat;
   });
   const [lng, setLng] = useState<number>(() => {
     const value = paramLat && paramLng ? parseFloat(paramLng) : NaN;
-    return Number.isFinite(value) ? value : REGION.center.lng;
+    return Number.isFinite(value) ? value : pack.center.lng;
   });
 
   // ── 음성 비서(음성 컨시어지) 상태 ──
@@ -530,10 +548,10 @@ function RecommendContent() {
           let userLng = pos.coords.longitude;
 
           // 서비스 지역(지오펜스) 밖이면 지역 중심점으로 모킹 — 경계/중심은 lib/region.ts 단일 소스
-          if (!isWithinRegion(userLat, userLng)) {
-            userLat = REGION.center.lat;
-            userLng = REGION.center.lng;
-            console.log(`User is outside ${REGION.name}. Mocking location to region center:`, userLat, userLng);
+          if (!isWithinPack(pack, userLat, userLng)) {
+            userLat = pack.center.lat;
+            userLng = pack.center.lng;
+            console.log(`User is outside ${pack.name}. Mocking location to region center:`, userLat, userLng);
           }
 
           setLat(userLat);
@@ -542,7 +560,7 @@ function RecommendContent() {
         (err) => {
           console.warn("Geolocation fallback failed, using default Gyeongju center.", err);
           // 위치 실패 시 조용히 안내 — 거리·도보 시간이 경주 중심 기준임을 알린다(무음 폴백 방지).
-          toast.info(t("map.locationFallback"));
+          toast.info(isPublic ? t("map.locationFallback") : t("region.locationFallback", { region: regionName }));
         }
       );
     }
@@ -550,8 +568,9 @@ function RecommendContent() {
 
   // 공유 유입 계측 — 공유 링크(ref=share)로 들어온 방문을 무인증 이벤트로 1회 기록한다(계약 6).
   // fire-and-forget: 실패해도 페이지 동작에 영향 없음(사용자에게 에러 노출 안 함).
+  // 내부 검증 지역을 보는 동안은 보내지 않는다 — lib/analytics.track 과 같은 규칙(/events/track 은 인증이 없어 서버가 걸러 내지 못한다).
   useEffect(() => {
-    if (searchParams.get("ref") === "share") {
+    if (searchParams.get("ref") === "share" && isPublicRegion(getActiveRegion())) {
       apiClient
         .post("/api/v1/events/track", { event: "share_visit", props: { ref: "share" } })
         .catch(() => { /* 계측 실패는 조용히 무시 */ });
@@ -565,6 +584,34 @@ function RecommendContent() {
     originalTypeRef.current = originTypeParam;
     // DB 에 없는 장소(namedOrigin)는 읽을 기록이 없다 — 주소의 이름·종류가 원래 장소의 전부다(아래 originalFacility).
     if (!facilityId) return;
+
+    // 내부 검증 지역 — 원래 장소는 내부 계정 전용 경로의 그 지역 장소 목록에서 찾는다(Supabase 직접 읽기는 공개 지역 행만
+    // 읽히므로 쓰지 않는다). 혼잡은 서버가 '지금' 이라고 판정한 구역 실측만.
+    async function fetchOriginalFromRegion() {
+      setLoadingOriginal(true);
+      try {
+        const res = await getInternalRegionInfrastructures(pack.id, {}, { timeoutMs: 10000 });
+        const item = (Array.isArray(res?.items) ? res.items : []).find((f) => String(f.id) === facilityId);
+        if (!item) {
+          console.warn("Failed to load original facility details.");
+          return;
+        }
+        const c = item.congestion;
+        const level = c && c.isCurrent !== false && typeof c.level === "number" ? c.level : null;
+        originalTypeRef.current = item.type;
+        setOriginalFacility({
+          id: item.id,
+          name: item.name,
+          type: item.type,
+          congestionLevel: level,
+          features: (item.features as Record<string, unknown> | null) || {},
+        });
+      } catch (err) {
+        console.warn("Failed to fetch original facility:", err);
+      } finally {
+        setLoadingOriginal(false);
+      }
+    }
 
     async function fetchOriginalFacility() {
       setLoadingOriginal(true);
@@ -618,12 +665,14 @@ function RecommendContent() {
       }
     }
 
-    fetchOriginalFacility();
-  }, [facilityId, originTypeParam]);
+    if (pack.features.supabaseFallback) fetchOriginalFacility();
+    else void fetchOriginalFromRegion();
+  }, [facilityId, originTypeParam, pack.features.supabaseFallback, pack.id]);
 
   // 원래 장소에 실측 로그가 없으면 대기 보드와 같은 추정 피드에서 그 장소의 지금 등급을 읽는다(I25) —
   // 보드가 방금 '혼잡' 이라고 보여 준 곳을 이 화면이 '모름' 으로 말하지 않게. 실패하면 알약을 그리지 않는다.
-  const needsOriginEstimate = !loadingOriginal && originalFacility !== null && originalFacility.congestionLevel === null;
+  // 추정 피드는 경주 공영주차·관광 통계로 만든 값 — 그 기능이 꺼진 지역(내부 검증 지역)에서는 묻지 않는다.
+  const needsOriginEstimate = regionFeatures.estimates && !loadingOriginal && originalFacility !== null && originalFacility.congestionLevel === null;
   useEffect(() => {
     if (!facilityId || !needsOriginEstimate) return;
     let alive = true;
@@ -964,7 +1013,7 @@ function RecommendContent() {
     const storedUrl = String(features?.kakaoPlaceUrl ?? features?.kakao_place_url ?? '').trim();
     if (storedUrl) return storedUrl.replace(/^http:\/\/place\.map\.kakao\.com/i, 'https://place.map.kakao.com');
     if (placeId) return `https://place.map.kakao.com/${placeId}`;
-    return `https://map.kakao.com/?q=${encodeURIComponent(`${rec.facility.name} ${rec.facility.address ?? '경주'}`)}`;
+    return `https://map.kakao.com/?q=${encodeURIComponent(`${rec.facility.name} ${rec.facility.address ?? (pack.addressToken || '경주')}`)}`;
   };
 
   const requestAccept = (rec: RecommendationResponse, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -985,7 +1034,8 @@ function RecommendContent() {
     try {
       let result: AvailabilityReportResult | null;
       try {
-        result = await reportFacilityAvailability(rec.facility.id, status);
+        // 내부 검증 지역은 자리·영업 제보를 받지 않는다(서버도 404) — 기록하지 않은 답(게스트 403 과 같은 길)으로 잇는다.
+        result = regionFeatures.availabilityReports ? await reportFacilityAvailability(rec.facility.id, status) : null;
       } catch (err) {
         // 서버가 이 답을 받지 않는 경우 — 게스트(403)와 같은 네트워크의 다른 계정이 이미 알린 장소(429).
         // 이유는 apps/api/app/routers/reports.py 상단. 그 사람의 판단으로 수락·제외는 그대로 잇되, 기록된 근거가
@@ -1677,6 +1727,19 @@ function RecommendContent() {
                       <PhotoCreditLink credit={photoCredit} className={`-mt-px -mb-[5px] ${photoLoaded ? "" : "invisible"}`} />
                     )}
                   </div>
+                  {/* 내부 검증 지역의 구역 근거(lib/zoneEvidence) — 단계 · '{zone} 일대 실시간 인구 기준' · 관측/예측 시각 · 평소 대비. 경주에는 없다. */}
+                  {(() => {
+                    const zoneLines = zoneNowMs === null ? null : zoneEvidenceLines(zoneEvidenceFromBreakdown(rec.breakdown as unknown as Record<string, unknown>), zoneNowMs);
+                    if (!zoneLines) return null;
+                    return (
+                      <p data-testid="alt-zone-line" className="text-[12px] leading-snug text-muk-soft">
+                        <span className="font-bold text-muk">{t(zoneLines.band.key)}</span>
+                        {' · '}
+                        {[t(zoneLines.source.key, zoneLines.source.params), ...(zoneLines.basis ? [t(zoneLines.basis.key, zoneLines.basis.params)] : [])].join(' · ')}
+                        {zoneLines.usual && <> · {t(zoneLines.usual.key)}</>}
+                      </p>
+                    );
+                  })()}
 
                   {/* 이름 줄 — 종류·순위 칩, 이름(22px), 대표 메뉴. 오른쪽에 SPOT 점수. */}
                   <div className="flex justify-between items-start gap-3">
@@ -1857,7 +1920,12 @@ function RecommendContent() {
                         </button>
                       </>
                     )}
-                    {/* 현장 혼잡 수집 — 제보 직후에는 서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
+                    {/* 현장 혼잡 수집 — 제보 직후에는 서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다.
+                        내부 검증 지역은 혼잡 제보를 받지 않는다(공개 혼잡 기록이 경주 전용) — 버튼 대신 한 줄. */}
+                    {!regionFeatures.crowdReports && (
+                      <span className="text-[11px] text-muk-soft">{t("card.reportDisabledRegion")}</span>
+                    )}
+                    {regionFeatures.crowdReports && (
                     <CongestionReportButton
                       facility={{ id: rec.facility.id, name: rec.facility.name }}
                       isFirst={rec.congestionSource === 'none'}
@@ -1884,8 +1952,10 @@ function RecommendContent() {
                         )));
                       }}
                     />
+                    )}
                     {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
                         돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
+                    {regionFeatures.share && (
                     <ShareButton
                       title={t("common.appName")}
                       text={rec.facility.name}
@@ -1900,6 +1970,7 @@ function RecommendContent() {
                       }
                       className="min-h-11"
                     />
+                    )}
                   </div>
 
                   {/* 추천 근거 — 순위 이유 · 서버 사유 · 축제 · 추정·관측 근거 · 주변 수요 · 위치 · 수치. 관광객이 원할 때만. */}

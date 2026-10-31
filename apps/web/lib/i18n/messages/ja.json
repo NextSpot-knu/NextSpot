@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "サービス地域",
+    "switchHint": "内部検証アカウントにだけ表示されます。切り替えると地図・おすすめ・コースがその地域基準になります。",
+    "name": {
+      "gyeongju": "慶州"
+    },
+    "badgeInternal": "内部検証エリア・{name}",
+    "emptyRegion": "まだ場所がありません",
+    "resetNotice": "このアカウントではその地域を表示できないため、慶州に戻りました。",
+    "unavailable": "地域情報を読み込めなかったため、慶州を表示しています。",
+    "searchPlaceholder": "{region}の施設・メニュー・雰囲気を検索",
+    "locationFallback": "位置を確認できないため、{region}の中心を基準にご案内します。",
+    "outOfRegionStart": "{region}の外にいらっしゃるため、エリアの中心を出発地としてご案内します",
+    "mapPreview": "{region}の観光地",
+    "waitLegendUniform": "カードの徒歩時間はエリアの中心からの目安です。",
+    "areaNow": "いまの{zone}周辺: {label}",
+    "areaAt": "{time}の{zone}周辺: {label}・予測",
+    "loadingStep1": "{region}のリアルタイム混雑状況を確認中…",
+    "emptyNotice": "選んだ地域には今表示できる場所がないため、慶州に戻りました。",
+    "roleTraveler": "{region}の旅行者",
+    "impactCardTitle": "私の{region}旅の記録"
+  },
   "timeSim": {
     "label": "想定時間",
     "now": "現在(リアルタイム)",
@@ -387,6 +409,7 @@
     "noMatch": "この分類に合う場所が見つかりません"
   },
   "map": {
+    "zoneLayer": "エリアの混雑",
     "heatmap": "ヒートマップ",
     "forecast": "AI予測",
     "barrierFree": "車いす",
@@ -644,6 +667,15 @@
     "authCta": "地図へ移動"
   },
   "card": {
+    "zoneSource": "{zone}周辺のリアルタイム人口に基づく",
+    "zoneForecastAt": "{time}到着時の予測",
+    "zoneObservedAgo": "{min}分前に観測",
+    "zoneUsual": {
+      "busier": "いつもより混んでいます",
+      "usual": "いつもと同じくらいです",
+      "quieter": "いつもより空いています"
+    },
+    "reportDisabledRegion": "このエリアでは混雑の報告を受け付けていません",
     "reject": "もう表示しない",
     "putOff": "保存して\n次の候補を見る",
     "accept": "今すぐ行く（徒歩ルート案内）",

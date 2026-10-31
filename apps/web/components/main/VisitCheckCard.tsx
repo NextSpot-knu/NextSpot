@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
-import { getDueVisit, completeVisit, dismissVisitCheck, type PendingVisit } from '@/lib/visits';
+import { getDueVisit, completeVisit, dismissVisitCheck, visitRegion, type PendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
 import {
   CROWD_ANSWER_EVENT,
@@ -27,6 +27,7 @@ import {
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 import { trackEvent } from '@/lib/usageEvents';
 import { useAccount } from '@/lib/account';
+import { useRegion } from '@/lib/regionContext';
 
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
@@ -35,6 +36,11 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   // 따로 안내한다. 계정을 아직 모르면(조회 전·실패) 게스트로 본다 — 과장보다 덜 말하는 쪽이 낫다.
   const { account } = useAccount();
   const isGuest = !account || account.isAnonymous;
+  // 지역(S3) — 지금 지역에서 수락한 방문만 묻는다(다른 지역의 대기 방문은 그 지역으로 돌아갈 때까지 둔다).
+  // 혼잡 제보가 꺼진 지역(내부 검증 지역 — 공개 혼잡 기록이 경주 전용)에서는 체감 혼잡 단계를 건너뛰고 답도 보내지 않는다.
+  const { regionId, pack, isPublic } = useRegion();
+  const asksCrowd = pack.features.crowdReports;
+  const steps = asksCrowd ? (['ask', 'congestion', 'feedback'] as const) : (['ask', 'feedback'] as const);
   const [due, setDue] = useState<PendingVisit | null>(null);
   const [stage, setStage] = useState<'ask' | 'congestion' | 'feedback' | 'completed'>('ask');
   const [observedCongestion, setObservedCongestion] = useState<ObservedCongestion | null>(null);
@@ -62,7 +68,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   // 마운트 + 탭 복귀(visibilitychange) 때 방문 확인 대상 재확인.
   useEffect(() => {
     const check = () => {
-      const d = getDueVisit();
+      const d = getDueVisit(regionId);
       setDue(d);
       if (!d) {
         setStage('ask');
@@ -79,7 +85,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('nextspot:trip-arrived', check);
     };
-  }, []);
+  }, [regionId]);
 
   if (!mounted || !due) return null;
 
@@ -102,9 +108,9 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const confirmArrival = () => {
     trackEvent('visit_arrived', { facility_id: due.facilityId != null ? String(due.facilityId).slice(0, 64) : null, type: due.type ?? null });
     haptic('confirm');
-    queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed');
+    queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed', { region: visitRegion(due) });
     setObservedCongestion(null);
-    setStage('congestion');
+    setStage(asksCrowd ? 'congestion' : 'feedback');
   };
 
   const selectCongestion = (value?: ObservedCongestion) => {
@@ -117,12 +123,15 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const finishRating = (nextRating: OutcomeRating) => {
     haptic('confirm');
     completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating: nextRating });
-    awaitingAnswerFor.current = observedCongestion && due.recommendationId ? due.recommendationId : null;
+    // 혼잡 제보가 꺼진 지역에서는 체감 혼잡을 싣지 않는다(단계를 건너뛰어 값도 없지만, 남은 state 를 믿지 않는다).
+    const answer = asksCrowd ? observedCongestion : null;
+    awaitingAnswerFor.current = answer && due.recommendationId ? due.recommendationId : null;
     cardOpen.current = true;
     setAnswerNotRecorded(false);
     queueRecommendationOutcome(due.recommendationId, 'rated', {
       rating: nextRating,
-      observedCongestion: observedCongestion ?? undefined,
+      observedCongestion: answer ?? undefined,
+      region: visitRegion(due),
     });
     import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating: nextRating }));
     haptic('success');
@@ -156,8 +165,8 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
 
           {stage !== 'completed' && (
             <div className="mb-3 flex gap-1.5 pr-8" aria-hidden>
-              {(['ask', 'congestion', 'feedback'] as const).map((item, index) => {
-                const activeIndex = ['ask', 'congestion', 'feedback'].indexOf(stage);
+              {steps.map((item, index) => {
+                const activeIndex = (steps as readonly string[]).indexOf(stage);
                 return (
                   <motion.span
                     key={item}
@@ -199,9 +208,12 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
                 )}
                 </div>
               </div>
-              <Link href="/mypage/coupons" className="toss-pressable rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
-                {t('mypage.menuCoupons')}
-              </Link>
+              {/* 쿠폰은 경주 가게만 준다 — 내부 검증 지역 방문 뒤에는 쿠폰함으로 보내지 않는다. */}
+              {isPublic && (
+                <Link href="/mypage/coupons" className="toss-pressable rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
+                  {t('mypage.menuCoupons')}
+                </Link>
+              )}
               <button type="button" onClick={() => { haptic('selection'); cardOpen.current = false; setAnswerNotRecorded(false); setDue(null); setStage('ask'); }} className="toss-pressable text-xs font-bold text-muk-soft">
                 {t('common.close')}
               </button>

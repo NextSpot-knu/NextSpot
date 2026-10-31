@@ -7,6 +7,9 @@
 // 원칙: '개인 데이터'만 지운다. 언어·지도뷰·PWA 스누즈·알림 옵트인 같은 '기기 UI 설정'과
 //       admin/merchant 세션(별도 인증)은 건드리지 않는다.
 
+import { purgeRegionCaches } from './regionPacks';
+import { REGION_STORAGE_KEY } from './regionState';
+
 // 세션 전환 시 삭제할 개인 데이터 키(명시적 allowlist — 새 키가 실수로 기기설정까지 날리지 않게).
 const USER_SCOPED_KEYS = [
   'nextspot_saved_facilities',        // 저장한 장소
@@ -20,6 +23,7 @@ const USER_SCOPED_KEYS = [
   'nextspot_rejected_ids',            // 거절한 추천(개인화)
   'nextspot_onboarding_done',         // 온보딩 완료 표식
   'nextspot_congestion_alerts_notified', // 혼잡 알림 발송 로그(사용자별 dedup)
+  REGION_STORAGE_KEY,                 // 고른 서비스 지역(내부 검증 지역은 계정 권한에 묶인다 — lib/regionState.ts)
 ] as const;
 
 // 마지막으로 관측한 세션 user_id. 이 값과 현재 uid 를 비교해 전환을 감지한다(기기 UI 설정이라 유지 대상).
@@ -29,6 +33,9 @@ const LAST_UID_KEY = 'nextspot_last_uid';
 export function clearUserScopedData(): void {
   try {
     for (const key of USER_SCOPED_KEYS) localStorage.removeItem(key);
+    // 내부 검증 지역 캐시(`nextspot_*__<지역>`)도 다음 사용자에게 남기지 않는다. 경주 캐시는 그대로 둔다.
+    purgeRegionCaches(localStorage);
+    purgeRegionCaches(sessionStorage);
   } catch {
     /* localStorage 차단 환경 — 무시 */
   }

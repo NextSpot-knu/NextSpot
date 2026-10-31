@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "서비스 지역",
+    "switchHint": "내부 검증 계정에만 보여요. 바꾸면 지도·추천·코스가 그 지역 기준으로 바뀌어요.",
+    "name": {
+      "gyeongju": "경주"
+    },
+    "badgeInternal": "내부 검증 지역 · {name}",
+    "emptyRegion": "아직 장소가 없어요",
+    "resetNotice": "이 계정으로는 그 지역을 볼 수 없어 경주로 돌아왔어요.",
+    "unavailable": "지역 정보를 불러오지 못해 경주로 보여 드려요.",
+    "searchPlaceholder": "{region} 장소·메뉴·분위기 검색",
+    "locationFallback": "위치를 확인할 수 없어 {region} 중심을 기준으로 안내해요.",
+    "outOfRegionStart": "지금은 {region} 밖에 계셔서 지역 중심에서 출발하는 기준으로 보여드려요",
+    "mapPreview": "{region} 관광지",
+    "waitLegendUniform": "카드의 걷는 시간은 지역 중심에서 출발한 기준이에요.",
+    "areaNow": "지금 {zone} 일대 {label}",
+    "areaAt": "{time} 기준 {zone} 일대 {label} · 예측",
+    "loadingStep1": "지금 {region} 실시간 혼잡도 확인 중…",
+    "emptyNotice": "고른 지역에 지금 볼 수 있는 장소가 없어 경주로 돌아왔어요.",
+    "roleTraveler": "{region} 여행자",
+    "impactCardTitle": "나의 {region} 여행 임팩트"
+  },
   "timeSim": {
     "label": "가정 시간",
     "now": "지금(실시간)",
@@ -381,6 +403,7 @@
     "noMatch": "이 분류에 맞는 곳을 찾지 못했어요"
   },
   "map": {
+    "zoneLayer": "구역 혼잡",
     "heatmap": "히트맵",
     "forecast": "AI 예측",
     "barrierFree": "휠체어",
@@ -638,6 +661,15 @@
     "authCta": "지도로 가기"
   },
   "card": {
+    "zoneSource": "{zone} 일대 실시간 인구 기준",
+    "zoneForecastAt": "{time} 도착 기준 예측",
+    "zoneObservedAgo": "{min}분 전 관측",
+    "zoneUsual": {
+      "busier": "평소보다 붐벼요",
+      "usual": "평소와 비슷해요",
+      "quieter": "평소보다 한산해요"
+    },
+    "reportDisabledRegion": "이 지역은 혼잡 제보를 받지 않아요",
     "reject": "다시 안볼래요",
     "putOff": "일단 킵하고\n다음 후보 볼래요",
     "accept": "바로 갈래요 (도보 길안내)",

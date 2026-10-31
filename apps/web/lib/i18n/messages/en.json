@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "Service area",
+    "switchHint": "Only internal test accounts see this. Switching moves the map, picks and courses to that area.",
+    "name": {
+      "gyeongju": "Gyeongju"
+    },
+    "badgeInternal": "Internal test area · {name}",
+    "emptyRegion": "No places yet",
+    "resetNotice": "This account can't view that area, so we're back in Gyeongju.",
+    "unavailable": "Couldn't load area info, so we're showing Gyeongju.",
+    "searchPlaceholder": "Search {region} places",
+    "locationFallback": "Couldn’t determine your location, so we’re guiding from central {region}.",
+    "outOfRegionStart": "You're outside {region}, so we're showing walks from the area's center",
+    "mapPreview": "{region} attraction",
+    "waitLegendUniform": "Walking times on the cards start from the area's center.",
+    "areaNow": "{zone} area now: {label}",
+    "areaAt": "{zone} area at {time}: {label} · forecast",
+    "loadingStep1": "Checking {region}'s live crowd levels…",
+    "emptyNotice": "That area has no places to show right now, so we're back in Gyeongju.",
+    "roleTraveler": "{region} traveler",
+    "impactCardTitle": "My {region} Travel Impact"
+  },
   "timeSim": {
     "label": "Assumed time",
     "now": "Now (live)",
@@ -387,6 +409,7 @@
     "noMatch": "No places match this cuisine yet"
   },
   "map": {
+    "zoneLayer": "Area crowds",
     "heatmap": "Heatmap",
     "forecast": "AI forecast",
     "barrierFree": "Wheelchair",
@@ -644,6 +667,15 @@
     "authCta": "Go to the map"
   },
   "card": {
+    "zoneSource": "Based on live population around {zone}",
+    "zoneForecastAt": "Forecast for arriving at {time}",
+    "zoneObservedAgo": "Observed {min} min ago",
+    "zoneUsual": {
+      "busier": "Busier than usual",
+      "usual": "About as usual",
+      "quieter": "Quieter than usual"
+    },
+    "reportDisabledRegion": "Crowd reports aren't open in this area",
     "reject": "Don't show again",
     "putOff": "Save this place\nSee the next pick",
     "accept": "Let's go (walking directions)",

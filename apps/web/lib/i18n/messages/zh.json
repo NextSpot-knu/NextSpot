@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "服务地区",
+    "switchHint": "仅内部验证账号可见。切换后，地图、推荐和路线都会以该地区为准。",
+    "name": {
+      "gyeongju": "庆州"
+    },
+    "badgeInternal": "内部验证地区 · {name}",
+    "emptyRegion": "暂无地点",
+    "resetNotice": "此账号无法查看该地区，已切回庆州。",
+    "unavailable": "未能载入地区信息，正在显示庆州。",
+    "searchPlaceholder": "搜索{region}的地点、菜单或氛围",
+    "locationFallback": "无法确定你的位置，将以{region}中心为基准为你导航。",
+    "outOfRegionStart": "您目前不在{region}，已按从该地区中心出发为您推荐",
+    "mapPreview": "{region}景点",
+    "waitLegendUniform": "卡片上的步行时间以该地区中心为起点。",
+    "areaNow": "{zone}一带此刻：{label}",
+    "areaAt": "{time}时，{zone}一带：{label} · 预测",
+    "loadingStep1": "正在查看{region}的实时拥挤程度…",
+    "emptyNotice": "所选地区目前没有可显示的地点，已切回庆州。",
+    "roleTraveler": "{region}旅行者",
+    "impactCardTitle": "我的{region}旅行影响力"
+  },
   "timeSim": {
     "label": "假定时间",
     "now": "现在(实时)",
@@ -387,6 +409,7 @@
     "noMatch": "暂无符合该分类的地方"
   },
   "map": {
+    "zoneLayer": "区域拥挤",
     "heatmap": "热力图",
     "forecast": "AI预测",
     "barrierFree": "轮椅",
@@ -644,6 +667,15 @@
     "authCta": "前往地图"
   },
   "card": {
+    "zoneSource": "基于{zone}一带的实时人口",
+    "zoneForecastAt": "按{time}到达预测",
+    "zoneObservedAgo": "{min}分钟前观测",
+    "zoneUsual": {
+      "busier": "比平时拥挤",
+      "usual": "与平时差不多",
+      "quieter": "比平时空闲"
+    },
+    "reportDisabledRegion": "该地区暂不接受拥挤上报",
     "reject": "不再显示",
     "putOff": "先收藏\n再看下一个推荐",
     "accept": "现在就去（步行导航）",
