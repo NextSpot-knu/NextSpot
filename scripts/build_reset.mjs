@@ -132,6 +132,13 @@ DROP FUNCTION IF EXISTS public.purge_expired_network_hashes() CASCADE;
 DROP FUNCTION IF EXISTS public.guest_crowd_answer_shadow_metrics(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+-- 시설 지역 격리(20261101090000) — 자식 표 트리거 함수 · 지역 고정 트리거 함수 · 격리 상태 점검 · 감시 봉쇄.
+DROP FUNCTION IF EXISTS public.reject_non_public_region_facility() CASCADE;
+DROP FUNCTION IF EXISTS public.freeze_facility_region() CASCADE;
+DROP FUNCTION IF EXISTS public.region_isolation_status() CASCADE;
+DROP FUNCTION IF EXISTS public.region_guard_contain() CASCADE;
+-- 구역 '평소와 비교' 기준선(20261101091000, 화면 문구 전용).
+DROP FUNCTION IF EXISTS public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
