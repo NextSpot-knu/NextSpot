@@ -1,4 +1,22 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
+
+- 도구·브랜치: Claude Code / `feat/merchant-photos-1024` · `feat/admin-photo-takedown-1024` · `feat/usage-summary-1024` 외(PR #23~#26·#28 은 이미 main)
+- 커밋: 이 기록 포함(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: 디벨롭 로드맵. ① 사장님 가게 사진(PM 10-24: 바로 공개 · 관리자 사후 관리) — 공개 버킷 `facility-photos/<가게 id>/`, 올리기·기록은 그 가게의 현재 사장님만(`owns_facility_folder` 스토리지 정책 · `set_merchant_photo` RPC), 내리기는 사장님 또는 관리자(`clear_merchant_photo`). 사진 자리는 `features.merchant_photo`(밤 적재가 `image_url` 은 지울 수 있지만 features 는 병합한다). 사장님 콘솔 '⑤ 가게 사진'(올리기·바꾸기·내리기, 데모는 토스트만), 추천 카드·'지금 출발하면?'은 이 사진을 첫 후보로. ② 같은 날 웹만: 혼잡 칩이 사장님 30분 안 좌석 상태('사장님 5분 전: 자리 여유', #26) · 방문객 2시간 안 제보('방문객 12분 전: 한산', #25)를 먼저 말한다 · `/guide` '이런 분께'·'자주 묻는 질문'(#24, 펼친 채) · `/waiting` 대표 카드 3장 폰 가로 넘김(#23). ⑥ 관제 대시보드 '서비스 이용 현황'(③ 분산 효과 차트 아래) — 관리자 전용 집계 RPC `usage_summary(p_days)`(1~90일, KST): 방문 → 추천 카드 확인 → 바로 갈래요 → 도착 확인 방문자 수와 날짜별 방문자. 행·익명 번호는 밖으로 나가지 않고, 조회가 안 되면 패널이 숨는다.
+- 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
+- 다음·미결: 사진 내리기는 관제 > 인프라 맨 위 '사장님이 올린 가게 사진'(PR #29, 사진이 있을 때만 보인다). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
+- 사람 작업: 없음.
+
+## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
+
+- 도구·브랜치: Claude Code / `feat/usage-events-1023`(main `9cf767c` 위)
+- 커밋: 이 기록 포함 1건(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: PM 결정(10-23) — 외부 분석 업체 없이 Supabase `public.usage_events` 에 익명 이벤트를 쌓는다. 브라우저는 고른 칼럼에 INSERT 만(읽기 없음, user_id 칼럼 없음), 이벤트 이름은 CHECK 화이트리스트(`lib/usageEvents.ts` 와 같은 목록 — `tests/migrations/test_usage_events_migration.py` 가 대조), 1년 보관(pg_cron 매일 삭제). 웹은 `page_view`(화면 이동) · `rec_shown`(카드) · `rec_accept`/`rec_drive`/`rec_next`/`rec_later`(카드 버튼) · `visit_arrived`/`visit_congestion`(도착 확인) · `congestion_report` 를 운영 주소에서만, 자동화(`navigator.webdriver`)·Do Not Track 은 빼고 2초씩 모아 보낸다. 실패하면 그 탭에서 멈춘다. 개인정보 안내(`/mypage/privacy`)에 '이용 기록' 절을 4로케일로 더하고 '수집하는 정보' 문장을 고쳤다(최종 업데이트 2026-10-23).
+- 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
+- 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
+- 사람 작업: 표 적용 1회(위).
+
 ## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
 
 - 도구·브랜치: Claude Code / `chore/llm-off-1022`(main `9bd5584` 위)

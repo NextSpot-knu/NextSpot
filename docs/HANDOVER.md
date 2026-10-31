@@ -60,7 +60,7 @@
 
 1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
-   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3 끝, main 미반영 — **S4 는 사용자가 ultracode 로 직접**. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
+   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -102,6 +102,8 @@ asyncio.run(main())"
 - [ ] **(11-01 S3 ④) 서울 장소 적재** — 시험용 관광객 계정(일반 tourist, 다른 용도 금지)을 만들고 GitHub Secrets `REGION_PROBE_TOURIST_EMAIL`·`REGION_PROBE_TOURIST_PASSWORD` 등록(없으면 실제 실행이 exit 3). ② 뒤 `ingest-seoul.yml` 을 `dry_run=true` 로 돌려 TourAPI 호출 수를 보고, `dry_run=false` 로 다시 — 매핑 단계 `active_unmapped_count = 0` 확인. region-guard 가 한 번 끊었다면 격리 복구 뒤 `reactivate=true`.
 - [ ] **(11-01 S3 ⑤ · 선택) 서울 구역 경계** — OA-21285 '서울시 주요 121장소 영역.zip' 을 빈 폴더에 받아 `python -I apps/api/scripts/build_seoul_zone_polygons.py <zip>` → 생긴 GeoJSON 커밋 → `ingest-seoul` `map_zones=true`. 그 전에는 반경 원으로 매핑한다.
 - [ ] **(11-01 S3 ⑥) 개발자 계정 서울 리허설** — 실기기에서 지역 전환 → 지도 구역 원·라벨(e2e 는 카카오 SDK 를 대역으로 써 못 봤다) · 카드·코스·대기판의 구역 줄 · 서울에서 공유·제보·체감 혼잡 질문·쿠폰함이 없는지.
+- [ ] **(11-01 S4 ① · 읽기 전용) 홍대 CSV 반출** — 운영 DB 는 읽기만. SQL 은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4' 부록 블록(또는 `apps/api` 에서 `.\.venv\Scripts\python scripts/crowd_dispersion_replay.py sql --cluster hongdae --from 2026-09-20 --to <오늘 KST>`). SQL Editor 결과 한도 'No limit' · 문장 하나씩 · 결과 바닥 행 수를 Q0 목록과 대조 · 파일 이름은 각 블록 머리 주석대로 · 엑셀로 열어 저장하지 않기 · 저장은 저장소 밖 `$HOME\nextspot-s4\hongdae`(같은 절 ②·③). 받으면 에이전트에게 폴더를 알려 준다 → `run --label pilot` → 홍대 1차 결과(집계만 커밋, 원본 CSV 는 커밋하지 않음).
+- [ ] **(11-01 S4 ② · 종로 수집 4주쯤 뒤) 종로 확인 실행** — 같은 반출(`--cluster jongno`)을 받아 깨끗한 체크아웃에서 `run --cluster jongno --label confirmatory --expect-criteria <홍대 검토 뒤 고정한 해시>`. 코드 변경 없음(커밋 안 된 변경이 있으면 종료 4). 종로 수집은 10-31c 배포(Render)부터 쌓인다.
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
@@ -299,6 +301,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-01b — 서울 테스트베드 S4: 분산 결정 재생 평가(오프라인) · 지표 약점 4건 보완
+
+- 도구·브랜치: Claude Code(ultracode 워크플로 21 에이전트 + 수정·독립 재검토 에이전트) / `yunseong`(S3 위, main 미반영)
+- 커밋: `eec81e5`(KST 달력 · 지표 보완) · `66d6ab9`(재생) · `54f0c43`(리허설 화면) + 이 기록(문서)
+- 한 것: 사용자 지시 "홍대 1차 결과까지, 종로는 재실행만 가능하게". 읽기 전용 반출 SQL → CSV 검증 로더(운영 수집 사슬 그대로) → 실제 엔진 경로 재생(미래 정보 없음, 도보 상한 20분 · 라우터 이동) → V3(대안 2곳 이상 결정에서 엔진 − 가장 가까운 곳, 판정 하한 = min(날짜 블록 부트스트랩, 날짜 군집 t)) · V2 절제 · V4 예보 대 지속 → JSON·마크다운·화면 요약. 판정 인자는 CRITERIA 해시(지금 `bc852a570864`, 홍대 검토 뒤 고정)로 묶고, 종로 확인 실행은 `--expect-criteria` 필수 · 커밋 안 된 변경이면 거부. 설계·결정 규칙·한계는 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4'.
+- 검증: 3렌즈 반박 검증 → 수정 2라운드 → 남은 Med 3건 수정 → 독립 재검토(누설·선택 편향·실행 가능성 — High 0, Med 2) → 수정. 합성 홍대 40일·종로 16일을 두 번씩 돌려 바이트 동일, 깨끗한 복제본에서 종로 확인 실행 명령 종료 0. 마지막 트리에서 api ruff · pytest 4004 · build_reset(무변경) · check-docs · web lint 0 error(경고 148 그대로)·typecheck·test 131·build. e2e 는 CI.
+- 다음·미결: 홍대 CSV 를 받으면 `run --label pilot` → 1차(예비) 결과 보고 · 집계 요약만 커밋(원본 CSV 금지) → 기준 해시 고정. 홍대는 엔진이 가장 가까운 곳과 갈릴 수 있는 출발지가 홍대 관광특구 하나라 예비·참고 결과다. 결정 대기 Q-S4-1~11 은 기본값으로 돈다. 보정 순위 관문은 보고 전용(Q-S4-3).
+- 사람 작업: "사람 작업 대기" 11-01 S4 ①(홍대 반출) · ②(종로 확인 실행).
+
 ## 2026-11-01 — 서울 테스트베드 S3: 개발자 전용 내부 지역 · 구역 실측 엔진 연결 · DB 지역 격리
 
 - 도구·브랜치: Claude Code(ultracode 워크플로 24 에이전트 + 수정·검토 에이전트) / `yunseong`(`0747801` 위, main 미반영)
@@ -356,24 +367,6 @@ from checks order by seq;
 - 검증: api ruff · pytest 2497 · 새 테스트 6건(게스트 403 두 경로가 DB·프로필 조회 전에 끝남 · 30분 창이 사용자 쿨다운 뒤에도 유지되고 닫히면 풀림(두 경로) · IP 를 바꿔도 사용자 쿨다운 유지 · INSERT 시점에 자리가 이미 잡혀 있고 실패하면 되돌림) · OpenAPI 스냅샷은 두 경로 설명 문구만 · web lint(0 error)·typecheck·test·build · check-docs.
 - 다음·미결: main 반영은 사용자 확인 뒤 KST 밤(API 변경 — Render 자동 배포가 안 되므로 반영 뒤 Manual Deploy 또는 Deploy Hook, "사람 작업 대기" 첫 줄). XFF 방향 관측(보안 진단 '중')은 그대로 — Render 가 hop 을 덧붙인다면 IP 규칙이 '전원 한 키' 가 되어 한 장소를 30분에 한 계정만 제보하게 된다(관측 전 위험). IPv6 는 /64 안에서 주소를 바꿔 IP 규칙을 피할 수 있다(정규화 미구현). 영업 확인 안내문(`card.hoursCheckPrivacy` '…만 기록해요')은 게스트에게는 기록하지 않는 경우라 과소가 아닌 과대 진술 — 문구는 그대로 뒀다.
 - 사람 작업: 없음(위 배포 항목은 기존 줄).
-
-## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
-
-- 도구·브랜치: Claude Code / `feat/merchant-photos-1024` · `feat/admin-photo-takedown-1024` · `feat/usage-summary-1024` 외(PR #23~#26·#28 은 이미 main)
-- 커밋: 이 기록 포함(웹·스키마·API 테스트·문서, API 코드 무변경)
-- 한 것: 디벨롭 로드맵. ① 사장님 가게 사진(PM 10-24: 바로 공개 · 관리자 사후 관리) — 공개 버킷 `facility-photos/<가게 id>/`, 올리기·기록은 그 가게의 현재 사장님만(`owns_facility_folder` 스토리지 정책 · `set_merchant_photo` RPC), 내리기는 사장님 또는 관리자(`clear_merchant_photo`). 사진 자리는 `features.merchant_photo`(밤 적재가 `image_url` 은 지울 수 있지만 features 는 병합한다). 사장님 콘솔 '⑤ 가게 사진'(올리기·바꾸기·내리기, 데모는 토스트만), 추천 카드·'지금 출발하면?'은 이 사진을 첫 후보로. ② 같은 날 웹만: 혼잡 칩이 사장님 30분 안 좌석 상태('사장님 5분 전: 자리 여유', #26) · 방문객 2시간 안 제보('방문객 12분 전: 한산', #25)를 먼저 말한다 · `/guide` '이런 분께'·'자주 묻는 질문'(#24, 펼친 채) · `/waiting` 대표 카드 3장 폰 가로 넘김(#23). ⑥ 관제 대시보드 '서비스 이용 현황'(③ 분산 효과 차트 아래) — 관리자 전용 집계 RPC `usage_summary(p_days)`(1~90일, KST): 방문 → 추천 카드 확인 → 바로 갈래요 → 도착 확인 방문자 수와 날짜별 방문자. 행·익명 번호는 밖으로 나가지 않고, 조회가 안 되면 패널이 숨는다.
-- 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
-- 다음·미결: 사진 내리기는 관제 > 인프라 맨 위 '사장님이 올린 가게 사진'(PR #29, 사진이 있을 때만 보인다). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
-- 사람 작업: 없음.
-
-## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
-
-- 도구·브랜치: Claude Code / `feat/usage-events-1023`(main `9cf767c` 위)
-- 커밋: 이 기록 포함 1건(웹·스키마·API 테스트·문서, API 코드 무변경)
-- 한 것: PM 결정(10-23) — 외부 분석 업체 없이 Supabase `public.usage_events` 에 익명 이벤트를 쌓는다. 브라우저는 고른 칼럼에 INSERT 만(읽기 없음, user_id 칼럼 없음), 이벤트 이름은 CHECK 화이트리스트(`lib/usageEvents.ts` 와 같은 목록 — `tests/migrations/test_usage_events_migration.py` 가 대조), 1년 보관(pg_cron 매일 삭제). 웹은 `page_view`(화면 이동) · `rec_shown`(카드) · `rec_accept`/`rec_drive`/`rec_next`/`rec_later`(카드 버튼) · `visit_arrived`/`visit_congestion`(도착 확인) · `congestion_report` 를 운영 주소에서만, 자동화(`navigator.webdriver`)·Do Not Track 은 빼고 2초씩 모아 보낸다. 실패하면 그 탭에서 멈춘다. 개인정보 안내(`/mypage/privacy`)에 '이용 기록' 절을 4로케일로 더하고 '수집하는 정보' 문장을 고쳤다(최종 업데이트 2026-10-23).
-- 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
-- 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
-- 사람 작업: 표 적용 1회(위).
 
 ## 기록 규칙
 

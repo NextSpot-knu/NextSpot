@@ -5,6 +5,7 @@
 > → 2026-09-20 **추정 모드 · 서울 검증** 반영(§5.1 추정 피드 · §5.3 엔진 검증 화면과 기계 엔드포인트 · §9 외부 데이터 2종 · §10 새 표 · §11 서울 10분 수집)
 > → 2026-10-31 **서울 테스트베드 S1·S2·S5·S6 · 게스트 답 그림자 모드(D3)** 반영(§2 `crowd/` · §5.3 실시간 데이터 리허설 · 게스트 답 측정 · §7.1 방문 확인 · §10 구역 표 · §11 서울 수집 주기 · 네트워크 키 보관)
 > → 2026-11-01 **서울 테스트베드 S3 — 개발자 전용 내부 지역** 반영(§5.3 리허설 화면 developer 전용 · §5.5 내부 지역 · 지역 격리)
+> → 2026-11-01 **서울 테스트베드 S4 — 분산 결정 재생(오프라인) · 검증 지표 기준선 보완** 반영(§2 `batch/`·`kst_calendar` · §5.3 결정 품질·지표·순위 관문 · §11 수동 스크립트)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
 > `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
@@ -75,8 +76,11 @@ NextSpot/
 │       │   └── services/       # 도메인 로직 (평면 34개 + 하위 패키지 4)
 │       │       ├── spot/       # ★ SPOT 산식 런타임 정본 (score·preference·travel·wait_time)
 │       │       ├── crowd/      # 혼잡 공급원 층(서울 테스트베드 S1·S5) — CrowdObservation · CrowdProvider · seoul_provider · store · telecom_template
+│       │       │               #   · decision_quality(S4 요약 읽기 — data/decision_quality/<cluster>.json)
 │       │       ├── tourapi/    # 한국관광공사 OpenAPI 클라이언트·변환·인사이트
 │       │       └── batch/      # 적재 스크립트 전용 (localdata · wikimedia · kakao_coordinate · tourism_demand_evaluation)
+│       │                       #   + S4 재생 crowd_replay_data · crowd_replay_engine · crowd_dispersion_replay (운영 런타임은 import 하지 않음)
+│       │                       #   공용 KST 달력·시간대 평균은 평면 kst_calendar.py(재생·검증 지표가 같이 씀)
 │       ├── scripts/            # 12개 배치 — 적재 · 학습 · 품질평가 · 번역 · 태깅 · 보행 그래프
 │       └── tests/              # pytest — routers · services · core · scripts · migrations
 │
@@ -358,8 +362,8 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
 | ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
 | ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). 대시보드에서 **"24시간 모의 발생"·"주차 실측 기반 추정 적재(수동)" 두 버튼은 2026-09-20 제거**(D6 — 합성 로그로 화면을 채우지 않는다). 백엔드 엔드포인트(`POST /admin/simulate-peak`, `GET/POST /admin/congestion-estimates/parking-derived*`)는 잔존하나 호출하는 화면이 없다 |
-| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **실시간 데이터 리허설**(옛 '엔진 검증', 2026-10-31 S6 — **11-01 부터 developer 전용**: 이 절의 리허설 API 3종·`GET /engine-validation/seoul/status` 는 admin 에게 403, 메뉴·대시보드 링크는 개발자에게만. 수집 `POST …/collect` 는 기계 토큰 또는 developer) — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py` — 최소 표본 36 버킷 = 10분 대상지 6시간 · 30분 대상지 18시간). 응답에 더해진 `pipeline`(설정·키·원본 표 상태·사람 작업·호출 예산·대상지별 주기/신선도 기준/채움률·구역 표 행 수·마지막 시도)과 `decision_quality`(S4 전에는 `not_evaluated`) — 판정 규칙은 `services/seoul_collection_status.py`: 신선도 기준 `max(30, 2×주기+8)`분(10분 30 · 30분 68), 채움률 분모 = max(창 시작, 그 대상지 첫 버킷)부터 차례였던 버킷 수(`counted_since_at`). 배너는 대상지 하나라도 마지막 시도가 실패면 경고. '가동 중' 문구는 쓰지 않는다 |
-| ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음) |
+| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **실시간 데이터 리허설**(옛 '엔진 검증', 2026-10-31 S6 — **11-01 부터 developer 전용**: 이 절의 리허설 API 3종·`GET /engine-validation/seoul/status` 는 admin 에게 403, 메뉴·대시보드 링크는 개발자에게만. 수집 `POST …/collect` 는 기계 토큰 또는 developer) — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py` — 최소 표본 36 버킷 = 10분 대상지 6시간 · 30분 대상지 18시간). **S4(11-01) 기준선 보완** — 지표 키는 그대로, 필드만 덧붙임: Spearman 은 시간대 평균(다른 날 LODO, `kst_calendar`)을 뺀 `anomaly_rho ≥ 0.10` 도 요구 · 30분 전망 MAE 는 목표 날짜 뒤 1/3 홀드아웃에서 학습 날짜 보정 곡선 대 학습 날짜 시간대 평균(`baseline_mae` 의 0.95배 이하, 지속 모델은 `oracle_reference_mae` 참고값) · 등급 일치는 `cohen_kappa`/`weighted_kappa_linear ≥ 0.20` 도 요구(`rank_mapped_*` 는 보고만). 응답에 더해진 `pipeline`(설정·키·원본 표 상태·사람 작업·호출 예산·대상지별 주기/신선도 기준/채움률·구역 표 행 수·마지막 시도)과 `decision_quality` — `services/crowd/decision_quality.py` 가 커밋된 S4 요약 `crowd/data/decision_quality/<cluster>.json`(스키마 `decision_quality_summary/2`, ≤ 16KB, 결정 행 없음)을 읽는다: 파일 없음 `not_evaluated`(S4 전과 같은 상수) · 전부 검사 통과 `evaluated`(권역 카드 — 실행 성격·V3/V4 배지·n·CI) · 하나라도 틀림 `invalid_summary`(숫자 없이 이유만, 5xx 아님). 운영 API 는 재생을 돌리지 않는다 — 판정 규칙은 `services/seoul_collection_status.py`: 신선도 기준 `max(30, 2×주기+8)`분(10분 30 · 30분 68), 채움률 분모 = max(창 시작, 그 대상지 첫 버킷)부터 차례였던 버킷 수(`counted_since_at`). 배너는 대상지 하나라도 마지막 시도가 실패면 경고. '가동 중' 문구는 쓰지 않는다 |
+| ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음). 최상위 `rank_gate`(S4, **보고 전용** — 홀드아웃 ρ ≥ 0.30 · 상수보다 나음 · 36점/5일, `enforced:false`)는 화면에 '순위 관문(참고 — 적용 기준 아님)' 행으로만 보이고 적용 관문 `assess()` 는 그대로다 |
 | ″ | `GET /admin/engine-validation/seoul/alternatives?origin=` | **권역 대안 패널**(`SeoulAlternativesPanel`) — 홍대(`POI007`)·연남동(`POI073`)·합정역(`POI053`) 시연 권역의 실측 인파 비교("여기가 붐비니 저기로") |
 | ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **추천 수락 결과** — 재배치 = 수락 · 원본 ≠ 목적지 · 도착 확인. 도착 미확인·같은 장소 수락은 따로 센다. '예상 대기 차이(모델 추정)'는 재배치 건만. 내부 계정 제외, 표본 수를 함께 낸다(2026-10-31) |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
@@ -721,6 +725,13 @@ Supabase 시크릿(`SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`)도 `BACKEND_HEAL
 `ingest_tourapi.py` · `ingest_localdata.py` · `ingest_kakao_places.py` · `ingest_tourism_insights.py`
 `train.py --dry-run` (후보 평가만, 등록 없음) · `recommendation_quality.py`
 `reconcile_kakao_coordinates.py` · `tag_cuisines.py` · `translate_overviews.py`
+
+`crowd_dispersion_replay.py` — 서울 S4 **분산 결정 재생**(오프라인 · DB·네트워크 없음). `sql` 은 읽기 전용 반출 SELECT 를 인쇄하고
+(사람이 SQL Editor 에서 실행 → CSV), `run` 은 그 CSV 를 운영 정규화 사슬(`parse_citydata` → `snapshot_row` → `reading_from_snapshot`)로
+다시 세워 결정마다 실제 엔진 경로(`build_candidate_evidence` → `calculate_spot_score` → `spot_ranking_sort_key`)로 대안을 고르고
+도착 시각 실측으로 채점한다(V2~V4). 앱 import 전에 Supabase·JWT 를 자리표시자로 강제하고 소켓을 막는다. 산출은 `<data-dir>/out/` —
+`<cluster>_replay_report.json` · `<cluster>_replay_summary.md` · `decision_quality/<cluster>.json`(검토 뒤 `crowd/data/decision_quality/` 로 커밋).
+원본은 저장소 밖 또는 `apps/api/.replay-data/`(git·docker 무시)에만 둔다. 실행 절차·기준 해시 고정 규칙은 `SEOUL_TESTBED_PLAN.md` §6 'S4'.
 
 ---
 
