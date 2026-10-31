@@ -32,7 +32,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.authz import ROLE_ADMIN, require_role
+from app.core.authz import ROLE_DEVELOPER, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import engine_validation_metrics as metrics
 from app.services import seoul_alternatives_service as alternatives
@@ -47,7 +47,9 @@ logger = structlog.get_logger()
 router = APIRouter(
     prefix="/api/v1/admin/engine-validation",
     tags=["admin"],
-    dependencies=[Depends(require_role(ROLE_ADMIN))],
+    # 서울 데이터(대상지·측정 단계·인원·대안·구역 관측)는 developer 전용이다(2026-10-31 사용자 결정 1) — admin(외부 기관 관제 ·
+    # 공용 심사 계정)은 403. require_role 은 developer 를 언제나 통과시키므로 허용 목록은 developer 하나다.
+    dependencies=[Depends(require_role(ROLE_DEVELOPER))],
 )
 
 TABLE = "seoul_citydata_snapshots"

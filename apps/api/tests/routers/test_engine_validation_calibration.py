@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 
 from app.routers import engine_validation_calibration as router_module
 from app.services import congestion_calibration_service as cal
-from tests.conftest import admin_headers
+from tests.conftest import role_headers
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
 
 NOW = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
 _ROW_CAP = 1000
@@ -129,7 +134,7 @@ def test_requires_admin():
 
 def test_days_is_bounded():
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration?days=29", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration?days=29", headers=developer_headers()
     )
     assert response.status_code == 422
 
@@ -142,7 +147,7 @@ def test_missing_table_is_not_migrated_not_500(monkeypatch):
         "{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}"
     ))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
 
     assert response.status_code == 200
@@ -157,7 +162,7 @@ def test_missing_column_is_not_mistaken_for_a_missing_table(monkeypatch):
         "{'code': '42703', 'message': 'column seoul_citydata_snapshots.parking_level does not exist'}"
     ))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
 
     assert response.status_code == 503
@@ -214,7 +219,7 @@ def test_window_larger_than_postgrest_cap_is_paged(monkeypatch):
 def test_unexpected_failure_is_503(monkeypatch):
     _install(monkeypatch, error=RuntimeError("connection reset"))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
     assert response.status_code == 503
 
@@ -225,7 +230,7 @@ def test_unexpected_failure_is_503(monkeypatch):
 def test_endpoint_returns_the_agreed_contract(monkeypatch):
     _install(monkeypatch, seoul=_seoul_rows(days=6, per_day=40), gyeongju=_gyeongju_tables(100))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=developer_headers()
     )
 
     assert response.status_code == 200

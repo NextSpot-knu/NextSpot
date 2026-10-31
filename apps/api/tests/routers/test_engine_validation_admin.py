@@ -15,7 +15,12 @@ import pytest
 from app.core.config import settings
 from app.routers import engine_validation_admin as router_module
 from app.services import seoul_citydata_service as seoul
-from tests.conftest import admin_headers
+from tests.conftest import role_headers
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
 
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
 _ROW_CAP = 1000
@@ -160,13 +165,13 @@ def test_requires_admin():
 
 
 def test_days_is_bounded():
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=29", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=29", headers=developer_headers())
     assert response.status_code == 422
 
 
 def test_missing_table_is_not_migrated_state_not_500(monkeypatch):
     _install(monkeypatch, _Table(error=Exception("{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert body["state"] == "not_migrated"
@@ -176,7 +181,7 @@ def test_missing_table_is_not_migrated_state_not_500(monkeypatch):
 
 def test_missing_column_is_not_mistaken_for_missing_table(monkeypatch):
     _install(monkeypatch, _Table(error=Exception("{'code': '42703', 'message': 'column seoul_citydata_snapshots.level_est does not exist'}")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 503
     assert response.json() == {"detail": "engine_validation_unavailable"}
 
@@ -229,7 +234,7 @@ def test_full_window_pages_past_postgrest_cap(monkeypatch):
 def test_endpoint_returns_contract(monkeypatch):
     rows = [_row(i, start=datetime.now(timezone.utc) - timedelta(hours=10)) for i in range(50)]
     _install(monkeypatch, _Table(rows=rows))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=7", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=7", headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert set(body) >= {
@@ -248,7 +253,7 @@ def test_endpoint_returns_contract(monkeypatch):
 
 def test_unexpected_failure_is_503(monkeypatch):
     _install(monkeypatch, _Table(error=RuntimeError("connection reset")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 503
     assert response.json() == {"detail": "engine_validation_unavailable"}
 

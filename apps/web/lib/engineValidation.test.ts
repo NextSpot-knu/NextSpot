@@ -234,4 +234,21 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   assert.doesNotMatch(page, /§|docs\/|level_est|표본 없음/, '심사 화면에 내부 참조를 남기지 않는다');
 }
 
+// --- developer 전용(2026-10-31 사용자 결정 1) ------------------------------------------
+// 서울 데이터 화면이다 — admin(외부 기관 관제 · 공용 심사 계정)에게는 메뉴·대시보드 링크가 서지 않고, URL 로 직접 열어도
+// 아무것도 불러오지 않는다(서버는 같은 API 를 admin 에게 403 — tests/routers/test_engine_validation_developer_only.py).
+{
+  const sidebar = readFileSync(join(WEB, 'components/AdminSidebar.tsx'), 'utf8');
+  assert.match(sidebar, /INTERNAL_REGION_ONLY = new Set<string>\(\['\/admin\/engine-validation'\]\)/);
+  assert.match(sidebar, /!INTERNAL_REGION_ONLY\.has\(item\.path\) \|\| canSeeInternalRegions\(account\)/);
+  const dashboard = readFileSync(join(WEB, 'app/admin/dashboard/page.tsx'), 'utf8');
+  assert.match(dashboard, /const showRehearsalLink = canSeeInternalRegions\(account\)/);
+  assert.match(dashboard, /\{showRehearsalLink && \(\s*<Link\s+href="\/admin\/engine-validation"/, '대시보드 링크가 developer 판정 밖에 있다');
+  const page = readFileSync(join(WEB, 'app/admin/engine-validation/page.tsx'), 'utf8');
+  assert.match(page, /const allowed = canSeeInternalRegions\(account\)/);
+  assert.match(page, /useEffect\(\(\) => \{\s*if \(!allowed\) return;/, '권한 없는 계정도 요약을 불러온다');
+  const gate = page.indexOf('if (!allowed) {\n    return (');
+  assert.ok(gate > 0 && gate < page.indexOf('실시간 데이터 리허설 — 서울 실시간 도시데이터'), '서울 머리글보다 먼저 막지 않는다');
+}
+
 console.log('engineValidation.test.ts OK');

@@ -21,7 +21,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.authz import ROLE_ADMIN, require_machine_or_role, require_role
+from app.core.authz import ROLE_DEVELOPER, require_machine_or_role, require_role
 from app.services import seoul_citydata_service as seoul
 from app.services.seoul_citydata_service import (
     SeoulCitydataError,
@@ -73,7 +73,8 @@ class SeoulStatusResponse(BaseModel):
     # 주 호출자는 pg_cron(20260920121000, 10분마다)이다 — 세션이 없으니 기계 토큰을 받는다.
     # 경주 수집기(area-demand/snapshots/collect)와 같은 가드: RBAC 전환 때 require_role 만 남겨
     # 수집이 401 로 조용히 죽었던 전례가 있다.
-    dependencies=[Depends(require_machine_or_role(ROLE_ADMIN))],
+    # 사람은 developer 만(사용자 결정 1 — 응답에 서울 대상지 측정 단계가 실린다). 기계 토큰 경로는 그대로다.
+    dependencies=[Depends(require_machine_or_role(ROLE_DEVELOPER))],
 )
 async def collect_seoul() -> SeoulCollectResponse:
     """설정된 서울 대상지를 한 번씩 조회해 10분 버킷으로 저장한다(같은 버킷 재호출은 덮어쓰기)."""
@@ -92,7 +93,8 @@ async def collect_seoul() -> SeoulCollectResponse:
 @router.get(
     "/seoul/status",
     response_model=SeoulStatusResponse,
-    dependencies=[Depends(require_role(ROLE_ADMIN))],
+    # 서울 대상지·최신 행 — developer 전용(사용자 결정 1).
+    dependencies=[Depends(require_role(ROLE_DEVELOPER))],
 )
 async def seoul_status() -> SeoulStatusResponse:
     """마지막 수집 결과(프로세스 메모리)와 대상지별 DB 최신 행."""

@@ -231,6 +231,18 @@ async function escapingElements(page: Page): Promise<string[]> {
   });
 }
 
+/** /account/me 만 다른 역할로 덮는다(나중에 건 route 가 먼저 잡힌다). */
+async function stubAccountRole(page: Page, role: 'admin' | 'developer'): Promise<void> {
+  await page.route('**/api/v1/account/me', (route) => json(route, 200, {
+    id: '00000000-0000-4000-8000-0000000000ad',
+    role,
+    is_anonymous: false,
+    nickname: '관제 담당자',
+    owned_facilities: [],
+    pending_verification: false,
+  }));
+}
+
 async function openAdmin(page: Page, path: string): Promise<void> {
   await page.goto(path);
   // 관제 게이트(권한 확인 중)를 지나 콘솔이 그려질 때까지.
@@ -261,6 +273,8 @@ test.beforeEach(async ({ page }) => {
 for (const path of ADMIN_ROUTES) {
   test(`390px — ${path} 본문이 화면 안에 머물고 표 칸이 읽힌다`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    // 실시간 데이터 리허설은 developer 전용이다(사용자 결정 1) — 레이아웃은 그 화면을 실제로 보는 developer 로 잰다.
+    if (path === '/admin/engine-validation') await stubAccountRole(page, 'developer');
     await openAdmin(page, path);
     if (SHOT_DIR) await page.screenshot({ path: `${SHOT_DIR}/390${path.replaceAll('/', '_')}.png` });
 
@@ -425,4 +439,17 @@ test('1280px — 관제 데모의 CSV 버튼은 ① 실시간 관제 제목과 �
   // 브리핑이 ① 줄보다 위(실제 대시보드와 같은 순서).
   const briefing = await page.getByText('오늘의 정책 브리핑').boundingBox();
   expect(briefing!.y).toBeLessThan(stepBox!.y);
+});
+
+test('admin 은 실시간 데이터 리허설(서울)을 URL 로 열어도 서울 데이터를 받지 않는다', async ({ page }) => {
+  let summaryCalls = 0;
+  page.on('request', (req) => {
+    if (req.url().includes('/admin/engine-validation/seoul/')) summaryCalls += 1;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAdmin(page, '/admin/engine-validation');
+  await expect(page.getByTestId('rehearsal-developer-only')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText('서울');
+  await expect(page.locator('main')).not.toContainText('홍대');
+  expect(summaryCalls, '서울 요약 API 를 부르지 않는다').toBe(0);
 });
