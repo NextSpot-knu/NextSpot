@@ -116,23 +116,25 @@ async def persist_observations(
     stored = 0
     errors: dict[str, str] = {}
     for observation in observations:
-        row = snapshot_row(observation, bucket_at=bucket_at)
         try:
+            # 행 만들기도 try 안이다 — 모양이 깨진 관측 하나가 이중 저장 전체(와 수집 응답)를 깨뜨리지 않게.
+            row = snapshot_row(observation, bucket_at=bucket_at)
             await asyncio.to_thread(_upsert_row, row)
         except Exception as exc:  # noqa: BLE001 — 이중 저장은 기존 수집을 막지 않는다
+            zone_id = str(getattr(observation, "zone_id", "") or "?")
             if is_missing_table(exc, TABLE):
                 logger.warning("zone_crowd_snapshots_missing", migration=MIGRATION)
                 return {
                     "state": "migration_not_applied",
                     "stored_count": stored,
-                    "errors": {observation.zone_id: "migration_not_applied"},
+                    "errors": {zone_id: "migration_not_applied"},
                 }
             code = "zone_not_defined" if _is_fk_violation(exc) else "zone_snapshot_failed"
             logger.error(
                 "zone_crowd_snapshot_persist_failed",
-                zone_id=observation.zone_id, error_code=code, error_type=type(exc).__name__,
+                zone_id=zone_id, error_code=code, error_type=type(exc).__name__,
             )
-            errors[observation.zone_id] = code
+            errors[zone_id] = code
             continue
         stored += 1
     if not errors:

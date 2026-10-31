@@ -48,6 +48,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -288,6 +289,16 @@ _MAX_EVERY = 144
 _CADENCE = re.compile(r"^(?P<every>\d{1,3})(?:\+(?P<offset>\d{1,3}))?$")
 
 
+def _target_specs() -> list[str]:
+    """설정 값을 NFKC 로 정규화해 콤마로 나눈다.
+
+    NFKC 가 전각 기호(＠ ＋ ， ０-９)를 반각으로 바꾼다 — 전각 ＠ 가 이름의 일부로 남으면 서울 API 가
+    모르는 이름을 매 버킷 부르며 한도만 쓴다. 공식 이름의 가운뎃점(U+00B7)은 NFKC 에서 바뀌지 않는다.
+    """
+    text = unicodedata.normalize("NFKC", str(settings.SEOUL_CITYDATA_TARGETS or ""))
+    return text.split(",")
+
+
 def _split_target_spec(raw: str) -> tuple[str, str | None]:
     """`이름@N+P` → (이름, 'N+P'). '@' 가 없으면 (이름, None)."""
     name, sep, cadence = raw.partition("@")
@@ -310,7 +321,7 @@ def _parse_cadence(text: str | None) -> tuple[int, int] | None:
 def configured_targets() -> list[str]:
     """SEOUL_CITYDATA_TARGETS(콤마 구분)의 **이름만** 순서 유지·중복 제거해 읽는다(주기 표기는 뗀다)."""
     names: list[str] = []
-    for raw in str(settings.SEOUL_CITYDATA_TARGETS or "").split(","):
+    for raw in _target_specs():
         name, _ = _split_target_spec(raw)
         if name and name not in names:
             names.append(name)
@@ -321,22 +332,24 @@ def configured_schedule() -> list[TargetSchedule]:
     """대상지별 주기. 주기 표기가 틀리면 ``seoul_targets_invalid`` 로 멈춘다.
 
     틀린 표기를 '매 버킷' 으로 너그럽게 읽으면 호출 한도(일 1,000회)를 조용히 넘길 수 있다 —
-    그래서 고칠 때까지 수집을 세우고 사람에게 알린다(503).
+    그래서 고칠 때까지 수집을 세우고 사람에게 알린다(503). 같은 이름이 **다른 주기**로 두 번 나오면
+    (`A@2,A@3`) 어느 쪽이 뜻인지 알 수 없으므로 역시 멈춘다. 같은 주기의 중복은 하나로 읽는다.
     """
-    schedule: list[TargetSchedule] = []
-    seen: set[str] = set()
-    for raw in str(settings.SEOUL_CITYDATA_TARGETS or "").split(","):
+    schedule: dict[str, TargetSchedule] = {}
+    for raw in _target_specs():
         name, cadence = _split_target_spec(raw)
         if not name:
             continue
         parsed = _parse_cadence(cadence)
         if parsed is None:
             raise SeoulCitydataError("seoul_targets_invalid")
-        if name in seen:
+        item = TargetSchedule(name, *parsed)
+        if name in schedule:
+            if schedule[name] != item:
+                raise SeoulCitydataError("seoul_targets_invalid")
             continue
-        seen.add(name)
-        schedule.append(TargetSchedule(name, *parsed))
-    return schedule
+        schedule[name] = item
+    return list(schedule.values())
 
 
 def bucket_index(moment: datetime) -> int:
@@ -574,14 +587,18 @@ def build_snapshot_row(
     *,
     fetched_at: datetime,
     tourism_level: float | None,
+    bucket_at: datetime | None = None,
 ) -> tuple[dict[str, Any], int]:
-    """테이블 한 행과 (오래돼서 뺀 주차장 수)를 만든다. DB 접근 없음."""
+    """테이블 한 행과 (오래돼서 뺀 주차장 수)를 만든다. DB 접근 없음.
+
+    `bucket_at` 은 수집기가 실행 시각(run_at)으로 **한 번** 정한 버킷이다. 주지 않으면 fetched_at 의 버킷.
+    """
     lots, used, stale = live_parking_lots(parsed["prk_rows"], fetched_at=fetched_at)
     levels = estimate_levels(parsed["area_nm"], lots, tourism_level)
     row = {
         "area_cd": parsed["area_cd"],
         "area_nm": parsed["area_nm"],
-        "bucket_at": bucket_start(fetched_at).isoformat(),
+        "bucket_at": bucket_start(bucket_at if bucket_at is not None else fetched_at).isoformat(),
         "observed_at": parsed["observed_at"].isoformat(),
         "fetched_at": fetched_at.astimezone(timezone.utc).isoformat(),
         "congest_lvl": parsed["congest_lvl"],
@@ -782,18 +799,63 @@ def _observation_or_none(parsed: dict[str, Any], fetched_at: datetime):
         return None
 
 
-async def _collect_one(
-    client: httpx.AsyncClient, key: str, area_nm: str, fetched_at: datetime
-) -> tuple[dict[str, Any], Any]:
-    """(대상지 결과, 정규화 관측 또는 None). 관측은 기존 표 저장이 성공한 뒤에만 만든다."""
-    payload = await fetch_citydata(client, key, area_nm)
-    parsed = parse_citydata(payload, area_nm)
-    tourism_level = await tourism_level_for(area_nm, date_kst=fetched_at.astimezone(_KST).date().isoformat())
-    row, stale = build_snapshot_row(parsed, fetched_at=fetched_at, tourism_level=tourism_level)
-    await _persist(row)
-    observation = _observation_or_none(parsed, fetched_at)
+# 서울 API 동시 요청 상한. 버킷당 최대 7곳을 순서대로 부르면 최악(전부 시간 초과) 70초 + 관광 15초로
+# pg_cron 요청 제한(90초)에 너무 가깝다. 4개씩 부르면 ceil(7/4) = 2 묶음 → 20초. 서울 API 에 한꺼번에
+# 몰지 않도록 상한은 작게 둔다.
+_FETCH_CONCURRENCY = 4
+
+
+def _failed_result(area_nm: str, error_code: str, upstream_code: str | None = None) -> dict[str, Any]:
+    return {"area_nm": area_nm, "state": "failed", "error_code": error_code, "upstream_code": upstream_code}
+
+
+@dataclass
+class _Prepared:
+    """조회 단계의 결과 하나. 실패면 ``failure`` 만, 성공이면 저장할 행과 정규화 재료를 든다."""
+
+    area_nm: str
+    failure: dict[str, Any] | None = None
+    parsed: dict[str, Any] | None = None
+    row: dict[str, Any] | None = None
+    stale: int = 0
+    fetched_at: datetime | None = None
+
+
+async def _prepare_one(
+    client: httpx.AsyncClient,
+    key: str,
+    area_nm: str,
+    *,
+    now: datetime | None,
+    bucket_at: datetime,
+    semaphore: asyncio.Semaphore,
+) -> _Prepared:
+    """조회·파싱·관광 성분·행 만들기(DB 없음). 실패는 대상지 결과로 바꾸고 예외를 내지 않는다.
+
+    세마포어는 **서울 API 호출만** 감싼다 — 관광 성분 조회(다른 API, 6시간 캐시)가 서울 호출 자리를
+    잡고 있지 않게 한다.
+    """
+    try:
+        async with semaphore:
+            fetched_at = now or _now()
+            payload = await fetch_citydata(client, key, area_nm)
+        parsed = parse_citydata(payload, area_nm)
+        tourism_level = await tourism_level_for(area_nm, date_kst=fetched_at.astimezone(_KST).date().isoformat())
+        row, stale = build_snapshot_row(
+            parsed, fetched_at=fetched_at, tourism_level=tourism_level, bucket_at=bucket_at
+        )
+    except SeoulCitydataError as exc:
+        return _Prepared(area_nm, failure=_failed_result(area_nm, exc.code, exc.upstream_code))
+    except Exception as exc:  # noqa: BLE001 — 한 대상지의 버그가 다른 대상지를 막지 않게
+        logger.error("seoul_citydata_target_failed", area_nm=area_nm, error_type=type(exc).__name__)
+        return _Prepared(area_nm, failure=_failed_result(area_nm, "unexpected_error"))
+    return _Prepared(area_nm, parsed=parsed, row=row, stale=stale, fetched_at=fetched_at)
+
+
+def _stored_result(prepared: _Prepared) -> dict[str, Any]:
+    row = prepared.row or {}
     return {
-        "area_nm": area_nm,
+        "area_nm": prepared.area_nm,
         "state": "stored",
         "error_code": None,
         "upstream_code": None,
@@ -802,19 +864,25 @@ async def _collect_one(
         "observed_at": row["observed_at"],
         "congest_lvl": row["congest_lvl"],
         "live_lot_count": row["live_lot_count"],
-        "stale_lot_count": stale,
+        "stale_lot_count": prepared.stale,
         "parking_level": row["parking_level"],
         "tourism_level": row["tourism_level"],
         "level_est": row["level_est"],
-    }, observation
+    }
 
 
 async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, Any]:
     """이 10분 버킷이 차례인 대상지를 한 번씩 수집해 저장한다.
 
+    두 단계로 돈다.
+      1. 조회 — 차례인 대상지를 **동시에**(최대 `_FETCH_CONCURRENCY` 개) 부르고 파싱해 행을 만든다(DB 없음).
+      2. 저장 — 설정 순서대로 **하나씩** 기존 표에 쓰고, 성공한 대상지만 정규화 표에 이중 저장한다.
+    결과·`_status` 는 2단계가 끝난 뒤 설정 순서로 한 번에 갱신한다 — 동시 실행이 상태를 섞지 않는다.
+
     대상지 하나의 실패는 그 대상지 결과에만 남고 나머지는 계속 돈다. 예외로 끝나는 경우는
     '어느 대상지도 시도할 수 없는' 넷뿐이다 — 키 없음·대상지 없음·주기 표기 오류·표 없음(마이그레이션
-    미적용). 표가 없으면 첫 대상지에서 멈춘다: 나머지를 불러 봐야 저장할 곳이 없고 호출 한도만 쓴다.
+    미적용). 표가 없으면 저장 단계의 첫 행에서 멈춘다. 조회는 이미 동시에 끝났으므로 그 버킷의 차례
+    (최대 7곳)만큼은 호출 한도를 쓴다 — 순차 시절(첫 대상지에서 멈춤)보다 최대 6회 더 쓴다.
 
     차례인 대상지가 하나도 없는 버킷이면 아무것도 부르지 않고 ``state='ok'``(0건)로 끝난다.
     """
@@ -831,44 +899,61 @@ async def collect_seoul_citydata(*, now: datetime | None = None) -> dict[str, An
     except SeoulCitydataError as exc:
         _record_failure_status(exc.code, run_at)
         raise
+    # 차례 판정과 저장 버킷을 run_at 으로 **한 번** 정한다. 느린 실행이 10분 경계를 넘어도 그 행은
+    # 차례를 판정한 버킷에 들어간다(대상지마다 fetched_at 으로 버킷을 정하면 차례 밖 버킷에 행이 생긴다).
+    run_bucket = bucket_start(run_at)
     due, skipped = due_targets(schedule, run_at)
     key = settings.SEOUL_OPENDATA_KEY.strip()
 
     results: list[dict[str, Any]] = []
     observations: list[Any] = []
-    # 순차 호출: 대상지 1곳 기준으로는 차이가 없고, 늘어나도 서울 API 에 동시 요청을 몰지 않는다.
-    # pg_cron 요청 제한 90초 안에 끝나야 하므로 **한 버킷에 차례인** 대상지는 대략 6곳(10초 × 6 + 여유)까지가
-    # 안전하다. 9곳을 매 버킷 부르지 않고 주기·차례를 나눠 두는 이유 중 하나다(기본 설정은 버킷당 최대 6곳).
+    # pg_cron 요청 제한은 90초다. 조회는 최대 4개씩 동시에 한다 — 기본 설정의 버킷당 최대 7곳이면
+    # ceil(7/4) = 2 묶음 × 요청 제한 10초 = 20초, 관광 성분 조회(최대 15초, 홍대만 · 6시간 캐시)가 그 뒤에
+    # 붙어도 35초다. 나머지(약 55초)가 저장(기존 표 + 정규화 표, 대상지당 upsert 2번)의 몫이다.
+    # httpx 의 10초는 단계(연결·읽기)마다의 제한이라 실제 최악은 이보다 길 수 있다 — 그래서 여유를 크게 둔다.
+    semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=False) as client:
-        for area_nm in due:
-            fetched_at = now or _now()
+        prepared_list = await asyncio.gather(*(
+            _prepare_one(client, key, area_nm, now=now, bucket_at=run_bucket, semaphore=semaphore)
+            for area_nm in due
+        ))
+
+    # 저장은 설정 순서대로 하나씩 — 표가 없을 때 첫 행에서 멈추는 동작과 행 순서를 결정적으로 지킨다.
+    for prepared in prepared_list:
+        area_nm = prepared.area_nm
+        if prepared.failure is not None:
+            result = prepared.failure
+        else:
             try:
-                result, observation = await _collect_one(client, key, area_nm, fetched_at)
-                if observation is not None:
-                    observations.append(observation)
+                await _persist(prepared.row or {})
             except SeoulSnapshotPersistenceError as exc:
                 if exc.code == "migration_not_applied":
                     _record_failure_status("migration_not_applied", run_at)
                     raise
-                result = {"area_nm": area_nm, "state": "failed", "error_code": exc.code, "upstream_code": None}
-            except SeoulCitydataError as exc:
-                result = {
-                    "area_nm": area_nm, "state": "failed",
-                    "error_code": exc.code, "upstream_code": exc.upstream_code,
-                }
-            except Exception as exc:  # noqa: BLE001 — 한 대상지의 버그가 다른 대상지를 막지 않게
+                result = _failed_result(area_nm, exc.code)
+            except Exception as exc:  # noqa: BLE001
                 logger.error("seoul_citydata_target_failed", area_nm=area_nm, error_type=type(exc).__name__)
-                result = {"area_nm": area_nm, "state": "failed", "error_code": "unexpected_error", "upstream_code": None}
-            if result["state"] == "failed":
-                logger.warning(
-                    "seoul_citydata_target_failed",
-                    area_nm=area_nm, error_code=result["error_code"], upstream_code=result["upstream_code"],
-                )
-            results.append(result)
+                result = _failed_result(area_nm, "unexpected_error")
+            else:
+                result = _stored_result(prepared)
+                observation = _observation_or_none(prepared.parsed or {}, prepared.fetched_at or run_at)
+                if observation is not None:
+                    observations.append(observation)
+        if result["state"] == "failed":
+            logger.warning(
+                "seoul_citydata_target_failed",
+                area_nm=area_nm, error_code=result["error_code"], upstream_code=result["upstream_code"],
+            )
+        results.append(result)
 
-    # 정규화 이중 저장 — 예외를 내지 않는다(표가 없으면 migration_not_applied 상태만 남는다).
-    # 버킷은 관측마다 받은 시각(fetched_at)으로 정한다 — 위 기존 행과 같은 규칙.
-    zone_snapshots = await crowd_store.persist_observations(observations)
+    # 정규화 이중 저장 — 위 기존 행과 같은 버킷(run_bucket). 표가 없으면 migration_not_applied 상태만 남는다.
+    # persist_observations 는 예외를 내지 않지만, 여기서 한 번 더 막는다 — 이중 저장이 수집 응답을 500 으로
+    # 만들거나 아래 _status 갱신을 건너뛰게 해서는 안 된다.
+    try:
+        zone_snapshots = await crowd_store.persist_observations(observations, bucket_at=run_bucket)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("zone_crowd_snapshot_dual_write_failed", error_type=type(exc).__name__)
+        zone_snapshots = {"state": "failed", "stored_count": 0, "errors": {"*": "zone_snapshot_failed"}}
 
     stored = [r for r in results if r["state"] == "stored"]
     failed = [r for r in results if r["state"] == "failed"]

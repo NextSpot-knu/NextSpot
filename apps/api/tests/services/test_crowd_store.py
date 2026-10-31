@@ -138,3 +138,26 @@ def test_other_failures_are_reported_not_raised(monkeypatch):
 )
 def test_missing_table_detection_is_per_table(exc, expected):
     assert store.is_missing_table(exc, store.TABLE) is expected
+
+
+def test_row_building_failure_is_contained_per_observation(monkeypatch):
+    """행 만들기(snapshot_row)도 try 안이다 — 깨진 관측 하나가 이중 저장 전체를 터뜨리지 않는다."""
+    written: list[dict] = []
+    monkeypatch.setattr(store, "_upsert_row", written.append)
+    real = store.snapshot_row
+
+    def picky(observation, *, bucket_at=None):
+        if observation.zone_id == "seoul:POI073":
+            raise ValueError("bad observation")
+        return real(observation, bucket_at=bucket_at)
+
+    monkeypatch.setattr(store, "snapshot_row", picky)
+    result = asyncio.run(store.persist_observations([_observation("연남동"), _observation()], bucket_at=BUCKET_AT))
+    assert result == {"state": "partial", "stored_count": 1, "errors": {"seoul:POI073": "zone_snapshot_failed"}}
+    assert [row["zone_id"] for row in written] == ["seoul:POI007"]
+
+
+def test_non_observation_input_never_raises(monkeypatch):
+    monkeypatch.setattr(store, "_upsert_row", lambda _row: None)
+    result = asyncio.run(store.persist_observations([object()], bucket_at=BUCKET_AT))  # type: ignore[list-item]
+    assert result == {"state": "failed", "stored_count": 0, "errors": {"?": "zone_snapshot_failed"}}

@@ -294,3 +294,48 @@ def test_default_targets_are_exactly_the_nine_zones(monkeypatch):
     assert sorted(seoul.configured_targets()) == sorted(zone.provider_zone_name for zone in provider.SEOUL_ZONES)
     for name in seoul.configured_targets():
         assert seoul.target_profile(name) is not None, f"{name} 추정 기준 좌표가 없다"
+
+
+def test_fetch_current_drops_a_zone_whose_observation_fails_validation(monkeypatch):
+    """CrowdObservation 의 값 검증(ValueError)도 '관측 없음' 이다 — 예외로 새지 않고 이유를 남긴다."""
+    monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", FAKE_KEY)
+
+    async def fetch(_client, _key, area_nm):
+        return copy.deepcopy(_hongdae()) if area_nm == HONGDAE else copy.deepcopy(_sample())
+
+    real = provider.observation_from_parsed
+
+    def strict(parsed, *, fetched_at):
+        if parsed["area_nm"] == HONGDAE:
+            raise ValueError("level must be within 0..1")
+        return real(parsed, fetched_at=fetched_at)
+
+    monkeypatch.setattr(seoul, "fetch_citydata", fetch)
+    monkeypatch.setattr(provider, "observation_from_parsed", strict)
+    source = provider.SeoulCitydataProvider()
+    gwanghwamun = provider.Zone(
+        zone_id="seoul:POI009", region="seoul", kind="hotspot_polygon", name=GWANGHWAMUN,
+        provider="seoul_citydata", provider_zone_code="POI009", provider_zone_name=GWANGHWAMUN,
+        cluster=None, centroid_lat=37.57, centroid_lng=126.97,
+    )
+    observations = asyncio.run(source.fetch_current([_zone(HONGDAE), gwanghwamun]))
+    assert [item.zone_id for item in observations] == ["seoul:POI009"]
+    assert source.last_errors == {"seoul:POI007": "observation_invalid"}
+
+
+def test_last_errors_records_fetch_failures_and_resets_each_call(monkeypatch):
+    monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", FAKE_KEY)
+    answers = {"연남동": seoul.SeoulCitydataError("seoul_timeout")}
+
+    async def fetch(_client, _key, area_nm):
+        answer = answers.get(area_nm)
+        if isinstance(answer, Exception):
+            raise answer
+        return copy.deepcopy(_hongdae())
+
+    monkeypatch.setattr(seoul, "fetch_citydata", fetch)
+    source = provider.SeoulCitydataProvider()
+    asyncio.run(source.fetch_current([_zone("연남동")]))
+    assert source.last_errors == {"seoul:POI073": "seoul_timeout"}
+    asyncio.run(source.fetch_current([_zone(HONGDAE)]))
+    assert source.last_errors == {}

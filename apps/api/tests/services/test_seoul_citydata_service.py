@@ -413,7 +413,10 @@ def test_missing_table_stops_the_run_with_migration_code(monkeypatch):
         code = "PGRST205"
         message = "Could not find the table 'public.seoul_citydata_snapshots' in the schema cache"
 
-    def missing(_row):
+    writes: list[str] = []
+
+    def missing(row):
+        writes.append(row["area_nm"])
         raise _PostgrestLikeError(_PostgrestLikeError.message)
 
     monkeypatch.setattr(seoul, "_upsert_row", missing)
@@ -421,8 +424,9 @@ def test_missing_table_stops_the_run_with_migration_code(monkeypatch):
     with pytest.raises(seoul.SeoulSnapshotPersistenceError) as info:
         asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT))
     assert info.value.code == "migration_not_applied"
-    # 저장할 곳이 없으면 나머지 대상지로 호출 한도를 쓰지 않는다.
-    assert calls == [HONGDAE]
+    # 조회는 동시에 끝난다(그 버킷의 차례만큼 호출 한도를 쓴다). 저장은 설정 순서로 하나씩이라 첫 행에서 멈춘다.
+    assert calls == [HONGDAE, GWANGHWAMUN]
+    assert writes == [HONGDAE]
     assert seoul.get_collection_status()["error_code"] == "migration_not_applied"
 
 

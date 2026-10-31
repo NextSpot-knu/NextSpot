@@ -216,6 +216,14 @@ class SeoulCitydataProvider:
 
     source = SOURCE
 
+    def __init__(self) -> None:
+        # 마지막 fetch_current 에서 빠진 구역과 이유(코드만 — 키·URL·원문 없음). 예외 대신 남기는 기록.
+        self.last_errors: dict[str, str] = {}
+
+    def _drop(self, zone: Zone, code: str, **extra: Any) -> None:
+        self.last_errors[zone.zone_id] = code
+        logger.warning("crowd_seoul_zone_dropped", zone_id=zone.zone_id, error_code=code, **extra)
+
     def describe(self) -> ProviderDescription:
         return ProviderDescription(
             source=SOURCE,
@@ -236,6 +244,7 @@ class SeoulCitydataProvider:
         # 지연 import: 수집기(seoul_citydata_service)가 이 모듈을 import 한다(이중 저장).
         from app.services import seoul_citydata_service as seoul
 
+        self.last_errors = {}
         if not seoul.key_configured() or not zones:
             return []
         key = settings.SEOUL_OPENDATA_KEY.strip()
@@ -249,11 +258,18 @@ class SeoulCitydataProvider:
                     payload = await seoul.fetch_citydata(http, key, name)
                     parsed = seoul.parse_citydata(payload, name)
                 except seoul.SeoulCitydataError as exc:
-                    logger.warning("crowd_seoul_fetch_failed", zone_id=zone.zone_id, error_code=exc.code)
+                    self._drop(zone, exc.code)
                     continue
-                observation = observation_from_parsed(parsed, fetched_at=datetime.now(timezone.utc))
-                if observation is not None:
-                    observations.append(observation)
+                try:
+                    observation = observation_from_parsed(parsed, fetched_at=datetime.now(timezone.utc))
+                except (ValueError, KeyError, TypeError) as exc:
+                    # CrowdObservation 의 값 검증(ValueError) 또는 파서와 어긋난 모양 — 이 구역만 뺀다.
+                    self._drop(zone, "observation_invalid", error_type=type(exc).__name__)
+                    continue
+                if observation is None:
+                    self._drop(zone, "zone_unresolved")
+                    continue
+                observations.append(observation)
         finally:
             if owned:
                 await http.aclose()

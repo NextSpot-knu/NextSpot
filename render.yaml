@@ -41,8 +41,8 @@ services:
       - key: PARKING_API_KEY
         sync: false
       # --- 서울 열린데이터광장 인증키(선택 — 혼잡 엔진 검증 수집 전용. 비어 있으면 수집만 503 seoul_key_missing).
-      #     대상지·주기 SEOUL_CITYDATA_TARGETS 는 기본값(9곳·주기 포함, app/core/config.py)이 코드에 있어 넣지 않아도 된다.
-      #     값을 넣으면 기본값을 통째로 덮는다(주기 표기 `이름@N+P` 포함). ---
+      #     대상지·주기 SEOUL_CITYDATA_TARGETS 는 기본값(9곳·주기 포함, app/core/config.py)이 코드에 있어 넣지 않는다.
+      #     값을 넣으면 기본값을 통째로 덮고(주기 표기 `이름@N+P` 포함), 빈 값은 503 seoul_targets_missing 이다. ---
       - key: SEOUL_OPENDATA_KEY
         sync: false
       # --- 경주 메뉴별음식점(data.go.kr 15114465, 제공기관 5050000)(선택 — 둘 다 비면 보강 배치가 no-op).
