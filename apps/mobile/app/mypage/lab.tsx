@@ -1,11 +1,14 @@
 // 나의 실험실(거절 실험실) — 웹 app/mypage/lab/page.tsx. 거절한 추천의 이유를 되짚어 다음 추천을 조율한다.
 // 이유 칩 9종(기타만 메모) · 직접 설명하기(서버 LLM 분류) · 건너뛰기 · 숨기기. 답/건너뛰기/숨기기는 낙관적으로 빼고 실패하면 되돌린다.
+// '직접 설명하기'는 서버가 문장을 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
+// (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 이유 칩·'기타' 메모(AI 없음)는 그대로 쓴다.
 import { useRouter } from 'expo-router';
 import { FlaskConical, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { Button, Card, Chip, EmptyState, ErrorState, IconButton, Pressable, Screen, Text, toast } from '~/components/ui';
+import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { useLocale, useT } from '~/lib/i18n/I18nProvider';
 
 import {
@@ -27,6 +30,7 @@ export default function LabScreen() {
   const [locale] = useLocale();
   const { state, data, setData, reload } = useRemote(fetchLabPending);
   const items = data ?? [];
+  const { allowed: aiAllowed } = useAiConsent();
 
   // '기타' 메모 · '직접 설명하기' 입력은 카드 하나에서만(feedbackId).
   const [noteFor, setNoteFor] = useState<string | null>(null);
@@ -79,6 +83,7 @@ export default function LabScreen() {
   const onClassify = async (item: LabPendingItem) => {
     const text = freeText.trim();
     if (!text || busyId) return;
+    if (!canSendToAi()) return; // 허용 전에는 문장을 보내지 않는다(버튼도 꺼져 있다)
     setBusyId(item.id);
     try {
       const result = await classifyLabReason(item.id, text);
@@ -179,7 +184,10 @@ export default function LabScreen() {
                 {freeOpen ? (
                   <View className="mt-[16px] gap-[8px]">
                     <Text className="text-sm text-muk-soft" weight="semibold">{t('lab.freeTextLabel')}</Text>
+                    <AiConsentNotice />
                     <TextField
+                      editable={aiAllowed}
+                      accessibilityState={{ disabled: !aiAllowed }}
                       value={freeText}
                       onChangeText={setFreeText}
                       placeholder={t('lab.freeTextPlaceholder')}
@@ -190,7 +198,7 @@ export default function LabScreen() {
                     />
                     <View className="flex-row items-center justify-between gap-[12px]">
                       <Text className="text-[11px] text-muk-soft">{freeText.length}/{NOTE_MAX}</Text>
-                      <Button label={t('lab.freeTextSubmit')} loading={busy} disabled={busy || !freeText.trim()} onPress={() => { void onClassify(item); }} />
+                      <Button label={t('lab.freeTextSubmit')} loading={busy} disabled={busy || !aiAllowed || !freeText.trim()} onPress={() => { void onClassify(item); }} />
                     </View>
                   </View>
                 ) : null}

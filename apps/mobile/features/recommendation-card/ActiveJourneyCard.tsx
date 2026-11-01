@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, TextInput, View } from 'react-native';
 
 import { Button, Card, Chip, Icon, Pressable, Text } from '~/components/ui';
+import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { parseTravelContext, recommendByType, type PlaceCategory, type TravelContext } from '~/lib/core/apiClient';
 import type { RequiredAttribute } from '~/lib/core/travelContextTypes';
 import { queueRecommendationOutcome } from '~/lib/core/recommendationOutcomes';
@@ -47,6 +48,8 @@ export interface ActiveJourneyCardProps {
 /**
  * 진행 중 여행 카드 — 도착했어요 · 아직 가는 중 · 상황 변경(자연어·칩으로 조건을 바꿔 다른 곳으로 갈아타기) · 길안내 다시 열기.
  * 웹 components/main/ActiveJourneyCard.tsx(기준 커밋 0d145a1). 저장소·이벤트는 tripLoop, 판정은 journeyCore.
+ * 자유 문장 해석(POST /travel-context/parse)은 서버가 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
+ * (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
  */
 export function ActiveJourneyCard({ location, className, onArrived }: ActiveJourneyCardProps) {
   const t = useT();
@@ -59,6 +62,7 @@ export function ActiveJourneyCard({ location, className, onArrived }: ActiveJour
   const [outcome, setOutcome] = useState<ReplanOutcome | null>(null);
   // 재시도는 같은 조건으로 — 실패한 시도가 draft 였는지 현재 여정 조건이었는지 기억한다(웹과 같다).
   const lastContext = useRef<Partial<TravelContext> | undefined>(undefined);
+  const { allowed: aiAllowed } = useAiConsent();
 
   useEffect(() => {
     const sync = () => {
@@ -91,6 +95,7 @@ export function ActiveJourneyCard({ location, className, onArrived }: ActiveJour
 
   const parseChange = async () => {
     if (!changeText.trim() || busy) return;
+    if (!canSendToAi()) return; // 허용 전에는 문장을 보내지 않는다(버튼도 꺼져 있다)
     setBusy(true);
     setOutcome(null);
     setParseError(false);
@@ -231,18 +236,21 @@ export function ActiveJourneyCard({ location, className, onArrived }: ActiveJour
               )}
             </View>
           )}
+          <AiConsentNotice />
           <TextInput
             accessibilityLabel={t('trip.changeTitle')}
+            accessibilityState={{ disabled: !aiAllowed }}
+            editable={aiAllowed}
             maxLength={300}
             multiline
             value={changeText}
             onChangeText={setChangeText}
             placeholder={t('trip.changePlaceholder')}
             placeholderTextColor="#8a7f78"
-            className="min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk"
+            className={aiAllowed ? 'min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk' : 'min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[13px] text-muk-soft'}
             maxFontSizeMultiplier={1.6}
           />
-          <Button variant="secondary" label={busy ? t('trip.parsing') : t('trip.parse')} disabled={busy || !changeText.trim()} onPress={() => void parseChange()} />
+          <Button variant="secondary" label={busy ? t('trip.parsing') : t('trip.parse')} disabled={busy || !aiAllowed || !changeText.trim()} onPress={() => void parseChange()} />
           {draft && (
             <View className="gap-[8px]">
               <Text className="text-[11px] leading-[15px] text-muk-soft">{parseError ? t('trip.noContext') : t('trip.manualHint')}</Text>

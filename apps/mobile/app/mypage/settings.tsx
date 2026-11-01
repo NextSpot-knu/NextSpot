@@ -4,13 +4,16 @@
 // 확인 → 서버 삭제 → 로컬 로그아웃·개인 데이터 삭제 → 새 게스트 세션. 서버가 실패하면 아무것도 지우지 않는다.
 // 위치정보 이용 동의(계획 §6.2 ① · M20): 지금 결정을 보이고, 동의했으면 철회(setLocationConsent('declined')),
 // 아니면 동의 화면(LOCATION_CONSENT_ROUTE)으로 — 동의 화면 문구의 '나중에 마이페이지 설정에서 바꿀 수 있어요' 약속.
+// 외부 AI 전송(App Store 5.1.2(i), features/aiConsent): 지금 상태를 보이고, 허용했으면 철회('허용 안 함'으로 적는다),
+// 아니면 같은 안내 창(promptAiConsent)을 다시 띄워 고르게 한다.
 import Constants from 'expo-constants';
 import { useRouter, type Href } from 'expo-router';
-import { Database, ExternalLink, Globe, Info, MapPin, Store, Trash2, UserX } from 'lucide-react-native';
+import { Database, ExternalLink, Globe, Info, MapPin, Sparkles, Store, Trash2, UserX } from 'lucide-react-native';
 import { useState } from 'react';
 import { View } from 'react-native';
 
 import { Button, Text, Screen, toast } from '~/components/ui';
+import { promptAiConsent, setAiConsent, useAiConsent } from '~/features/aiConsent';
 import { getLocationConsent, setLocationConsent } from '~/features/auth/consent';
 import { LOCATION_CONSENT_ROUTE } from '~/features/auth/locationAccess';
 import { useLocationConsent } from '~/features/auth/useLocationConsent';
@@ -38,6 +41,12 @@ export default function SettingsScreen() {
     : consentRecord?.decision === 'declined'
       ? t('app.settings.locationConsentDeclined')
       : t('app.settings.locationConsentNone');
+  const ai = useAiConsent();
+  const aiStatus = ai.status === 'granted'
+    ? t('app.settings.aiConsentGranted')
+    : ai.status === 'declined'
+      ? t('app.settings.aiConsentDeclined')
+      : t('app.settings.aiConsentNone');
   const version = Constants.expoConfig?.version ?? '';
   // 계정 판정이 끝나기 전에는 가입/게스트 문구를 정하지 않는다(깜빡임 방지).
   const accountKnown = status !== 'loading' && account !== null;
@@ -75,6 +84,23 @@ export default function SettingsScreen() {
     // 철회는 '동의 안 함' 결정으로 적는다 — 첫 실행 단계를 다시 막지 않고, 위치를 쓰는 화면은 구독으로 바로 멈춘다.
     if (setLocationConsent('declined', false)) toast.success(t('app.settings.locationConsentWithdrawn'));
     else toast.error(t('common.error'));
+  };
+
+  const onWithdrawAi = async () => {
+    const ok = await confirmDestructive({
+      title: t('app.settings.aiConsentWithdrawConfirm'),
+      message: t('app.settings.aiConsentWithdrawConfirmDesc'),
+      confirmLabel: t('app.settings.aiConsentWithdraw'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    if (setAiConsent('declined')) toast.success(t('app.settings.aiConsentWithdrawn'));
+    else toast.error(t('common.error'));
+  };
+
+  const onGiveAi = () => {
+    // 설정에서는 이미 '허용 안 함'을 골랐어도 같은 안내 창으로 다시 묻는다(고르지 않고 닫으면 예전 값 그대로).
+    void promptAiConsent(t, { force: true });
   };
 
   const onDelete = async () => {
@@ -137,6 +163,34 @@ export default function SettingsScreen() {
               label={t('app.settings.locationConsentGive')}
               block
               onPress={() => router.push(LOCATION_CONSENT_ROUTE as Href)}
+            />
+          )}
+        </View>
+      </SectionCard>
+
+      <SectionCard
+        icon={Sparkles}
+        tone="gold-deep"
+        title={t('app.settings.aiConsentTitle')}
+        desc={t('app.settings.aiConsentDesc')}
+      >
+        <View className="gap-[10px]">
+          <Text className="text-sm text-muk" weight="semibold" accessibilityLiveRegion="polite">
+            {aiStatus}
+          </Text>
+          {ai.allowed ? (
+            <Button
+              variant="secondary"
+              label={t('app.settings.aiConsentWithdraw')}
+              block
+              onPress={() => { void onWithdrawAi(); }}
+            />
+          ) : (
+            <Button
+              variant="secondary"
+              label={t('app.settings.aiConsentGive')}
+              block
+              onPress={onGiveAi}
             />
           )}
         </View>

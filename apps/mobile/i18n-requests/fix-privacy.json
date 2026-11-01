@@ -1,0 +1,104 @@
+{
+  "app.aiConsent.promptTitle": {
+    "ko": "입력한 문장을 AI로 해석할까요?",
+    "en": "Interpret what you type with AI?",
+    "ja": "入力した文をAIで解釈しますか？",
+    "zh": "要用 AI 解读您输入的内容吗？"
+  },
+  "app.aiConsent.promptBody": {
+    "ko": "입력한 문장(결과가 없을 때의 검색어 포함)은 해석을 위해 외부 AI 서비스(Upstage)로 보내요. 계정·위치 정보는 함께 보내지 않아요. 허용하지 않아도 선택지와 기본 검색은 그대로 쓸 수 있어요.",
+    "en": "What you type (including search words that found nothing) is sent to an external AI service (Upstage) to interpret it. Your account and location are not sent with it. If you don't allow this, you can still use the options and basic search.",
+    "ja": "入力した文（結果がなかった検索語を含む）は、解釈のため外部AIサービス（Upstage）に送信されます。アカウントや位置情報は一緒に送りません。許可しなくても、選択肢と基本の検索はそのまま使えます。",
+    "zh": "您输入的内容（包括没有结果的搜索词）会发送到外部 AI 服务（Upstage）进行解读。不会同时发送账号和位置信息。即使不允许，也可以照常使用选项和基本搜索。"
+  },
+  "app.aiConsent.allow": {
+    "ko": "허용",
+    "en": "Allow",
+    "ja": "許可",
+    "zh": "允许"
+  },
+  "app.aiConsent.decline": {
+    "ko": "허용 안 함",
+    "en": "Don't allow",
+    "ja": "許可しない",
+    "zh": "不允许"
+  },
+  "app.aiConsent.notice": {
+    "ko": "입력한 문장은 해석을 위해 외부 AI 서비스(Upstage)로 보내요.",
+    "en": "What you type is sent to an external AI service (Upstage) to interpret it.",
+    "ja": "入力した文は、解釈のため外部AIサービス（Upstage）に送信されます。",
+    "zh": "您输入的内容会发送到外部 AI 服务（Upstage）进行解读。"
+  },
+  "app.aiConsent.declinedHint": {
+    "ko": "외부 AI 전송을 허용하지 않아 직접 입력은 꺼져 있어요. 선택지는 그대로 쓸 수 있어요.",
+    "en": "Typing is turned off because you haven't allowed sending text to external AI. You can still use the options.",
+    "ja": "外部AIへの送信を許可していないため、直接入力はオフになっています。選択肢はそのまま使えます。",
+    "zh": "由于您未允许发送到外部 AI，直接输入已关闭。仍可使用选项。"
+  },
+  "app.aiConsent.openSettings": {
+    "ko": "설정에서 바꾸기",
+    "en": "Change in Settings",
+    "ja": "設定で変更",
+    "zh": "在设置中更改"
+  },
+  "app.settings.aiConsentTitle": {
+    "ko": "외부 AI 해석",
+    "en": "External AI interpretation",
+    "ja": "外部AIによる解釈",
+    "zh": "外部 AI 解读"
+  },
+  "app.settings.aiConsentDesc": {
+    "ko": "직접 입력한 문장과 결과가 없는 검색어를 외부 AI 서비스(Upstage)로 보내 해석할지 정해요. 허용하지 않으면 직접 입력 칸이 꺼지고, 선택지와 기본 검색만 써요.",
+    "en": "Choose whether text you type and search words that found nothing are sent to an external AI service (Upstage) to interpret them. If not allowed, typing boxes are turned off and only the options and basic search are used.",
+    "ja": "直接入力した文と結果がなかった検索語を外部AIサービス（Upstage）に送って解釈するかを決めます。許可しない場合、直接入力欄はオフになり、選択肢と基本の検索だけを使います。",
+    "zh": "选择是否将您直接输入的内容和没有结果的搜索词发送到外部 AI 服务（Upstage）进行解读。若不允许，将关闭直接输入框，只使用选项和基本搜索。"
+  },
+  "app.settings.aiConsentGranted": {
+    "ko": "허용함",
+    "en": "Allowed",
+    "ja": "許可済み",
+    "zh": "已允许"
+  },
+  "app.settings.aiConsentDeclined": {
+    "ko": "허용 안 함",
+    "en": "Not allowed",
+    "ja": "許可しない",
+    "zh": "不允许"
+  },
+  "app.settings.aiConsentNone": {
+    "ko": "아직 고르지 않았어요 — 처음 쓸 때 물어봐요",
+    "en": "Not chosen yet — we'll ask the first time you use it",
+    "ja": "まだ選んでいません — 初めて使うときにお聞きします",
+    "zh": "尚未选择 — 首次使用时会询问"
+  },
+  "app.settings.aiConsentWithdraw": {
+    "ko": "허용 철회",
+    "en": "Withdraw permission",
+    "ja": "許可を取り消す",
+    "zh": "撤回允许"
+  },
+  "app.settings.aiConsentGive": {
+    "ko": "허용 여부 고르기",
+    "en": "Choose",
+    "ja": "許可するか選ぶ",
+    "zh": "选择是否允许"
+  },
+  "app.settings.aiConsentWithdrawConfirm": {
+    "ko": "외부 AI 해석 허용을 철회할까요?",
+    "en": "Withdraw permission for external AI interpretation?",
+    "ja": "外部AIによる解釈の許可を取り消しますか？",
+    "zh": "要撤回外部 AI 解读的允许吗？"
+  },
+  "app.settings.aiConsentWithdrawConfirmDesc": {
+    "ko": "철회하면 입력한 문장을 외부 AI로 보내지 않아요. 직접 입력 칸은 꺼지고, 선택지와 기본 검색은 그대로 쓸 수 있어요.",
+    "en": "After withdrawing, nothing you type is sent to external AI. Typing boxes are turned off; the options and basic search still work.",
+    "ja": "取り消すと、入力した文を外部AIに送りません。直接入力欄はオフになり、選択肢と基本の検索はそのまま使えます。",
+    "zh": "撤回后，不会再将您输入的内容发送到外部 AI。直接输入框将关闭，选项和基本搜索仍可使用。"
+  },
+  "app.settings.aiConsentWithdrawn": {
+    "ko": "허용을 철회했어요. 이제 입력한 문장을 외부 AI로 보내지 않아요.",
+    "en": "Permission withdrawn. Text you type is no longer sent to external AI.",
+    "ja": "許可を取り消しました。入力した文は外部AIに送りません。",
+    "zh": "已撤回允许。今后不会再将您输入的内容发送到外部 AI。"
+  }
+}
