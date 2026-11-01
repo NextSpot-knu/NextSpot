@@ -100,5 +100,263 @@
     "en": "Permission withdrawn. Text you type is no longer sent to external AI.",
     "ja": "許可を取り消しました。入力した文は外部AIに送りません。",
     "zh": "已撤回允许。今后不会再将您输入的内容发送到外部 AI。"
+  },
+  "app.privacy.collectBody": {
+    "ko": "취향 설정, 저장한 장소, 혼잡 제보·방문 확인 답, 거절 이유, 문의 내용처럼 직접 입력하거나 고른 정보와 이용자 번호(게스트 포함)를 처리해요. 가입하면 이메일과 닉네임(소셜 로그인이면 그 서비스가 넘겨주는 이메일·이름)도 처리해요. 로그인 없이 게스트로 쓸 수 있어요.",
+    "en": "We process what you enter or choose, such as taste settings, saved places, crowd reports and visit-check answers, reasons for skipping, and support messages, plus a user ID (guests included). If you sign up, we also process your email and nickname (with social sign-in, the email and name that service shares). You can use the app as a guest without signing in.",
+    "ja": "好みの設定、保存した場所、混雑の報告・訪問確認の回答、見送った理由、お問い合わせ内容など、入力・選択した情報と利用者番号（ゲストを含む）を取り扱います。会員登録するとメールアドレスとニックネーム（ソーシャルログインの場合はそのサービスから提供されるメールアドレス・名前）も取り扱います。ログインせずゲストとして使えます。",
+    "zh": "我们处理您输入或选择的信息（如偏好设置、收藏的地点、拥挤反馈与到访确认回答、拒绝理由、咨询内容）以及用户编号（包括访客）。注册后还会处理邮箱和昵称（社交登录时为该服务提供的邮箱和姓名）。无需登录即可以访客身份使用。"
+  },
+  "app.privacy.locationTitle": {
+    "ko": "위치정보",
+    "en": "Location",
+    "ja": "位置情報",
+    "zh": "位置信息"
+  },
+  "app.privacy.locationBody": {
+    "ko": "위치기반서비스 이용약관에 동의하고 기기에서 위치 사용을 허용한 경우에만, 홈·대안 추천·코스·화장실·주차장 화면을 열 때 현재 위치를 한 번씩 읽어 서버로 보내요. 근처의 한산한 곳 추천, 걸어서 가는 시간 계산, 경주 안인지 확인에만 써요. 백그라운드에서 읽거나 이동 경로를 계속 추적하지 않아요. 지금은 두 곳에 남아요: 화장실·주차장 조회는 좌표가 요청 주소에 담겨 서버 접속 기록에 남고, 추천 기록에는 좌표 대신 후보 장소까지의 거리가 이용자 번호와 함께 남아 요청한 곳을 짐작할 수 있어요.",
+    "en": "Only if you agree to the Location-Based Service Terms and allow location on your device, the app reads your current location once each time you open Home, alternatives, courses, restrooms or parking, and sends it to our server. It is used only to recommend quiet places nearby, estimate walking times and check whether you are in Gyeongju. It is never read in the background and your movements are not tracked. Today it remains in two places: for restroom and parking lookups the coordinates are in the request address and stay in the server access log, and recommendation records keep the distance to each candidate place with your user ID instead of coordinates, which can indicate where the request was made.",
+    "ja": "位置情報サービス利用規約に同意し、端末で位置情報の利用を許可した場合のみ、ホーム・代わりのおすすめ・コース・トイレ・駐車場の画面を開くたびに現在地を一度読み取り、サーバーに送ります。近くの空いている場所のおすすめ、徒歩時間の計算、慶州の中にいるかの確認にだけ使います。バックグラウンドで読み取ったり、移動経路を追跡したりしません。現在は2か所に残ります：トイレ・駐車場の検索では座標がリクエストのアドレスに含まれサーバーのアクセス記録に残り、おすすめの記録には座標の代わりに候補の場所までの距離が利用者番号とともに残るため、リクエストした場所を推測できます。",
+    "zh": "仅在您同意《位置服务使用条款》并在设备上允许使用位置时，每次打开首页、替代推荐、路线、卫生间、停车场页面时读取一次当前位置并发送到服务器。仅用于推荐附近人少的地方、计算步行时间以及确认是否在庆州。不会在后台读取，也不会持续追踪您的移动轨迹。目前会保留在两处：查询卫生间和停车场时，坐标包含在请求地址中并留在服务器访问日志里；推荐记录中不保存坐标，而是与用户编号一起保存到各候选地点的距离，可据此推断请求时的位置。"
+  },
+  "app.privacy.aiTitle": {
+    "ko": "외부 AI 처리",
+    "en": "External AI processing",
+    "ja": "外部AIによる処理",
+    "zh": "外部 AI 处理"
+  },
+  "app.privacy.aiBody": {
+    "ko": "허용한 경우에만, 직접 입력한 문장(여행 중 상황 변경, 실험실의 직접 설명하기)과 결과가 없는 검색어를 뜻을 해석하기 위해 서버를 거쳐 Upstage(외부 AI 서비스)로 보내요. 문장만 보내고 계정·위치는 함께 보내지 않아요. 서버 기록에는 문장 원문을 남기지 않지만, 실험실에서는 AI가 고른 이유와 짧은 요약이 거절 기록에 저장될 수 있어요. 마이페이지 → 설정에서 언제든 철회할 수 있어요.",
+    "en": "Only if you allow it, text you type (changing conditions during a trip, explaining a skip in the Lab) and search words that found nothing are sent through our server to Upstage, an external AI service, to interpret them. Only the text is sent, not your account or location. Our server logs do not keep the original text, but in the Lab the reason chosen by the AI and a short summary may be saved with your skip record. You can withdraw any time in My Page → Settings.",
+    "ja": "許可した場合のみ、直接入力した文（旅行中の状況変更、実験室の「直接説明する」）と結果がなかった検索語を、意味を解釈するためサーバー経由でUpstage（外部AIサービス）に送ります。送るのは文だけで、アカウントや位置情報は送りません。サーバーの記録には原文を残しませんが、実験室ではAIが選んだ理由と短い要約が見送りの記録に保存されることがあります。マイページ → 設定でいつでも取り消せます。",
+    "zh": "仅在您允许时，您直接输入的内容（旅途中更改条件、实验室中的“直接说明”）以及没有结果的搜索词，会经由我们的服务器发送到外部 AI 服务 Upstage 进行解读。只发送文字，不发送账号和位置。服务器日志不保留原文，但在实验室中，AI 选择的理由和简短摘要可能会与拒绝记录一起保存。可随时在“我的 → 设置”中撤回。"
+  },
+  "app.privacy.storageBody": {
+    "ko": "언어·동의 기록 같은 기기 설정과 저장 목록 사본은 이 기기의 앱 저장소에 두어요. 계정 프로필, 취향, 저장 장소, 추천·방문 기록은 Supabase에 저장되어 로그인한 기기에서 이어져요.",
+    "en": "Device settings such as language and your consent choices, plus a copy of your saved list, stay in the app's storage on this device. Your profile, tastes, saved places and recommendation and visit records are stored in Supabase and follow you to any device you sign in on.",
+    "ja": "言語や同意の記録などの端末設定と保存リストのコピーは、この端末のアプリ内ストレージに置きます。アカウントのプロフィール、好み、保存した場所、おすすめ・訪問の記録はSupabaseに保存され、ログインした端末で引き継がれます。",
+    "zh": "语言、同意记录等设备设置以及收藏列表的副本保存在本设备的应用存储中。账号资料、偏好、收藏地点、推荐与到访记录保存在 Supabase，登录的设备之间可同步。"
+  },
+  "app.privacy.usageBody": {
+    "ko": "앱을 더 낫게 만들기 위해 연 화면, 추천 카드에서 누른 버튼, 도착 확인과 혼잡 제보를 기기에서 만든 익명 번호로 기록해요. 이름·계정·위치·검색어는 담지 않고, 외부 분석 업체에 보내지 않으며, 1년 뒤 지워요. 데이터를 삭제하면 익명 번호도 새로 만들어요.",
+    "en": "To improve the app, we record which screens you open, the buttons you tap on recommendation cards, arrival checks and crowd reports under an anonymous number created on your device. These records contain no name, account, location or search words, are not sent to outside analytics companies, and are deleted after one year. Deleting your data also creates a new anonymous number.",
+    "ja": "アプリを改善するため、開いた画面、おすすめカードで押したボタン、到着確認と混雑の報告を、端末で作った匿名番号で記録します。名前・アカウント・位置・検索語は含まず、外部の分析会社には送らず、1年後に削除します。データを削除すると匿名番号も新しくなります。",
+    "zh": "为改进应用，我们以设备上生成的匿名编号记录您打开的页面、在推荐卡片上点击的按钮、到达确认和拥挤反馈。记录不包含姓名、账号、位置或搜索词，不发送给外部分析公司，一年后删除。删除数据时也会重新生成匿名编号。"
+  },
+  "app.privacy.thirdPartyBody": {
+    "ko": "수집한 정보를 판매하거나 광고 목적으로 제공하지 않아요. 길안내를 누르면 목적지를 담아 카카오맵(앱 또는 웹)이 열려요. 장소 검색어는 결과를 찾기 위해 서버가 카카오 로컬 검색과 한국관광공사 TourAPI에 보내요. 지도는 Android에서 Google 지도, iOS에서 Apple 지도로 그려요.",
+    "en": "We do not sell your information or share it for advertising. Tapping directions opens Kakao Map (app or web) with the destination. To find results, our server sends place search words to Kakao Local search and the Korea Tourism Organization's TourAPI. Maps are drawn with Google Maps on Android and Apple Maps on iOS.",
+    "ja": "収集した情報を販売したり、広告目的で提供したりしません。道案内を押すと、目的地を指定してカカオマップ（アプリまたはWeb）が開きます。場所の検索語は、結果を探すためにサーバーがカカオのローカル検索と韓国観光公社のTourAPIに送ります。地図はAndroidではGoogleマップ、iOSではAppleマップで表示します。",
+    "zh": "我们不会出售您的信息，也不会将其用于广告。点击导航时会带着目的地打开 Kakao 地图（应用或网页）。为查找结果，服务器会将地点搜索词发送给 Kakao 本地搜索和韩国观光公社 TourAPI。地图在 Android 上使用 Google 地图，在 iOS 上使用 Apple 地图显示。"
+  },
+  "app.privacy.processorsTitle": {
+    "ko": "처리 위탁과 국외 이전",
+    "en": "Processors and transfers abroad",
+    "ja": "処理の委託と国外移転",
+    "zh": "委托处理与跨境传输"
+  },
+  "app.privacy.processorsBody": {
+    "ko": "서비스 운영을 위해 다음 업체에 처리를 맡겨요. Supabase(데이터베이스·로그인, 싱가포르 리전), Render(API 서버, 싱가포르 리전), Vercel(웹 페이지와 공개 안내 호스팅, 미국 등), Upstage(외부 AI 해석 — 허용한 경우에만), Expo(앱 빌드·배포 — 앱을 쓰는 동안에는 개인정보를 보내지 않아요). 국외 업체로의 이전은 앱을 쓸 때 네트워크로 이루어지고, 보관 기간은 아래 '보관 기간과 파기'를 따라요.",
+    "en": "We entrust processing to these companies to run the service: Supabase (database and sign-in, Singapore region), Render (API server, Singapore region), Vercel (hosting for web pages and public notices, United States and other regions), Upstage (external AI interpretation, only if you allow it), and Expo (building and distributing the app; no personal information is sent while you use the app). Transfers abroad happen over the network while you use the app, and retention follows 'Retention and deletion' below.",
+    "ja": "サービス運営のため、次の事業者に処理を委託しています。Supabase（データベース・ログイン、シンガポールリージョン）、Render（APIサーバー、シンガポールリージョン）、Vercel（Webページと公開案内のホスティング、米国など）、Upstage（外部AIによる解釈 — 許可した場合のみ）、Expo（アプリのビルド・配布 — アプリの利用中は個人情報を送りません）。国外への移転はアプリ利用時にネットワーク経由で行われ、保存期間は下の「保存期間と破棄」に従います。",
+    "zh": "为运营服务，我们委托以下公司处理：Supabase（数据库与登录，新加坡区域）、Render（API 服务器，新加坡区域）、Vercel（网页与公开说明托管，美国等）、Upstage（外部 AI 解读，仅在您允许时）、Expo（应用构建与分发，使用应用期间不会发送个人信息）。跨境传输在您使用应用时通过网络进行，保存期限遵循下方“保存期限与销毁”。"
+  },
+  "app.privacy.retentionTitle": {
+    "ko": "보관 기간과 파기",
+    "en": "Retention and deletion",
+    "ja": "保存期間と破棄",
+    "zh": "保存期限与销毁"
+  },
+  "app.privacy.retentionBody": {
+    "ko": "계정·취향·저장·추천·방문 기록은 계정이나 데이터를 삭제할 때 함께 지워요. 이용 기록은 1년, 게스트 답의 부정 이용 방지 값은 30일 뒤 자동으로 지워요. 서버 접속 기록(요청 주소에 담긴 좌표·검색어 포함)은 호스팅 업체의 로그 보관 기간이 지나면 지워져요.",
+    "en": "Account, taste, saved, recommendation and visit records are deleted when you delete your account or data. Usage records are deleted automatically after one year, and the anti-abuse values attached to guest answers after 30 days. Server access logs (including coordinates and search words in request addresses) are deleted when the hosting provider's log retention period ends.",
+    "ja": "アカウント・好み・保存・おすすめ・訪問の記録は、アカウントまたはデータを削除するときに一緒に削除します。利用記録は1年後、ゲストの回答に付く不正利用防止の値は30日後に自動で削除します。サーバーのアクセス記録（リクエストのアドレスに含まれる座標・検索語を含む）は、ホスティング事業者のログ保存期間が過ぎると削除されます。",
+    "zh": "删除账号或数据时，账号、偏好、收藏、推荐和到访记录会一并删除。使用记录一年后、访客回答附带的防滥用值 30 天后自动删除。服务器访问日志（包括请求地址中的坐标和搜索词）在托管服务商的日志保存期限结束后删除。"
+  },
+  "app.privacy.deletionTitle": {
+    "ko": "데이터 삭제",
+    "en": "Deleting your data",
+    "ja": "データの削除",
+    "zh": "删除数据"
+  },
+  "app.privacy.deletionBody": {
+    "ko": "마이페이지 → 설정에서 가입 계정은 '계정 삭제', 게스트는 '내 데이터 삭제'로 서버에서 내 계정과 연결된 데이터를 바로 지울 수 있어요. 이 기기에 남은 개인 데이터와 익명 번호도 함께 지워요.",
+    "en": "In My Page → Settings, use 'Delete account' (signed-up accounts) or 'Delete my data' (guests) to delete the data linked to you on our server right away. Personal data left on this device and the anonymous number are deleted too.",
+    "ja": "マイページ → 設定で、登録アカウントは「アカウント削除」、ゲストは「自分のデータを削除」から、サーバー上の自分に紐づくデータをすぐに削除できます。この端末に残る個人データと匿名番号も一緒に削除します。",
+    "zh": "在“我的 → 设置”中，注册账号可使用“删除账号”，访客可使用“删除我的数据”，立即删除服务器上与您关联的数据。本设备上的个人数据和匿名编号也会一并删除。"
+  },
+  "app.privacy.childrenTitle": {
+    "ko": "만 14세 미만",
+    "en": "Children under 14",
+    "ja": "14歳未満の方",
+    "zh": "未满 14 周岁"
+  },
+  "app.privacy.childrenBody": {
+    "ko": "만 14세 미만에게서는 위치정보 이용 동의를 받지 않아요. 법정대리인은 고객지원으로 아이의 데이터 열람·삭제를 요청할 수 있어요.",
+    "en": "We do not accept location consent from children under 14. A legal guardian can ask Support to view or delete a child's data.",
+    "ja": "14歳未満の方からは位置情報の利用同意を受けません。法定代理人はお問い合わせからお子さまのデータの閲覧・削除を依頼できます。",
+    "zh": "我们不接受未满 14 周岁者的位置信息使用同意。法定代理人可通过客服申请查看或删除孩子的数据。"
+  },
+  "app.privacy.locationTermsLink": {
+    "ko": "위치기반서비스 이용약관 전문 보기",
+    "en": "Read the full Location-Based Service Terms",
+    "ja": "位置情報サービス利用規約の全文を見る",
+    "zh": "查看《位置服务使用条款》全文"
+  },
+  "app.locationTerms.consentTitle": {
+    "ko": "위치기반서비스 이용약관 동의",
+    "en": "Agree to the Location-Based Service Terms",
+    "ja": "位置情報サービス利用規約への同意",
+    "zh": "同意《位置服务使用条款》"
+  },
+  "app.locationTerms.consentLead": {
+    "ko": "NextSpot은 지금 있는 곳 근처의 덜 붐비는 곳을 추천하는 위치기반서비스를 제공해요. 한국 법(위치정보법)에 따라 약관에 동의한 경우에만 이 서비스를 제공해요. 동의하지 않아도 다른 기능은 그대로 쓸 수 있어요.",
+    "en": "NextSpot offers a location-based service that recommends less crowded places near you. Under Korean law (the Location Information Act), we provide it only if you agree to these terms. You can use every other feature without agreeing.",
+    "ja": "NextSpotは、今いる場所の近くで混雑の少ない場所をおすすめする位置情報サービスを提供しています。韓国の法律（位置情報法）に基づき、規約に同意した場合にのみこのサービスを提供します。同意しなくても、ほかの機能はそのまま使えます。",
+    "zh": "NextSpot 提供位置服务，为您推荐附近人少的地方。根据韩国法律（《位置信息法》），仅在您同意条款后提供该服务。不同意也可以照常使用其他功能。"
+  },
+  "app.locationTerms.agreeCheck": {
+    "ko": "위치기반서비스 이용약관에 동의해요",
+    "en": "I agree to the Location-Based Service Terms",
+    "ja": "位置情報サービス利用規約に同意します",
+    "zh": "我同意《位置服务使用条款》"
+  },
+  "app.locationTerms.ageHint": {
+    "ko": "만 14세 미만은 법정대리인의 동의가 필요해 앱에서 위치정보 이용 동의를 받을 수 없어요. '동의하지 않고 계속'을 눌러 주세요.",
+    "en": "Children under 14 need a legal guardian's consent, so we can't accept location consent in the app. Please tap 'Continue without agreeing'.",
+    "ja": "14歳未満の方は法定代理人の同意が必要なため、アプリで位置情報の利用同意を受けられません。「同意せずに続ける」を押してください。",
+    "zh": "未满 14 周岁者需要法定代理人同意，因此无法在应用中接受位置信息使用同意。请点击“不同意并继续”。"
+  },
+  "app.locationTerms.viewFull": {
+    "ko": "전문 보기",
+    "en": "Read full terms",
+    "ja": "全文を見る",
+    "zh": "查看全文"
+  },
+  "app.locationTerms.agreeContinue": {
+    "ko": "동의하고 계속",
+    "en": "Agree and continue",
+    "ja": "同意して続ける",
+    "zh": "同意并继续"
+  },
+  "app.locationTerms.declineContinue": {
+    "ko": "동의하지 않고 계속",
+    "en": "Continue without agreeing",
+    "ja": "同意せずに続ける",
+    "zh": "不同意并继续"
+  },
+  "app.locationTerms.fullTitle": {
+    "ko": "위치기반서비스 이용약관",
+    "en": "Location-Based Service Terms",
+    "ja": "位置情報サービス利用規約",
+    "zh": "位置服务使用条款"
+  },
+  "app.locationTerms.intro": {
+    "ko": "이 약관은 NextSpot이 제공하는 위치기반서비스의 이용 조건과 절차, 이용자의 권리를 정해요.",
+    "en": "These terms set out the conditions and procedures for NextSpot's location-based service and your rights as a user.",
+    "ja": "この規約は、NextSpotが提供する位置情報サービスの利用条件と手続き、利用者の権利を定めます。",
+    "zh": "本条款规定 NextSpot 位置服务的使用条件、程序以及用户的权利。"
+  },
+  "app.locationTerms.serviceTitle": {
+    "ko": "제1조 서비스 내용",
+    "en": "Article 1. The service",
+    "ja": "第1条 サービスの内容",
+    "zh": "第1条 服务内容"
+  },
+  "app.locationTerms.serviceBody": {
+    "ko": "현재 위치 근처의 덜 붐비는 장소 추천, 걸어서 가는 시간 계산, 경주 안에 있는지 확인, 가까운 화장실·주차장 찾기에 위치정보를 이용해요.",
+    "en": "Location information is used to recommend less crowded places near you, estimate walking times, check whether you are in Gyeongju, and find nearby restrooms and parking.",
+    "ja": "現在地の近くで混雑の少ない場所のおすすめ、徒歩時間の計算、慶州の中にいるかの確認、近くのトイレ・駐車場探しに位置情報を利用します。",
+    "zh": "位置信息用于推荐当前位置附近人少的地点、计算步行时间、确认是否在庆州以及查找附近的卫生间和停车场。"
+  },
+  "app.locationTerms.collectTitle": {
+    "ko": "제2조 수집 방법과 시점",
+    "en": "Article 2. How and when it is collected",
+    "ja": "第2条 収集の方法と時点",
+    "zh": "第2条 收集方式与时间"
+  },
+  "app.locationTerms.collectBody": {
+    "ko": "이 약관에 동의하고 기기 설정에서 위치 사용을 허용한 경우에만, 앱을 쓰는 동안 홈·대안 추천·코스·화장실·주차장 화면을 열 때 기기의 현재 위치를 한 번씩 읽어요. 앱을 쓰지 않을 때(백그라운드)는 읽지 않고, 이동 경로를 계속 추적하지 않아요.",
+    "en": "Only if you agree to these terms and allow location in your device settings, the app reads your device's current location once each time you open Home, alternatives, courses, restrooms or parking while using the app. It does not read location in the background and does not track your movements.",
+    "ja": "この規約に同意し、端末の設定で位置情報の利用を許可した場合のみ、アプリの利用中にホーム・代わりのおすすめ・コース・トイレ・駐車場の画面を開くたびに端末の現在地を一度読み取ります。アプリを使っていないとき（バックグラウンド）は読み取らず、移動経路を追跡しません。",
+    "zh": "仅在您同意本条款并在设备设置中允许使用位置时，使用应用期间每次打开首页、替代推荐、路线、卫生间、停车场页面时读取一次设备当前位置。不在后台读取，也不会持续追踪移动轨迹。"
+  },
+  "app.locationTerms.useTitle": {
+    "ko": "제3조 이용과 보관",
+    "en": "Article 3. Use and retention",
+    "ja": "第3条 利用と保存",
+    "zh": "第3条 使用与保存"
+  },
+  "app.locationTerms.useBody": {
+    "ko": "읽은 위치는 서버로 보내 추천 계산에만 써요. 지금은 화장실·주차장 조회 때 요청 주소에 담긴 좌표가 서버 접속 기록에(호스팅 업체의 로그 보관 기간 동안), 추천 기록에 후보 장소까지의 거리가 이용자 번호와 함께(계정·데이터 삭제 때까지) 남아요. 자세한 내용은 개인정보 처리방침에서 안내해요.",
+    "en": "Your location is sent to our server and used only to calculate recommendations. Today, coordinates in restroom and parking lookups remain in the server access log (for the hosting provider's log retention period), and the distance to each candidate place remains in recommendation records with your user ID (until you delete your account or data). See the Privacy Policy for details.",
+    "ja": "読み取った位置はサーバーに送り、おすすめの計算にだけ使います。現在は、トイレ・駐車場の検索時にリクエストのアドレスに含まれる座標がサーバーのアクセス記録に（ホスティング事業者のログ保存期間中）、おすすめの記録に候補の場所までの距離が利用者番号とともに（アカウント・データの削除まで）残ります。詳しくはプライバシーポリシーでご案内します。",
+    "zh": "读取的位置会发送到服务器，仅用于计算推荐。目前，查询卫生间和停车场时请求地址中的坐标会留在服务器访问日志中（在托管服务商的日志保存期限内），推荐记录中会与用户编号一起保存到各候选地点的距离（直到删除账号或数据）。详情请参阅隐私政策。"
+  },
+  "app.locationTerms.shareTitle": {
+    "ko": "제4조 제3자 제공",
+    "en": "Article 4. Sharing with third parties",
+    "ja": "第4条 第三者への提供",
+    "zh": "第4条 向第三方提供"
+  },
+  "app.locationTerms.shareBody": {
+    "ko": "이용자의 위치정보를 제3자에게 제공하지 않아요. 길안내를 누르면 목적지를 담아 카카오맵을 열고, 그 뒤의 처리는 카카오의 약관을 따라요.",
+    "en": "We do not provide your location information to third parties. Tapping directions opens Kakao Map with the destination, and what happens there follows Kakao's terms.",
+    "ja": "利用者の位置情報を第三者に提供しません。道案内を押すと目的地を指定してカカオマップを開き、その後の処理はカカオの規約に従います。",
+    "zh": "我们不会向第三方提供您的位置信息。点击导航时会带着目的地打开 Kakao 地图，之后的处理遵循 Kakao 的条款。"
+  },
+  "app.locationTerms.withdrawTitle": {
+    "ko": "제5조 동의 철회",
+    "en": "Article 5. Withdrawing consent",
+    "ja": "第5条 同意の撤回",
+    "zh": "第5条 撤回同意"
+  },
+  "app.locationTerms.withdrawBody": {
+    "ko": "마이페이지 → 설정에서 언제든 동의를 철회할 수 있어요. 철회하면 위치를 더 읽지 않고 황리단길 중심으로 추천해요. 이미 남은 추천 기록은 '내 데이터 삭제' 또는 '계정 삭제'로 지울 수 있어요.",
+    "en": "You can withdraw consent at any time in My Page → Settings. After that, the app no longer reads your location and recommends places around Hwangnidan-gil. Recommendation records already kept can be deleted with 'Delete my data' or 'Delete account'.",
+    "ja": "マイページ → 設定でいつでも同意を撤回できます。撤回すると位置を読み取らず、皇理団通りを中心におすすめします。すでに残っているおすすめの記録は「自分のデータを削除」または「アカウント削除」で削除できます。",
+    "zh": "可随时在“我的 → 设置”中撤回同意。撤回后不再读取位置，并以皇理团路为中心推荐。已保存的推荐记录可通过“删除我的数据”或“删除账号”删除。"
+  },
+  "app.locationTerms.childTitle": {
+    "ko": "제6조 만 14세 미만",
+    "en": "Article 6. Children under 14",
+    "ja": "第6条 14歳未満の方",
+    "zh": "第6条 未满 14 周岁"
+  },
+  "app.locationTerms.childBody": {
+    "ko": "만 14세 미만은 법정대리인의 동의가 필요해, 앱에서는 만 14세 미만에게서 위치정보 이용 동의를 받지 않아요.",
+    "en": "Children under 14 need a legal guardian's consent, so the app does not accept location consent from anyone under 14.",
+    "ja": "14歳未満の方は法定代理人の同意が必要なため、アプリでは14歳未満の方から位置情報の利用同意を受けません。",
+    "zh": "未满 14 周岁者需要法定代理人同意，因此应用不接受未满 14 周岁者的位置信息使用同意。"
+  },
+  "app.locationTerms.rightsTitle": {
+    "ko": "제7조 이용자의 권리와 문의",
+    "en": "Article 7. Your rights and contact",
+    "ja": "第7条 利用者の権利とお問い合わせ",
+    "zh": "第7条 用户权利与咨询"
+  },
+  "app.locationTerms.rightsBody": {
+    "ko": "이용자는 위치정보 이용·제공 사실의 확인, 열람, 정정을 요구할 수 있어요. 마이페이지의 고객지원으로 요청해 주세요.",
+    "en": "You may ask to confirm, view or correct how your location information has been used or provided. Please send requests through Support in My Page.",
+    "ja": "利用者は位置情報の利用・提供の事実の確認、閲覧、訂正を求めることができます。マイページのお問い合わせからご依頼ください。",
+    "zh": "您可以要求确认、查阅或更正位置信息的使用与提供情况。请通过“我的”中的客服提出。"
+  },
+  "app.locationTerms.limitTitle": {
+    "ko": "제8조 정확도",
+    "en": "Article 8. Accuracy",
+    "ja": "第8条 精度",
+    "zh": "第8条 准确性"
+  },
+  "app.locationTerms.limitBody": {
+    "ko": "위치는 기기와 통신 환경에 따라 오차가 있을 수 있고, 추천·거리·시간은 참고용이에요.",
+    "en": "Location may be inaccurate depending on your device and network, and recommendations, distances and times are for reference only.",
+    "ja": "位置は端末や通信環境によって誤差が生じることがあり、おすすめ・距離・時間は参考情報です。",
+    "zh": "位置可能因设备和网络环境存在误差，推荐、距离和时间仅供参考。"
+  },
+  "app.locationTerms.effective": {
+    "ko": "시행일: {date}",
+    "en": "Effective: {date}",
+    "ja": "施行日：{date}",
+    "zh": "生效日期：{date}"
   }
 }

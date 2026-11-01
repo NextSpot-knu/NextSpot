@@ -10,8 +10,11 @@
 // 서버 쪽 확인자료 기록(위치정보법 제16조②)은 별도 작업(계획 §7.5)이다 — 여기는 기기 안 기록뿐이다.
 
 export const LOCATION_CONSENT_KEY = 'nextspot_location_consent';
-/** 동의 화면 문구(약관 요약)의 판. 문구를 바꾸면 올린다. */
-export const LOCATION_TERMS_VERSION = '2026-11-draft1';
+/**
+ * 동의 화면 문구(약관 요약·전문 app.locationTerms.*)의 판. 문구를 바꾸면 올린다.
+ * draft2(2026-11-02): 약관 동의 화면으로 바꾸고 전문(LocationTermsModal)을 붙였다 — draft1 동의는 다시 묻는다.
+ */
+export const LOCATION_TERMS_VERSION = '2026-11-draft2';
 /** 위치정보법 제25조① — 만 14세 미만은 법정대리인 동의가 필요하다. 앱은 14세 이상 확인을 받은 '동의'만 인정한다. */
 export const MIN_CONSENT_AGE = 14;
 
