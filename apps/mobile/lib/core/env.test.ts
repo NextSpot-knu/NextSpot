@@ -60,4 +60,5 @@ function memoryStore() {
   assert.equal(s.getItem('nextspot_locale'), 'en', '기기 설정은 남긴다');
   assert.equal(s.getItem('nextspot_last_uid'), 'b');
   assert.ok(USER_SCOPED_KEYS.includes('nextspot_region' as never));
+  assert.ok(USER_SCOPED_KEYS.includes('nextspot_saved_pending_deletes' as never), '저장 해제 대기도 사용자 데이터');
 }

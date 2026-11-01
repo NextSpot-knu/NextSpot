@@ -17,7 +17,8 @@ export type ChipProps = Omit<RNPressableProps, 'children' | 'style'> & {
   className?: string;
 };
 
-// 보이는 높이 32pt(웹 h-8) 그대로 두고, 위아래 6pt 를 탭 영역으로 넓혀 44pt 를 채운다 — 웹 .tap-target 과 같은 뜻.
+// 보이는 높이는 최소 32pt(웹 h-8) — 큰 글자에서는 글자를 따라 커진다(h- 로 고정하면 잘린다). 위아래 6pt 를
+// 탭 영역으로 넓혀 44pt 를 채운다 — 웹 .tap-target 과 같은 뜻.
 const HIT_SLOP = { top: 6, bottom: 6, left: 0, right: 0 } as const;
 
 /**
@@ -32,7 +33,7 @@ export function Chip({ label, selected = false, icon, emoji, disabled = false, c
       disabled={disabled}
       hitSlop={HIT_SLOP}
       className={cn(
-        'h-[32px] shrink-0 flex-row items-center gap-[6px] rounded-full border px-[12px]',
+        'min-h-[32px] shrink-0 flex-row items-center gap-[6px] rounded-full border px-[12px] py-[6px]',
         selected ? 'border-jade bg-jade-chip' : 'border-line bg-white',
         disabled && 'opacity-50',
         className,

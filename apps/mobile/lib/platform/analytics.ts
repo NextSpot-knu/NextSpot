@@ -1,10 +1,11 @@
 // 앱 이용 기록·제품 분석 — 웹 apps/web/lib/usageEvents.ts · apps/web/lib/analytics.ts 의 앱판(기준 커밋 e07ea61).
 // 로직은 analyticsCore.ts, 여기는 앱 환경을 잇는다.
 //
-// 켜는 조건: 빌드 설정 EXPO_PUBLIC_USAGE_EVENTS === '1'(운영 빌드에서만 — 계획 §7.5) + 공개 지역(웹 regionRuntime).
+// 켜는 조건: 빌드 설정(lib/core/env 의 usageEventsEnabled — EXPO_PUBLIC_USAGE_EVENTS 가 1·true 이고 개발 빌드가 아님,
+//   계획 §7.5) + 공개 지역(웹 regionRuntime). 규칙은 env 한 곳에만 있고, 여기는 configureAnalytics({ enabled }) 로 받는다.
 //   웹은 운영 호스트일 때만 usage_events 를 보낸다. 앱은 호스트가 없어 빌드 설정으로 가른다. /events/track 도 같은
 //   설정으로 막는다(웹은 지역만 본다 — 개발 빌드가 운영 API 를 볼 때 분석이 섞이지 않게 앱은 더 좁혔다).
-// 보내는 수단은 주입한다: configureAnalytics({ insertUsageEvents, postTrack }). 이 파일은 Supabase 클라이언트·API
+// 보내는 수단은 주입한다: configureAnalytics({ enabled, insertUsageEvents, postTrack }). 이 파일은 Supabase 클라이언트·API
 //   클라이언트를 import 하지 않는다(lib/core 가 만든다 — 그쪽이 X-NextSpot-Client 헤더를 붙인다).
 // 익명 번호: localStorage(expo-sqlite) 'nextspot_anon_id' — 웹과 같은 키, expo-crypto randomUUID.
 //   세션 번호: sessionStorage(앱 실행 동안 사는 대역, lib/sessionStorage.ts) 'nextspot_session_id'.
@@ -16,6 +17,7 @@ import { getCurrentLocale } from '~/lib/i18n/localeState';
 import {
   createTracker,
   createUsageRecorder,
+  usageGate,
   type InsertUsageEvents,
   type PostTrack,
   type UsageEvent,
@@ -31,8 +33,15 @@ const STROLLER_SESSION_KEY = 'nextspot_stroller_unsupported_v1'; // 웹 lib/stro
 let insertUsageEvents: InsertUsageEvents | null = null;
 let postTrack: PostTrack | null = null;
 let currentPage = '';
+/** 빌드 설정 — lib/core/env 의 usageEventsEnabled 를 configureAnalytics 가 넣는다. 넣기 전에는 꺼져 있다. */
+let buildEnabled = false;
 
 export interface AnalyticsTransport {
+  /**
+   * 기록을 켤 빌드인가 — env.usageEventsEnabled 한 곳의 규칙(EXPO_PUBLIC_USAGE_EVENTS 1·true + 개발 빌드 아님)을 그대로 넘긴다.
+   * 이 파일은 그 규칙을 다시 쓰지 않는다.
+   */
+  enabled?: boolean;
   /** supabase.from('usage_events').insert(rows) 를 감싼 함수. */
   insertUsageEvents?: InsertUsageEvents | null;
   /** POST {API}/api/v1/events/track — Content-Type: application/json 본문 그대로. */
@@ -41,6 +50,7 @@ export interface AnalyticsTransport {
 
 /** 보내는 수단을 정한다. 앱 시작 때 lib/core 쪽에서 한 번 부른다. 정하기 전 이벤트는 버린다. */
 export function configureAnalytics(transport: AnalyticsTransport): void {
+  if (transport.enabled !== undefined) buildEnabled = transport.enabled;
   if (transport.insertUsageEvents !== undefined) insertUsageEvents = transport.insertUsageEvents;
   if (transport.postTrack !== undefined) postTrack = transport.postTrack;
 }
@@ -50,13 +60,10 @@ export function setUsagePage(path: string): void {
   currentPage = path;
 }
 
-export function usageEventsEnabledByBuild(): boolean {
-  return process.env.EXPO_PUBLIC_USAGE_EVENTS === '1';
-}
-
-function enabled(): boolean {
-  return usageEventsEnabledByBuild() && isPublicRegion(getActiveRegion());
-}
+const enabled = usageGate(
+  () => buildEnabled,
+  () => isPublicRegion(getActiveRegion()),
+);
 
 function storedId(storage: Storage | undefined, key: string): string | null {
   try {

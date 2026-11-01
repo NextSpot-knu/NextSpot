@@ -4,12 +4,17 @@
  *
  * ── 웹 스타일을 옮기는 규칙(docs/MOBILE_APP_PLAN.md §9.1) ──────────────────────────────────────
  * 1. 클래스 이름은 웹 그대로: bg-hanji · bg-hanji-deep · text-muk · text-muk-soft · border-line · text-gold-deep · bg-jade/10 ….
- *    투명도 꼬리(/10 · /25)도 된다. 웹 `@theme` 의 색은 전부 같은 이름으로 있다.
+ *    웹 `@theme` 의 색은 전부 같은 이름으로 있다. 투명도 꼬리(/10 · /25)는 hex 토큰(muk · jade · gold …)에만 붙인다 —
+ *    rgba 로 적힌 토큰(glass-bg · rail-bg · rail-line · glass-edge 등)에 /n 을 붙이면 알파가 겹치거나 무시된다.
  * 2. 글자는 늘 `Text`(이 폴더)로. RN 은 글자 스타일이 부모 View 에서 상속되지 않는다 — 색·크기·굵기를 Text 에 직접 준다.
+ *    (Text 안에 겹친 Text 는 예외 — 부모의 색·크기·굵기를 물려받고, 준 것만 바꾼다.)
  *    `font-bold` 같은 굵기 클래스는 Text 가 굵기별 글꼴로 바꾼다(안드로이드는 굵기마다 글꼴 이름이 따로다). RN Text 를
- *    직접 쓰면 굵어지지 않는다. 한국어 낱말 단위 줄바꿈(웹 break-keep)은 Text 가 기본으로 한다.
- * 3. 크기는 px 로 적는다: text-[14px] · min-h-[44px] · px-[16px]. NativeWind 는 rem 을 14px 로 계산해(웹은 16px)
- *    text-sm · p-4 · h-11 이 웹보다 작게 나온다 — metro 의 inlineRem 이 16 이 되기 전까지는 px 가 안전하다.
+ *    직접 쓰면 굵어지지 않는다. font-[650] → bold, font-[750] → extrabold, font-thin·extralight·light → regular
+ *    (tokens.weightClassToName). 한국어 낱말 단위 줄바꿈(웹 break-keep)은 Text 가 기본으로 한다.
+ * 3. rem 은 웹과 같은 16px 다(metro.config.js 의 inlineRem: 16). 그래서 웹 크기 클래스(text-sm · p-4 · h-11 · gap-2)를
+ *    그대로 옮겨도 같은 크기다. 웹이 px 로 적은 곳(text-[13px])도 그대로 둔다.
+ * 3-1. 글자를 담는 상자는 h- 가 아니라 min-h- 로(필요하면 py- 를 함께). 큰 글자 설정에서 h- 는 글자를 자른다.
+ *    Text 는 큰 글자 배율을 기본 1.6 배까지로 막는다(maxFontSizeMultiplier) — 그래도 고정 높이 상자에는 넘친다.
  * 4. 같은 속성 클래스 둘(text-sm 과 text-base, border-line 과 border-jade)을 한 요소에 같이 주지 않는다. 웹처럼
  *    '나중 것이 이긴다' 가 아니다(tailwind-merge 없음). 조건부는 삼항으로 한쪽만, 덮어써야 하면 style 로.
  * 5. grid → `flex-row flex-wrap gap-[8px]` + 자식 폭(w-[48%] 등). grid-cols-* 는 없다.
@@ -27,6 +32,13 @@
  * 12. dvh · vh · fixed · sticky · z-* 쌓기 → Screen · Sheet · 절대 배치(absolute)로. 화면 내용은 Screen 이 가운데 최대 640pt.
  * 13. 이모지는 그대로 Text 로 쓴다. 장식이면 accessibilityElementsHidden.
  * 14. 다크 모드(dark:)는 없다 — 앱은 라이트만.
+ * 15. space-x-* · space-y-* → 부모에 gap-*(gap-x-* · gap-y-*). divide-* → 두 번째 자식부터 border-t border-line 처럼
+ *     테두리를 직접 준다. NativeWind 는 네이티브에서 둘 다 그리지 않는다.
+ * 16. ring-* · outline-* → border-*(두께·색) 또는 tokens 그림자. 포커스 링은 버린다(8번과 같은 이유).
+ * 17. truncate · line-clamp-* → Text 의 numberOfLines={1|n}(+ 필요하면 ellipsizeMode). 클래스로는 줄을 자르지 않는다.
+ * 18. tracking-*(글자 사이) → tracking-[0.2px] 처럼 px 로 적거나 style={{ letterSpacing }}. em 값(tracking-tight 등)은
+ *     RN 에 em 이 없어 글자 크기와 어긋난다.
+ * 19. 아이콘만 있는 버튼은 `IconButton`(accessibilityLabel 필수, 44pt 는 hitSlop 으로).
  */
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card, type CardProps } from './Card';
@@ -37,6 +49,7 @@ export { ErrorState, type ErrorStateProps } from './ErrorState';
 export { Glass, useReduceTransparency, type GlassProps } from './Glass';
 export { Gradient, type GradientName, type GradientProps } from './Gradient';
 export { Icon, type IconProps } from './Icon';
+export { IconButton, type IconButtonProps } from './IconButton';
 export { Pressable, type PressableProps } from './Pressable';
 export { Screen, type ScreenProps } from './Screen';
 export {
@@ -49,5 +62,6 @@ export {
   type SheetState,
 } from './Sheet';
 export { Skeleton, type SkeletonProps } from './Skeleton';
-export { Text, weightFromClassName, type TextProps } from './Text';
+export { DEFAULT_MAX_FONT_SCALE, Text, weightFromClassName, type TextProps } from './Text';
 export { AppToaster, toast } from './Toast';
+export { useReduceMotion } from './useReduceMotion';

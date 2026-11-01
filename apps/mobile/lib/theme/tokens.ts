@@ -124,8 +124,17 @@ export const fontFamilies = {
 
 export type FontWeightName = keyof typeof fontFamilies;
 
-/** Tailwind font-normal… 이름 → 굵기 이름. Text 가 className 에서 읽는다. */
+/**
+ * Tailwind font-normal… 이름 → 굵기 이름. Text 가 className 에서 읽는다.
+ * 앱에 없는 굵기는 가까운 글꼴로: 웹 font-[650]·[750] 은 브라우저가 700·800 을 고르므로 bold·extrabold,
+ * font-thin·extralight·light 는 글꼴 파일이 없어 regular(웹 사용처는 장식 숫자뿐 — 얇게 보일 필요 없음).
+ */
 export const weightClassToName: Record<string, FontWeightName> = {
+  'font-thin': 'regular',
+  'font-extralight': 'regular',
+  'font-light': 'regular',
+  'font-[650]': 'bold',
+  'font-[750]': 'extrabold',
   'font-normal': 'regular',
   'font-medium': 'medium',
   'font-semibold': 'semibold',

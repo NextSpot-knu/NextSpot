@@ -8,9 +8,12 @@ import {
   createTracker,
   createUsageRecorder,
   usageCardProps,
+  usageGate,
+  webPagePath,
   type UsageRecorderDeps,
   type UsageRow,
 } from './analyticsCore';
+import { resolveEnv } from '../core/env';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -206,6 +209,30 @@ async function main() {
     await flush();
   }
   assert.ok(EVENT_PROPS.visit_confirmed.has('rating'));
+
+  // --- 켜는 조건: env.usageEventsEnabled 한 규칙 + 공개 지역 ---
+  {
+    const gate = (usage: string, isDev: boolean, publicRegion = true) =>
+      usageGate(() => resolveEnv({ usageEvents: usage }, isDev).usageEventsEnabled, () => publicRegion)();
+    assert.equal(gate('1', true), false, '개발 빌드는 EXPO_PUBLIC_USAGE_EVENTS=1 이어도 꺼진다');
+    assert.equal(gate('true', true), false, '개발 빌드는 true 여도 꺼진다');
+    assert.equal(gate('1', false), true, '운영 빌드 + 1');
+    assert.equal(gate('true', false), true, '운영 빌드 + true');
+    assert.equal(gate('', false), false, '설정이 없으면 꺼진다');
+    assert.equal(gate('1', false, false), false, '내부 지역에서는 꺼진다');
+    // 꺼진 문을 단 기록기는 아무것도 쌓지 않는다
+    const h = recorderHarness({ enabled: usageGate(() => resolveEnv({ usageEvents: '1' }, true).usageEventsEnabled, () => true) });
+    h.recorder.trackEvent('page_view');
+    assert.equal(h.recorder.pending, 0);
+  }
+
+  // --- 화면 경로 → 웹 경로 ---
+  assert.equal(webPagePath('/'), '/main');
+  assert.equal(webPagePath('/saved'), '/saved');
+  assert.equal(webPagePath('/waiting/'), '/waiting');
+  assert.equal(webPagePath('/course?x=1'), '/course');
+  assert.equal(webPagePath('/mypage'), '/mypage');
+  assert.equal(webPagePath(''), '/main');
 }
 
 main().catch((err) => {

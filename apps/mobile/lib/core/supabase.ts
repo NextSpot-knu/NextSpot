@@ -40,6 +40,12 @@ function wireAutoRefresh(supabase: SupabaseClient): void {
   // 처음 상태도 반영한다 — 리스너는 '바뀔 때' 만 불린다.
   apply(AppState.currentState);
   AppState.addEventListener('change', apply);
+  // auth-js 의 initialize 는 끝에서(_handleVisibilityChange) 브라우저가 아니면 갱신 타이머를 '무조건' 켠다. 백그라운드에서
+  // 시작됐으면(알림·딥링크로 깨어남) 위의 stop 이 덮이므로, 초기화가 끝난 뒤 지금 상태를 한 번 더 적용한다.
+  supabase.auth
+    .initialize()
+    .then(() => apply(AppState.currentState))
+    .catch(() => undefined);
 }
 
 /** 웹과 같은 이름 — 화면·웹 이식 코드가 그대로 부를 수 있게. */

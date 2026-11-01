@@ -1,5 +1,6 @@
 import { RotateCw } from 'lucide-react-native';
-import { ActivityIndicator } from 'react-native';
+import { useEffect } from 'react';
+import { AccessibilityInfo, ActivityIndicator } from 'react-native';
 
 import { colors } from '~/lib/theme/tokens';
 
@@ -10,7 +11,7 @@ import { Pressable } from './Pressable';
 import { Text } from './Text';
 
 export type ErrorStateProps = {
-  /** 무엇이 안 됐는지 한 문장(해요체). 예: t('course.loadFailed'). */
+  /** 무엇이 안 됐는지 한 문장(해요체). 예: t('map.parkingLoadFailed'). */
   message: string;
   onRetry: () => void;
   /** 다시 시도 버튼 글자 — 웹과 같은 키 t('common.retry') 를 넘긴다(이 컴포넌트는 문구를 갖지 않는다). */
@@ -27,6 +28,11 @@ const ERROR_BORDER = 'rgba(193, 85, 59, 0.25)'; // colors.terracotta(#c1553b) 25
  * 웹과 다른 점: 다시 시도 버튼 바탕을 금(#c19a3e, 흰 글자 3.7:1)에서 금 진(4.5:1 이상)으로, 높이를 44pt 로.
  */
 export function ErrorState({ message, onRetry, retryLabel, retrying = false, className }: ErrorStateProps) {
+  // role="alert" 만으로는 VoiceOver·TalkBack 이 나타날 때 읽지 않는다(웹 aria role=alert 와 다르다) — 직접 알린다.
+  // 메시지가 바뀔 때만 다시 알린다(다시 시도 중 돌림표로 바뀌는 것은 알리지 않는다).
+  useEffect(() => {
+    if (message) AccessibilityInfo.announceForAccessibility(message);
+  }, [message]);
   return (
     <Card
       className={cn('items-center gap-[12px]', className)}

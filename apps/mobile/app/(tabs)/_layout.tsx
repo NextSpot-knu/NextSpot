@@ -10,8 +10,9 @@ import { colors, fontFamilies } from '~/lib/theme/tokens';
 
 export default function TabLayout() {
   const t = useT();
-  const tab = (icon: typeof Home) => ({ focused }: { focused: boolean }) => (
-    <Icon icon={icon} size="md" color={focused ? colors['gold-deep'] : colors['muk-soft']} />
+  // 아이콘 크기는 탭 막대가 주는 size 를 따른다(웹 하단 탭은 22px — 막대 기본값과 거의 같다).
+  const tab = (icon: typeof Home) => ({ focused, size }: { focused: boolean; size: number }) => (
+    <Icon icon={icon} size={size} color={focused ? colors['gold-deep'] : colors['muk-soft']} />
   );
   return (
     <Tabs
@@ -20,7 +21,8 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors['gold-deep'],
         tabBarInactiveTintColor: colors['muk-soft'],
         tabBarStyle: { backgroundColor: colors.hanji, borderTopColor: colors.line },
-        tabBarLabelStyle: { fontFamily: fontFamilies.semibold, fontSize: 11 },
+        // 웹 하단 탭 글자: text-[11px] font-medium. 굵기는 글꼴 파일로, fontWeight 는 normal.
+        tabBarLabelStyle: { fontFamily: fontFamilies.medium, fontWeight: 'normal', fontSize: 11 },
       }}
       screenListeners={{ tabPress: () => haptic('selection') }}
     >

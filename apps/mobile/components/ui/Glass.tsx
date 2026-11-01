@@ -37,7 +37,7 @@ export type GlassProps = ViewProps & {
  * - iOS: expo-blur 흐림 위에 한지 35%(light) 또는 갈색 72%(rail)를 덮는다.
  * - 안드로이드: 흐림 없이 거의 불투명한 같은 색 판 — 흐림 없이 35% 면 지도 위 글자 대비가 무너지고, 안드로이드 흐림은 느리다.
  * - iOS '투명도 줄이기' 에서는 불투명한 판.
- * 크기·여백은 className 으로(예: `px-[16px] h-[44px] flex-row items-center`).
+ * 크기·여백은 className 으로(예: `px-[16px] min-h-[44px] flex-row items-center`).
  */
 export function Glass({ className, children, variant = 'light', shape = 'pill', style, ...rest }: GlassProps) {
   const reduceTransparency = useReduceTransparency();

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { colors, fontFamilies, ratios, springs } from './tokens';
+import { colors, fontFamilies, ratios, springs, weightClassToName } from './tokens';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MOBILE = resolve(HERE, '../..');
@@ -119,5 +119,11 @@ for (const family of Object.values(fontFamilies)) {
   assert.ok(existsSync(join(MOBILE, 'assets/fonts', `${family}.ttf`)), `assets/fonts/${family}.ttf 가 없다`);
 }
 assert.ok(existsSync(join(MOBILE, 'assets/fonts/OFL.txt')), 'Freesentation 라이선스(OFL.txt)를 글꼴 옆에 둔다');
+
+// 6) 웹 굵기 클래스 → 앱 글꼴(없는 굵기는 가까운 쪽으로).
+assert.equal(weightClassToName['font-[650]'], 'bold');
+assert.equal(weightClassToName['font-[750]'], 'extrabold');
+for (const c of ['font-thin', 'font-extralight', 'font-light', 'font-normal']) assert.equal(weightClassToName[c], 'regular', c);
+for (const name of Object.values(weightClassToName)) assert.ok(name in fontFamilies, name);
 
 console.log(`ok tokens — 웹 토큰 ${checked}개 일치`);

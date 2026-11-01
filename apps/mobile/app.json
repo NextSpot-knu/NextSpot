@@ -14,9 +14,13 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
         "LSApplicationQueriesSchemes": [
           "kakaomap"
-        ]
+        ],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        }
       }
     },
     "android": {
@@ -26,6 +30,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "allowBackup": false,
       "predictiveBackGestureEnabled": false,
       "package": "kr.nextspot.app",
       "permissions": [
@@ -33,8 +38,17 @@
         "ACCESS_FINE_LOCATION"
       ],
       "blockedPermissions": [
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
+    },
+    "locales": {
+      "ko": "./locales/ko.json",
+      "en": "./locales/en.json",
+      "ja": "./locales/ja.json",
+      "zh-Hans": "./locales/zh-Hans.json"
     },
     "web": {
       "bundler": "metro",
@@ -54,7 +68,20 @@
       "expo-sqlite",
       "expo-image",
       "expo-localization",
-      "./plugins/withAndroidQueries"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "현재 위치 근처에서 덜 붐비는 곳을 추천하고 걸어서 가는 시간을 계산하는 데 위치를 사용해요. 예를 들어 지금 있는 곳에서 걸어서 10분 안에 갈 수 있는 한산한 장소를 보여 드려요.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "motionUsagePermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
+      ],
+      "./plugins/withAndroidQueries",
+      "./plugins/withLocationPurposeOnly"
     ],
     "experiments": {
       "typedRoutes": true

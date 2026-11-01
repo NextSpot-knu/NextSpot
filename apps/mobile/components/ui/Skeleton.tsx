@@ -3,13 +3,14 @@ import type { DimensionValue, StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
-  useReducedMotion,
   useSharedValue,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
 
 import { colors } from '~/lib/theme/tokens';
+
+import { useReduceMotion } from './useReduceMotion';
 
 export type SkeletonProps = {
   width?: DimensionValue;
@@ -25,7 +26,7 @@ export type SkeletonProps = {
  * 불러오는 중임은 감싼 쪽이 accessibilityLabel 또는 accessibilityState={{ busy: true }} 로 알린다.
  */
 export function Skeleton({ width = '100%', height = 14, radius = 6, style }: SkeletonProps) {
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReduceMotion();
   const opacity = useSharedValue(1);
   useEffect(() => {
     if (reduceMotion) {

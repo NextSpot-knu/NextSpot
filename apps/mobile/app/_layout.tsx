@@ -14,10 +14,8 @@ import { AppProviders } from '~/lib/core/AppProviders';
 import { I18nProvider, useT } from '~/lib/i18n/I18nProvider';
 import { colors, fontFamilies } from '~/lib/theme/tokens';
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+// 렌더 오류 화면 — expo-router 기본(영어) 대신 웹과 같은 문구 키(common.error · common.retry).
+export { AppErrorBoundary as ErrorBoundary } from '~/components/AppErrorBoundary';
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -37,9 +35,16 @@ const FONT_FILES = {
   [fontFamilies.black]: require('../assets/fonts/Freesentation-9Black.ttf'),
 };
 
-// 내비게이션 바탕·헤더도 한지 톤으로(라이트만).
+// 내비게이션 바탕·헤더도 한지 톤으로(라이트만). 헤더·탭 글자도 Freesentation — 굵기는 글꼴 파일이 맡으므로
+// fontWeight 는 normal(안드로이드가 이미 굵은 파일을 한 번 더 굵히지 않게).
 const navTheme = {
   ...DefaultTheme,
+  fonts: {
+    regular: { fontFamily: fontFamilies.regular, fontWeight: 'normal' as const },
+    medium: { fontFamily: fontFamilies.medium, fontWeight: 'normal' as const },
+    bold: { fontFamily: fontFamilies.semibold, fontWeight: 'normal' as const },
+    heavy: { fontFamily: fontFamilies.bold, fontWeight: 'normal' as const },
+  },
   colors: {
     ...DefaultTheme.colors,
     primary: colors['gold-deep'],

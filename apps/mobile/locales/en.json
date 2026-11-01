@@ -1,0 +1,5 @@
+{
+  "ios": {
+    "NSLocationWhenInUseUsageDescription": "NextSpot uses your location to recommend less crowded places near you and to estimate walking times. For example, it shows quiet places within a 10-minute walk of where you are."
+  }
+}

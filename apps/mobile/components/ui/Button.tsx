@@ -43,7 +43,7 @@ const SPINNER: Record<ButtonVariant, ColorToken> = { primary: 'white', secondary
 
 /**
  * 버튼 — 높이 최소 44pt(DESIGN_PRINCIPLES 측정 기준). 모서리는 웹 카드 버튼과 같은 rounded-2xl.
- * 사용 예: `<Button label={t('card.walk')} icon={Footprints} onPress={go} />`
+ * 사용 예: `<Button label={t('card.accept')} icon={Footprints} onPress={go} />`
  */
 export function Button({
   label,

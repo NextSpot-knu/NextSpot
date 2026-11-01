@@ -4,6 +4,9 @@
 // 바꾼 것: api-client·supabase 를 앱 것(lib/core)으로. 판정 규칙은 웹 순수 모듈 `@/lib/accountRoles` 를 그대로 쓴다.
 // 동작은 같다: 서버에 닿지 못하면 2.5s → 5s → 8s 로 세 번까지 다시 묻는다. 401 은 '아직 로그인 전'(게스트 취급).
 // 로그인·로그아웃·USER_UPDATED·TOKEN_REFRESHED 에서 다시 묻되, 직전 성공 5분 안의 같은 사용자 SIGNED_IN 은 건너뛴다.
+// 앱만: 앱이 다시 앞으로 오면(AppState 'active') 같은 SIGNED_IN 규칙으로 다시 물을지 정하고, 물을 때는 재시도 횟수를
+//       새로 센다(accountForeground.ts — 백그라운드에서는 토큰 갱신이 멈춰 인증 이벤트가 오지 않는다).
+import { AppState } from 'react-native';
 import {
   createContext,
   useCallback,
@@ -23,6 +26,7 @@ import {
   type AccountState,
 } from '@/lib/accountRoles';
 
+import { cameToForeground, shouldRefreshAccountOnForeground } from './accountForeground';
 import { apiClient, isAuthError } from './apiClient';
 import { createPublicClient } from './supabase';
 
@@ -111,10 +115,31 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         setTimeout(() => { void refresh(); }, 0);
       }
     });
+    let appState: string = AppState.currentState;
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      const prev = appState;
+      appState = next;
+      if (!cameToForeground(prev, next)) return;
+      createPublicClient()
+        .auth.getSession()
+        .then(({ data: { session } }) => {
+          if (!mountedRef.current) return;
+          if (!shouldRefreshAccountOnForeground(session?.user, lastCheckRef.current, Date.now())) return;
+          // 새로 묻는 것이므로 서버 미도달 재시도도 처음부터(예약된 재시도는 이 조회가 대신한다).
+          retriesRef.current = 0;
+          if (retryTimerRef.current !== null) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
+          void refresh();
+        })
+        .catch(() => undefined);
+    });
     return () => {
       mountedRef.current = false;
       if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
       subscription?.unsubscribe?.();
+      appStateSub.remove();
     };
   }, [refresh]);
 

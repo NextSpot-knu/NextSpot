@@ -18,6 +18,8 @@ export const USER_SCOPED_KEYS = [
   'nextspot_rejected_ids',
   'nextspot_onboarding_done',
   'nextspot_congestion_alerts_notified',
+  // 저장 해제 대기(서버 삭제 실패분) — 다른 사용자에게 넘어가면 그 사람의 저장을 지운다. 웹 USER_SCOPED_KEYS 에는 아직 없다.
+  'nextspot_saved_pending_deletes',
   REGION_STORAGE_KEY,
 ] as const;
 

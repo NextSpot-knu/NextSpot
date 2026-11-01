@@ -7,7 +7,8 @@ import {
   type View,
   type ViewStyle,
 } from 'react-native';
-import { useReducedMotion } from 'react-native-reanimated';
+
+import { useReduceMotion } from './useReduceMotion';
 
 export type PressableProps = Omit<RNPressableProps, 'style'> & {
   className?: string;
@@ -26,7 +27,7 @@ export const Pressable = forwardRef<View, PressableProps>(function Pressable(
   ref,
 ) {
   const [pressed, setPressed] = useState(false);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReduceMotion();
   const active = pressed && !disabled && !noFeedback;
   return (
     <RNPressable

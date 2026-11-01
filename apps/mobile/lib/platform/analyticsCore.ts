@@ -22,6 +22,29 @@ export const USAGE_EVENTS = [
 export type UsageEvent = (typeof USAGE_EVENTS)[number];
 export type UsageProps = Record<string, string | number | boolean | null>;
 
+/**
+ * 기록을 켤지 — 빌드 설정(env.usageEventsEnabled: 운영 빌드 + EXPO_PUBLIC_USAGE_EVENTS 1·true)과 공개 지역을 함께 본다.
+ * 둘 다 매번 묻는다(지역은 실행 중에 바뀔 수 있다). 규칙은 이 한 곳 — analytics.ts 는 이것만 쓴다.
+ */
+export function usageGate(buildEnabled: () => boolean, publicRegion: () => boolean): () => boolean {
+  return () => buildEnabled() && publicRegion();
+}
+
+/**
+ * 앱 화면 경로 → 웹 경로. usage_events.page 를 웹과 같은 값으로 모아야 앱·웹 화면별 집계가 한 줄에 선다.
+ * 하단 탭: 홈 '/' → '/main'(웹 BottomNav 의 path), 나머지 탭은 이름이 같다. 모르는 경로는 그대로 둔다.
+ */
+const APP_TO_WEB_PATH: Record<string, string> = {
+  '/': '/main',
+  '/index': '/main',
+};
+
+export function webPagePath(appPath: string): string {
+  const path = appPath.split(/[?#]/)[0] || '/';
+  const trimmed = path.length > 1 ? path.replace(/\/+$/, '') : path;
+  return APP_TO_WEB_PATH[trimmed] ?? trimmed;
+}
+
 export const FLUSH_DELAY_MS = 2000;
 export const MAX_BATCH = 20;
 
