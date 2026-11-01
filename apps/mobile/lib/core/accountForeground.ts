@@ -6,9 +6,17 @@
 // 바뀌었거나, 인증 심사 중이거나, 직전 성공이 5분보다 오래됐으면 다시 묻는다.
 import { shouldRefreshAccountOnAuthEvent, type AccountCheck, type AuthSessionUserLike } from '@/lib/accountRoles';
 
-/** 이전 앱 상태가 'active' 가 아니었고 지금 'active' 인가(앞으로 돌아옴). */
+/**
+ * 백그라운드에서 앞으로 돌아왔는가. prev 는 trackAppState 로 기록한 '마지막으로 머문 상태'다.
+ * iOS 알림 센터·제어 센터·전화 수신 배너는 active → inactive → active 로 오가는데, 앱을 떠난 것이 아니므로 다시 묻지 않는다.
+ */
 export function cameToForeground(prev: string | null | undefined, next: string): boolean {
-  return next === 'active' && prev !== 'active';
+  return next === 'active' && prev === 'background';
+}
+
+/** 다음 비교에 쓸 상태 — 'inactive' 는 지나가는 상태라 기록하지 않는다(background → inactive → active 도 앞으로 온 것). */
+export function trackAppState(prev: string | null | undefined, next: string): string | null | undefined {
+  return next === 'inactive' ? prev : next;
 }
 
 export function shouldRefreshAccountOnForeground(

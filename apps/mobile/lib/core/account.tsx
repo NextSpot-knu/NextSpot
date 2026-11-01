@@ -26,7 +26,7 @@ import {
   type AccountState,
 } from '@/lib/accountRoles';
 
-import { cameToForeground, shouldRefreshAccountOnForeground } from './accountForeground';
+import { cameToForeground, shouldRefreshAccountOnForeground, trackAppState } from './accountForeground';
 import { apiClient, isAuthError } from './apiClient';
 import { createPublicClient } from './supabase';
 
@@ -118,7 +118,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     let appState: string = AppState.currentState;
     const appStateSub = AppState.addEventListener('change', (next) => {
       const prev = appState;
-      appState = next;
+      // 'inactive' 는 기록하지 않는다(iOS 알림 센터 등 active → inactive → active 는 앞으로 돌아온 것이 아니다).
+      appState = trackAppState(prev, next) ?? next;
       if (!cameToForeground(prev, next)) return;
       createPublicClient()
         .auth.getSession()

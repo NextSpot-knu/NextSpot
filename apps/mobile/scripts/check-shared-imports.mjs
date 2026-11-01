@@ -23,6 +23,8 @@ export const FORBIDDEN = [
   [/\bwindow\./, 'window.* — React Native 에도 window 가 있어 가드가 통과한다'],
   [/\bwindow\s*\[/, 'window[…]'],
   [/\bglobalThis\s*\.\s*window\b/, 'globalThis.window'],
+  // 아래 location. · self. 규칙은 앞이 '.' 이면 넘어가므로 globalThis.location 을 따로 막는다.
+  [/\bglobalThis\s*\.\s*(location|self)\b/, 'globalThis.location · globalThis.self — 브라우저 전역'],
   [/\bdocument\./, 'document.*'],
   [/\bCustomEvent\b/, 'CustomEvent'],
   [/\bDOMException\b/, 'DOMException'],
@@ -37,9 +39,24 @@ const IMPORT_RE = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*?\sfrom\s+)?['"]([^'
 const PLATFORM_SUFFIXES = ['.android', '.ios', '.native', ''];
 const EXTENSIONS = ['.ts', '.tsx'];
 
+/** 이 글자 뒤의 '/' 는 나눗셈이 아니라 정규식 리터럴의 시작이다. */
+const REGEX_PRECEDERS = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^']);
+const REGEX_KEYWORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'else', 'do', 'yield', 'await', 'instanceof']);
+
+/** 지금까지 쓴 코드(out)의 끝을 보고 '/' 가 정규식 리터럴을 여는지 판정한다. */
+function regexAllowedAfter(out) {
+  let k = out.length - 1;
+  while (k >= 0 && /\s/.test(out[k])) k -= 1;
+  const last = k >= 0 ? out[k] : '';
+  if (REGEX_PRECEDERS.has(last)) return true;
+  let s = k;
+  while (s >= 0 && /[\w$]/.test(out[s])) s -= 1;
+  return s < k && REGEX_KEYWORDS.has(out.slice(s + 1, k + 1));
+}
+
 /**
- * 주석을 같은 길이의 공백으로 지운다(줄 번호 유지). 문자열('…' "…" `…`) 안의 // · /* 는 주석이 아니다.
- * 정규식 리터럴은 따로 다루지 않는다 — /\/\// 처럼 이스케이프된 슬래시는 주석으로 보이지 않는다.
+ * 주석을 같은 길이의 공백으로 지운다(줄 번호 유지). 문자열('…' "…" `…`)과 정규식 리터럴(/…/) 안의 // · /* 는 주석이 아니다.
+ * 정규식은 앞 글자로 나눗셈과 가른다(연산자·여는 괄호·키워드 뒤면 정규식). 문자 집합 [...] 안의 '/' 는 끝이 아니다.
  */
 export function stripComments(text) {
   let out = '';
@@ -48,7 +65,33 @@ export function stripComments(text) {
   while (i < n) {
     const c = text[i];
     const next = text[i + 1];
-    if (c === '/' && next === '/') {
+    if (c === '/' && next !== '/' && next !== '*' && regexAllowedAfter(out)) {
+      // 정규식 리터럴 — 이스케이프와 문자 집합을 건너 닫는 '/' 까지 그대로 옮긴다. 줄이 끝나면 정규식이 아니었던 것.
+      let j = i + 1;
+      let inClass = false;
+      let closed = false;
+      while (j < n && text[j] !== '\n') {
+        const ch = text[j];
+        if (ch === '\\') {
+          j += 2;
+          continue;
+        }
+        if (ch === '[') inClass = true;
+        else if (ch === ']') inClass = false;
+        else if (ch === '/' && !inClass) {
+          closed = true;
+          break;
+        }
+        j += 1;
+      }
+      if (closed) {
+        out += text.slice(i, j + 1);
+        i = j + 1;
+        continue;
+      }
+      out += c;
+      i += 1;
+    } else if (c === '/' && next === '/') {
       while (i < n && text[i] !== '\n') {
         out += ' ';
         i += 1;

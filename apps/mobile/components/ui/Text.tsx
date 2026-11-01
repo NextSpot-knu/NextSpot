@@ -36,7 +36,8 @@ export function weightFromClassName(className: string | undefined): FontWeightNa
  *   그래서 fontWeight 는 normal 로 되돌린다 — 이미 굵은 파일에 굵게를 또 걸면 안드로이드가 가짜로 한 번 더 굵힌다.
  * - 기본값: text-muk · 16px. className 에 같은 종류(글자 색·크기)가 있으면 기본값을 붙이지 않는다.
  *   Text 안에 겹친 Text 는 기본값을 붙이지 않는다 — 부모의 색·크기·굵기를 물려받는다(굵기를 주면 그 글꼴로 바꾼다).
- * - 큰 글자: maxFontSizeMultiplier 기본 1.6(DEFAULT_MAX_FONT_SCALE).
+ * - 큰 글자: maxFontSizeMultiplier 기본 1.6(DEFAULT_MAX_FONT_SCALE). 겹친 Text 에는 기본값을 주지 않는다 — 바깥 Text 가
+ *   본문을 더 키우려고(또는 0 으로 풀려고) 준 값을 안쪽 조각이 1.6 으로 다시 묶지 않게(명시해서 넘긴 값만 쓴다).
  * - 한국어 줄바꿈: iOS 는 낱말 단위(hangul-word) — 웹 word-break: keep-all 과 같은 뜻. 안드로이드는 기본이 낱말 단위다.
  */
 export const Text = forwardRef<RNText, TextProps>(function Text({ className, weight, style, children, ...rest }, ref) {
@@ -53,7 +54,7 @@ export const Text = forwardRef<RNText, TextProps>(function Text({ className, wei
       ref={ref}
       className={classes || undefined}
       lineBreakStrategyIOS="hangul-word"
-      maxFontSizeMultiplier={DEFAULT_MAX_FONT_SCALE}
+      maxFontSizeMultiplier={nested ? undefined : DEFAULT_MAX_FONT_SCALE}
       style={[resolved ? { fontFamily: fontFamilies[resolved], fontWeight: 'normal' } : null, style]}
       {...rest}
     >

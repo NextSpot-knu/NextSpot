@@ -17,7 +17,27 @@ import { bannedPackageProblems, forbiddenIn, resolveFiles, specifiers, stripComm
   assert.deepEqual(specifiers("import x from 'https://a';\n// import y from 'nope'"), ['https://a']);
 }
 
+// 정규식 리터럴 안의 /* · // 는 주석이 아니다 — 뒤 코드가 지워지면 금지 패턴을 놓친다.
+{
+  const code = 'const re = /^\\/*$/; window.foo = 1;';
+  assert.equal(stripComments(code), code);
+  assert.deepEqual(forbiddenIn(code).map(([line]) => line), [1]);
+  const cls = 'x.replace(/[/*]/g, ""); window.bar();';
+  assert.equal(stripComments(cls), cls, '문자 집합 안의 / 는 정규식 끝이 아니다');
+  const afterReturn = 'function f(s) { return /\\/\\//.test(s) && window.x; }';
+  assert.equal(stripComments(afterReturn), afterReturn);
+  // 나눗셈은 정규식이 아니다 — 뒤의 주석은 지운다.
+  assert.equal(stripComments('const r = a / b; // window.x').trimEnd(), 'const r = a / b;');
+  assert.equal(stripComments('const r = (a) / 2 /* window.x */;').replace(/\s+/g, ' '), 'const r = (a) / 2 ;');
+  assert.deepEqual(forbiddenIn('const r = a / b; // window.x'), []);
+}
+
 // 금지 패턴
+{
+  assert.ok(forbiddenIn('const h = globalThis.location.href;').length > 0, 'globalThis.location');
+  assert.ok(forbiddenIn('globalThis.self?.postMessage(1)').length > 0, 'globalThis.self');
+  assert.deepEqual(forbiddenIn('const s = globalThis.localStorage;'), [], 'localStorage 는 앱에도 있다(expo-sqlite)');
+}
 {
   const hit = (line: string) => forbiddenIn(line).length > 0;
   assert.ok(hit('const k = process.env.NEXT_PUBLIC_API_URL;'));

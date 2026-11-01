@@ -2,13 +2,29 @@ import assert from 'node:assert/strict';
 
 import { ACCOUNT_RECHECK_MIN_AGE_MS } from '@/lib/accountRoles';
 
-import { cameToForeground, shouldRefreshAccountOnForeground } from './accountForeground';
+import { cameToForeground, shouldRefreshAccountOnForeground, trackAppState } from './accountForeground';
 
 assert.equal(cameToForeground('background', 'active'), true);
-assert.equal(cameToForeground('inactive', 'active'), true);
+assert.equal(cameToForeground('inactive', 'active'), false, 'inactive 는 앱을 떠난 것이 아니다');
 assert.equal(cameToForeground('active', 'active'), false, '이미 앞이면 아니다');
 assert.equal(cameToForeground('active', 'background'), false);
-assert.equal(cameToForeground(null, 'active'), true);
+assert.equal(cameToForeground(null, 'active'), false, '처음 상태는 마운트 조회가 맡는다');
+
+// 상태 열을 trackAppState 로 기록하며 흘려 보낸다 — 앞으로 돌아온 횟수만 센다.
+function foregroundCount(states: string[], start = 'active'): number {
+  let prev: string | null | undefined = start;
+  let n = 0;
+  for (const next of states) {
+    if (cameToForeground(prev, next)) n += 1;
+    prev = trackAppState(prev, next);
+  }
+  return n;
+}
+assert.equal(foregroundCount(['inactive', 'active']), 0, 'iOS 알림 센터·제어 센터');
+assert.equal(foregroundCount(['inactive', 'background', 'inactive', 'active']), 1, 'iOS 홈으로 나갔다 돌아옴');
+assert.equal(foregroundCount(['inactive', 'background', 'active']), 1, 'iOS 백그라운드 → active');
+assert.equal(foregroundCount(['background', 'active']), 1, '안드로이드');
+assert.equal(foregroundCount(['background', 'active', 'inactive', 'active']), 1, '돌아온 뒤 알림 센터는 다시 세지 않는다');
 
 const now = 10_000_000;
 const fresh = { userId: 'u1', isAnonymous: false, pendingVerification: false, at: now - 60_000 };
