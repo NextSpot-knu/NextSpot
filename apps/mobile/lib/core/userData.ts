@@ -20,8 +20,20 @@ export const USER_SCOPED_KEYS = [
   'nextspot_congestion_alerts_notified',
   // 저장 해제 대기(서버 삭제 실패분) — 다른 사용자에게 넘어가면 그 사람의 저장을 지운다. 웹 USER_SCOPED_KEYS 에는 아직 없다.
   'nextspot_saved_pending_deletes',
+  // 앱이 쓰는 개인 데이터 키 — 웹 USER_SCOPED_KEYS 에는 아직 없다(앱이 먼저 넣었다, 웹도 맞출 것).
+  'nextspot_course_plan_v1', // 분산 코스 캐시(features/course/model COURSE_CACHE_KEY)
+  'nextspot_taste_feedback_v1', // 취향 피드백(👍👎) 기록
+  'nextspot_hidden_photos', // 이 사진 숨기기
+  'nextspot_recommendation_outcome_queue', // 아직 못 보낸 추천 결과(사용자 id 로 보낸다 — 다음 사용자 것으로 섞이지 않게)
+  'nextspot_seen_inquiry_replies', // 읽은 문의 답
   REGION_STORAGE_KEY,
 ] as const;
+
+/**
+ * 이용 기록 익명 번호(lib/platform/analytics ANON_ID_KEY 와 같은 키). 개인 데이터를 지울 때 함께 지워, 다음 기록부터는
+ * 새 번호를 쓰게 한다(analytics 가 비어 있으면 randomUUID 로 다시 만든다) — 지운 사람의 예전 기록과 이어지지 않게.
+ */
+export const ANON_ID_KEY = 'nextspot_anon_id';
 
 const LAST_UID_KEY = 'nextspot_last_uid';
 
@@ -31,12 +43,14 @@ function defaultStore(): KeyValueStore | null {
   return (globalThis as { localStorage?: Storage }).localStorage ?? null;
 }
 
-/** 현재 사용자의 개인 데이터를 모두 지운다(기기 UI 설정은 남긴다). */
+/** 현재 사용자의 개인 데이터를 모두 지우고 익명 번호를 새로 받게 한다(기기 UI 설정은 남긴다). */
 export function clearUserScopedData(store: KeyValueStore | null = defaultStore()): void {
   if (!store) return;
-  try {
-    for (const key of USER_SCOPED_KEYS) store.removeItem(key);
-  } catch { /* 저장소 차단 — 무시 */ }
+  for (const key of [...USER_SCOPED_KEYS, ANON_ID_KEY]) {
+    try {
+      store.removeItem(key);
+    } catch { /* 저장소 차단 — 다음 키를 계속 지운다 */ }
+  }
 }
 
 /**
