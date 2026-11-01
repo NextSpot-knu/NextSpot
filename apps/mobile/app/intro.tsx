@@ -5,7 +5,9 @@
 //   · 소개(step 'intro'): 언어 고르기 · 가치 문장 · 서비스 소개 · '바로 시작'(→ 동의) · '로그인 / 회원가입'.
 //   · 동의(step 'consent'): LocationConsentView — '동의' · '동의 안 함'(법적 동의라 두 버튼).
 // 첫 실행이 끝난 뒤 열면(예: 마이페이지 '서비스 소개') 소개만 보이고 '닫기'로 돌아간다.
-import { useRouter, type Href } from 'expo-router';
+// `/intro?step=consent`(LOCATION_CONSENT_ROUTE — 홈 '동의 없음' 배너 · 설정의 위치정보 동의 줄)는 첫 실행이 끝난 뒤에도
+// 동의 단계만 열고, 고르면 온 곳으로 돌아간다. 동의 문구가 약속한 '나중에 설정에서 바꿀 수 있어요'의 입구다.
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
@@ -28,6 +30,8 @@ export default function IntroScreen() {
   const t = useT();
   const [locale, setLocale] = useLocale();
   const [step, setStep] = useState<FirstRunStep | null>(getFirstRunStep);
+  const params = useLocalSearchParams<{ step?: string }>();
+  const consentOnly = step === null && params.step === 'consent';
 
   useEffect(() => {
     setStep(getFirstRunStep());
@@ -54,6 +58,16 @@ export default function IntroScreen() {
     markIntroSeen();
     router.push('/login' as Href);
   };
+
+  if (consentOnly) {
+    return (
+      <Screen scroll contentClassName="px-[20px] py-[24px]">
+        <LocationConsentView
+          onDone={() => (router.canGoBack() ? router.back() : router.replace('/' as Href))}
+        />
+      </Screen>
+    );
+  }
 
   if (step === 'consent') {
     return (

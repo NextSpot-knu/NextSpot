@@ -2,13 +2,18 @@
 // 앱에서 빠진 것: 화면 테마(다크 모드 없음) · 혼잡 알림 토글(v1 제외 — 계획 §3.2).
 // 계정 삭제는 가입 계정이 '계정 삭제', 게스트가 '내 데이터 삭제' — 같은 DELETE /api/v1/account/me 를 부른다(계획 §7.3):
 // 확인 → 서버 삭제 → 로컬 로그아웃·개인 데이터 삭제 → 새 게스트 세션. 서버가 실패하면 아무것도 지우지 않는다.
+// 위치정보 이용 동의(계획 §6.2 ① · M20): 지금 결정을 보이고, 동의했으면 철회(setLocationConsent('declined')),
+// 아니면 동의 화면(LOCATION_CONSENT_ROUTE)으로 — 동의 화면 문구의 '나중에 마이페이지 설정에서 바꿀 수 있어요' 약속.
 import Constants from 'expo-constants';
-import { useRouter } from 'expo-router';
-import { Database, ExternalLink, Globe, Info, Store, Trash2, UserX } from 'lucide-react-native';
+import { useRouter, type Href } from 'expo-router';
+import { Database, ExternalLink, Globe, Info, MapPin, Store, Trash2, UserX } from 'lucide-react-native';
 import { useState } from 'react';
 import { View } from 'react-native';
 
 import { Button, Text, Screen, toast } from '~/components/ui';
+import { getLocationConsent, setLocationConsent } from '~/features/auth/consent';
+import { LOCATION_CONSENT_ROUTE } from '~/features/auth/locationAccess';
+import { useLocationConsent } from '~/features/auth/useLocationConsent';
 import { canEnterMerchantConsole, useAccount } from '~/lib/core/account';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { openExternalUrl } from '~/lib/platform/links';
@@ -25,6 +30,14 @@ export default function SettingsScreen() {
   const { account, status } = useAccount();
   const [deleting, setDeleting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const locationConsent = useLocationConsent();
+  // 기록이 없으면(저장 실패 · 약관 판 변경) 아직 고르지 않은 것 — 어느 쪽이든 동의가 없으면 위치를 쓰지 않는다.
+  const consentRecord = getLocationConsent();
+  const consentStatus = locationConsent
+    ? t('app.settings.locationConsentGranted')
+    : consentRecord?.decision === 'declined'
+      ? t('app.settings.locationConsentDeclined')
+      : t('app.settings.locationConsentNone');
   const version = Constants.expoConfig?.version ?? '';
   // 계정 판정이 끝나기 전에는 가입/게스트 문구를 정하지 않는다(깜빡임 방지).
   const accountKnown = status !== 'loading' && account !== null;
@@ -49,6 +62,19 @@ export default function SettingsScreen() {
     } finally {
       setResetting(false);
     }
+  };
+
+  const onWithdrawLocation = async () => {
+    const ok = await confirmDestructive({
+      title: t('app.settings.locationConsentWithdrawConfirm'),
+      message: t('app.settings.locationConsentWithdrawConfirmDesc'),
+      confirmLabel: t('app.settings.locationConsentWithdraw'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    // 철회는 '동의 안 함' 결정으로 적는다 — 첫 실행 단계를 다시 막지 않고, 위치를 쓰는 화면은 구독으로 바로 멈춘다.
+    if (setLocationConsent('declined', false)) toast.success(t('app.settings.locationConsentWithdrawn'));
+    else toast.error(t('common.error'));
   };
 
   const onDelete = async () => {
@@ -87,6 +113,34 @@ export default function SettingsScreen() {
           />
         </SectionCard>
       ) : null}
+
+      <SectionCard
+        icon={MapPin}
+        tone="jade"
+        title={t('app.settings.locationConsentTitle')}
+        desc={t('app.settings.locationConsentDesc')}
+      >
+        <View className="gap-[10px]">
+          <Text className="text-sm text-muk" weight="semibold" accessibilityLiveRegion="polite">
+            {consentStatus}
+          </Text>
+          {locationConsent ? (
+            <Button
+              variant="secondary"
+              label={t('app.settings.locationConsentWithdraw')}
+              block
+              onPress={() => { void onWithdrawLocation(); }}
+            />
+          ) : (
+            <Button
+              variant="secondary"
+              label={t('app.settings.locationConsentGive')}
+              block
+              onPress={() => router.push(LOCATION_CONSENT_ROUTE as Href)}
+            />
+          )}
+        </View>
+      </SectionCard>
 
       <SectionCard icon={Database} tone="terracotta" title={t('settings.dataTitle')} desc={t('settings.resetDataDesc')}>
         <Button variant="secondary" icon={Trash2} label={t('settings.resetData')} loading={resetting} disabled={resetting} block onPress={() => { void onReset(); }} />

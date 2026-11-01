@@ -3,16 +3,23 @@
 //   ③ 거부하면 황리단길 중심 + 닫을 수 있는 배너(누르면 설정 앱).
 //   ④ 대략적 위치(정확도 > 1km)면 황리단길 중심 + 안내. ⑤ 경주 밖이면 중심 + 한 번 안내.
 //   ⑥ 위치는 홈을 열 때 한 번 읽는다(계속 추적하지 않는다).
+//   ① 위치정보 이용 동의(features/auth/consent)가 없으면 OS 권한을 보지도 묻지도 않는다 — 거부와 똑같이 황리단길 중심,
+//      사전 안내 없음. 배너는 설정 앱 대신 동의 화면을 연다. 설정에서 동의를 바꾸면 구독으로 바로 따라간다.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 navigator.geolocation 블록. 판정은 homeModel.resolveUserLocation.
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, type Href } from 'expo-router';
 import { AppState, Linking } from 'react-native';
+
+import { decideLocationAccess, LOCATION_CONSENT_ROUTE, mayReadPosition } from '~/features/auth/locationAccess';
+import { useLocationConsent } from '~/features/auth/useLocationConsent';
 
 import { REGION } from '@/lib/region';
 
 import { resolveUserLocation, type LocationNotice } from './homeModel';
 
-export type LocationStatus = 'checking' | 'needs-primer' | 'granted' | 'denied';
+/** 'no-consent' — 위치정보 이용 동의가 없다. 화면은 'denied' 와 같이 다루고 배너만 동의 화면을 연다. */
+export type LocationStatus = 'checking' | 'needs-primer' | 'granted' | 'denied' | 'no-consent';
 
 export interface UserLocationState {
   location: { lat: number; lng: number };
@@ -26,11 +33,17 @@ export interface UserLocationState {
   continueFromPrimer: () => void;
   /** 설정 앱으로(거부 배너 · 대략적 위치 배너). */
   openSettings: () => void;
+  /** 동의 화면으로(동의 없음 배너). */
+  openConsent: () => void;
 }
 
 const CENTER: { lat: number; lng: number } = { lat: REGION.center.lat, lng: REGION.center.lng };
 
 export function useUserLocation(): UserLocationState {
+  const router = useRouter();
+  const consent = useLocationConsent();
+  const consentRef = useRef(consent);
+  consentRef.current = consent;
   const [status, setStatus] = useState<LocationStatus>('checking');
   const [location, setLocation] = useState(CENTER);
   const [known, setKnown] = useState(false);
@@ -44,7 +57,8 @@ export function useUserLocation(): UserLocationState {
     readingRef.current = true;
     try {
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      if (!aliveRef.current) return;
+      // 읽는 동안 동의가 철회됐으면 버린다.
+      if (!aliveRef.current || !consentRef.current) return;
       const resolved = resolveUserLocation(position.coords);
       setLocation(resolved.location);
       setKnown(resolved.known);
@@ -57,28 +71,40 @@ export function useUserLocation(): UserLocationState {
     }
   }, []);
 
-  const applyPermission = useCallback(async (permission: Location.LocationPermissionResponse) => {
+  const toCenter = useCallback((next: 'denied' | 'no-consent') => {
+    setStatus(next);
+    setLocation(CENTER);
+    setKnown(false);
+    setNotice(null);
+    setReadFailed(false);
+  }, []);
+
+  const applyPermission = useCallback(async (permission: Location.LocationPermissionResponse | null) => {
     if (!aliveRef.current) return;
-    if (permission.granted) {
+    // 동의는 권한 창이 떠 있는 동안 바뀔 수도 있으니 결과를 받은 뒤 다시 본다.
+    const access = decideLocationAccess(consentRef.current, permission);
+    if (mayReadPosition(access)) {
       setStatus('granted');
       await readPosition();
-    } else if (permission.status === Location.PermissionStatus.UNDETERMINED && permission.canAskAgain) {
+    } else if (access === 'needs-primer') {
       setStatus('needs-primer');
     } else {
-      setStatus('denied');
-      setLocation(CENTER);
-      setKnown(false);
-      setNotice(null);
+      toCenter(access === 'no-consent' ? 'no-consent' : 'denied');
     }
-  }, [readPosition]);
+  }, [readPosition, toCenter]);
 
   const check = useCallback(async () => {
+    // 동의가 없으면 OS 권한을 읽지도 않는다.
+    if (!consentRef.current) {
+      if (aliveRef.current) toCenter('no-consent');
+      return;
+    }
     try {
       await applyPermission(await Location.getForegroundPermissionsAsync());
     } catch {
-      if (aliveRef.current) setStatus('denied');
+      if (aliveRef.current) await applyPermission(null);
     }
-  }, [applyPermission]);
+  }, [applyPermission, toCenter]);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -93,7 +119,22 @@ export function useUserLocation(): UserLocationState {
     };
   }, [check]);
 
+  // 설정에서 동의를 철회·부여하면 다시 판정한다(첫 렌더는 위 효과가 이미 본다).
+  const firstConsentRef = useRef(true);
+  useEffect(() => {
+    if (firstConsentRef.current) {
+      firstConsentRef.current = false;
+      return;
+    }
+    void check();
+  }, [consent, check]);
+
   const continueFromPrimer = useCallback(() => {
+    // 사전 안내는 동의가 있을 때만 뜨지만, 그 사이 철회됐으면 시스템 창을 열지 않는다.
+    if (!consentRef.current) {
+      toCenter('no-consent');
+      return;
+    }
     void (async () => {
       try {
         await applyPermission(await Location.requestForegroundPermissionsAsync());
@@ -101,11 +142,15 @@ export function useUserLocation(): UserLocationState {
         if (aliveRef.current) setStatus('denied');
       }
     })();
-  }, [applyPermission]);
+  }, [applyPermission, toCenter]);
 
   const openSettings = useCallback(() => {
     void Linking.openSettings().catch(() => undefined);
   }, []);
 
-  return { location, known, status, notice, readFailed, continueFromPrimer, openSettings };
+  const openConsent = useCallback(() => {
+    router.push(LOCATION_CONSENT_ROUTE as Href);
+  }, [router]);
+
+  return { location, known, status, notice, readFailed, continueFromPrimer, openSettings, openConsent };
 }

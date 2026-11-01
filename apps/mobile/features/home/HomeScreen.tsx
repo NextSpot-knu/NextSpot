@@ -423,7 +423,8 @@ export function HomeScreen() {
       .filter((s) => s.count > 0);
   }, [selection, loading, error, hasFacilities, recs, category, filtered]);
 
-  const showBanner = !bannerDismissed && (loc.status === 'denied' || loc.notice === 'coarse');
+  // 동의 없음('no-consent')도 거부와 같은 배너 자리 — 누르면 설정 앱 대신 동의 화면.
+  const showBanner = !bannerDismissed && (loc.status === 'denied' || loc.status === 'no-consent' || loc.notice === 'coarse');
 
   const accessibleAnywhere = useMemo(() => facilities.some((f) => isAccessible(f)), [facilities]);
   const strollerAnywhere = useMemo(() => facilities.some((f) => isStrollerFriendly(f)), [facilities]);
@@ -593,8 +594,8 @@ export function HomeScreen() {
         <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
           {showBanner ? (
             <LocationBanner
-              kind={loc.status === 'denied' ? 'denied' : 'coarse'}
-              onOpenSettings={loc.openSettings}
+              kind={loc.status === 'denied' || loc.status === 'no-consent' ? 'denied' : 'coarse'}
+              onOpenSettings={loc.status === 'no-consent' ? loc.openConsent : loc.openSettings}
               onDismiss={() => setBannerDismissed(true)}
             />
           ) : null}

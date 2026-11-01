@@ -3,10 +3,14 @@
 // 주소에 lat/lng 가 있으면(대기 보드·고른 장소) 그 값 그대로. 없으면 expo-location 포그라운드 위치를 쓰되
 // **권한을 새로 묻지 않는다**(이미 허용된 때만 — 사전 안내 없이 시스템 창을 띄우지 않는다). 허용이 없거나 실패하면
 // 지역 중심으로 두고 웹과 같은 안내 토스트를 한 번 띄운다. 서비스 지역 밖이면 지역 중심으로 옮긴다.
+// 위치정보 이용 동의(features/auth/consent)가 없으면 권한을 보지도 않고 '허용 없음'과 똑같이 지역 중심 + 토스트.
+// 동의가 바뀌면(설정에서 철회·부여) 다시 정한다.
 import * as Location from 'expo-location';
 import { useEffect, useRef, useState } from 'react';
 
 import { toast } from '~/components/ui';
+import { decideLocationAccess, mayReadPosition } from '~/features/auth/locationAccess';
+import { useLocationConsent } from '~/features/auth/useLocationConsent';
 import type { TFunc } from '~/lib/i18n/I18nProvider';
 
 import { clampToRegion, initialCoords } from './logic';
@@ -47,6 +51,7 @@ export function useRecommendLocation(params: Pick<RecommendParams, 'lat' | 'lng'
   }));
   const tRef = useRef(t);
   tRef.current = t;
+  const consent = useLocationConsent();
 
   useEffect(() => {
     if (params.lat !== null && params.lng !== null) {
@@ -62,8 +67,10 @@ export function useRecommendLocation(params: Pick<RecommendParams, 'lat' | 'lng'
     };
     void (async () => {
       try {
+        // 동의가 없으면 OS 권한을 읽지 않는다(시스템 창도 없다).
+        if (!consent) return fallback(true);
         const perm = await Location.getForegroundPermissionsAsync();
-        if (!perm.granted) return fallback(true);
+        if (!mayReadPosition(decideLocationAccess(consent, perm))) return fallback(true);
         const pos = await withTimeout(
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
           FIX_TIMEOUT_MS,
@@ -78,7 +85,7 @@ export function useRecommendLocation(params: Pick<RecommendParams, 'lat' | 'lng'
     return () => {
       alive = false;
     };
-  }, [params.lat, params.lng]);
+  }, [params.lat, params.lng, consent]);
 
   return state;
 }

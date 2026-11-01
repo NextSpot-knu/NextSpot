@@ -275,7 +275,7 @@ export function LocationPrimer({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-/** 거부 · 대략적 위치 배너 — 닫을 수 있고, 누르면 설정 앱으로. */
+/** 거부 · 동의 없음 · 대략적 위치 배너 — 닫을 수 있고, 누르면 설정 앱(동의 없음이면 동의 화면)으로. */
 export function LocationBanner({ kind, onOpenSettings, onDismiss }: { kind: 'denied' | 'coarse'; onOpenSettings: () => void; onDismiss: () => void }) {
   const t = useT();
   const message = kind === 'denied' ? t('home.locationBanner.enable') : t('home.locationBanner.coarse');
