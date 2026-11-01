@@ -10,6 +10,7 @@ import { Card, Icon, Pressable, Text, toast } from '~/components/ui';
 import { useT } from '~/lib/i18n/I18nProvider';
 
 import { visibleProviders, type OAuthProvider } from '../accountCore';
+import { router } from 'expo-router';
 import { continueWithProvider, type Profile } from '../actions';
 
 const PROVIDER_LABEL: Record<OAuthProvider, string> = { kakao: 'auth.providerKakao', google: 'auth.providerGoogle' };
@@ -49,9 +50,10 @@ export function AccountSection({ profile }: { profile: Profile }) {
   const onContinue = async (provider: OAuthProvider) => {
     if (busy) return;
     setBusy(true);
-    const { error } = await continueWithProvider(provider);
-    if (error) toast.error(t('auth.linkError'));
+    const { error, delivered } = await continueWithProvider(provider);
     setBusy(false);
+    if (delivered) router.replace('/auth/callback');
+    else if (error) toast.error(t('auth.linkError'));
   };
 
   return (

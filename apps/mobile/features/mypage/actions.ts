@@ -1,13 +1,12 @@
 // 마이페이지의 기기·서버 동작 — 로그아웃 · 계정(게스트 포함) 삭제 · 프로필 읽기·저장 · 구글 계속하기 · 저장 데이터 초기화.
 // 웹 원본: apps/web/app/mypage/page.tsx · settings/page.tsx · components/AccountSection.tsx (기준 커밋 0d145a1).
 // 순서 규칙은 accountCore.ts(테스트 대상), 여기는 앱 모듈(supabase·apiClient·localStorage)에 묶는 얇은 층.
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import type { User } from '@supabase/supabase-js';
 
 import { deleteMyAccount } from '~/lib/core/apiClient';
 import { ensureAnonymousSession } from '~/lib/core/anonymousSession';
-import { captureGuestSession, discardCapturedGuestData } from '~/lib/core/guestMerge';
+import { runOAuthSession } from '~/features/auth/oauthSession';
+import { discardCapturedGuestData } from '~/lib/core/guestMerge';
 import { clearSavedAll } from '~/lib/core/savedFacilities';
 import { createPublicClient } from '~/lib/core/supabase';
 import { clearUserScopedData } from '~/lib/core/userData';
@@ -119,25 +118,14 @@ export async function resetSavedAndPrefs(): Promise<void> {
 }
 
 /**
- * 소셜로 계속하기 — 시스템 브라우저로 프로바이더에 보낸다. 코드 교환은 콜백 라우트(nextspot://auth/callback) 한 곳에서만
- * 한다(계획 §7.2) — 여기서 openAuthSessionAsync 로 URL 을 받아 교환하지 않는다(안드로이드에서 같은 딥링크를 두 번 교환하게 된다).
- * 리다이렉트 전 오류만 반환한다(null = 브라우저로 넘어갔다).
+ * 소셜로 계속하기 — OAuth 는 로그인 화면과 같은 입구(features/auth/oauthSession.runOAuthSession) 하나로만 연다.
+ * 그 입구가 '진행 중 로그인' 기록을 남겨야 콜백 라우트(코드 교환의 유일한 주인)가 결과를 받아들인다(계획 §7.2).
+ * 따로 signInWithOAuth 를 부르면 콜백이 요청하지 않은 링크로 보고 버린다 — socialPolicy.test 가 이 규칙을 지킨다.
+ * delivered = 결과가 들어왔으니 호출부가 /auth/callback 으로 보낸다.
  */
-export async function continueWithProvider(provider: OAuthProvider): Promise<{ error: string | null }> {
-  try {
-    await captureGuestSession();
-    const { data, error } = await createPublicClient().auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: Linking.createURL('auth/callback'), skipBrowserRedirect: true },
-    });
-    if (error || !data?.url) {
-      discardCapturedGuestData();
-      return { error: error?.message ?? 'no url' };
-    }
-    await WebBrowser.openBrowserAsync(data.url);
-    return { error: null };
-  } catch (err) {
-    discardCapturedGuestData();
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
+export async function continueWithProvider(provider: OAuthProvider): Promise<{ error: string | null; delivered: boolean }> {
+  const result = await runOAuthSession(provider, '/mypage');
+  if (result.status === 'delivered') return { error: null, delivered: true };
+  if (result.status === 'error') return { error: result.error, delivered: false };
+  return { error: null, delivered: false };
 }
