@@ -19,7 +19,8 @@
           "kakaomap"
         ],
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": false
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": true
         }
       }
     },

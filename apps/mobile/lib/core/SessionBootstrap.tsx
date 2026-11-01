@@ -11,7 +11,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
 import { ensureAnonymousSession } from './anonymousSession';
-import { mergeCapturedGuestData } from './guestMerge';
+import { discardCapturedGuestData, mergeCapturedGuestData } from './guestMerge';
 import { flushRecommendationOutcomes } from './recommendationOutcomes';
 import { syncSaved } from './savedFacilities';
 import { createHealScheduler } from './sessionHeal';
@@ -61,6 +61,8 @@ export default function SessionBootstrap(): null {
     const { data: authSubscription } = createPublicClient().auth.onAuthStateChange((event, session) => {
       // supabase-js 콜백 안에서 다른 auth 호출을 기다리면 교착할 수 있다 — 한 틱 미룬다(웹과 같다).
       if (event === 'SIGNED_OUT') {
+        // 앱은 합치기 토큰을 1시간 영속한다(웹은 탭 수명) — 로그아웃 뒤 새 게스트 세션에 이전 게스트 데이터가 합쳐지지 않게 버린다.
+        discardCapturedGuestData();
         setTimeout(() => { void ensureThenSync(); }, 0);
       } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         setTimeout(() => { void syncForSession(session); }, 0);
