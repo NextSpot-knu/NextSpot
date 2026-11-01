@@ -12,6 +12,11 @@
       "bundleIdentifier": "kr.nextspot.app",
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "kakaomap"
+        ]
       }
     },
     "android": {
@@ -48,7 +53,8 @@
       ],
       "expo-sqlite",
       "expo-image",
-      "expo-localization"
+      "expo-localization",
+      "./plugins/withAndroidQueries"
     ],
     "experiments": {
       "typedRoutes": true

@@ -78,6 +78,8 @@ while (queue.length) {
   if (file.endsWith('.tsx')) problems.push(`${rel}: .tsx(웹 UI) 는 공유하지 않는다`);
   if (file.endsWith('.test.ts')) problems.push(`${rel}: 테스트 파일을 import 한다`);
   const text = readFileSync(file, 'utf8');
+  // JSON(문구 데이터)은 코드가 아니다 — 'document.' 같은 영어 문장이 걸리지 않게 본문 검사와 import 추적을 건너뛴다.
+  if (file.endsWith('.json')) continue;
   stripComments(text).split('\n').forEach((line, i) => {
     for (const [re, why] of FORBIDDEN) if (re.test(line)) problems.push(`${rel}:${i + 1}: ${why}`);
   });
