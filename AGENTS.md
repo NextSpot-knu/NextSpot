@@ -135,7 +135,7 @@ node scripts/check-docs.mjs             # 문서 트리 규칙 (3초)
 - `main` = 프로덕션(Vercel·Render 자동 배포 + cron 발화 조건). 각자 브랜치에서 작업 → 게이트 통과 →
   fast-forward `git push origin <내-브랜치>:main`.
 - 커밋 메시지: `type(scope): 한 줄`(한국어). type은 `feat fix perf refactor test docs chore ci`, scope는
-  `web api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
+  `web mobile api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
   본문에는 "무엇"보다 **"왜"**를 쓴다. 작성자는 사람 본인의 git identity, AI는 `Co-Authored-By` 트레일러.
 - main에 올리기 전: 게이트 전부 green → HANDOVER 세션 항목 추가 + "배포 상태"에 main 갱신 날짜·커밋 범위 기록 → 푸시.
   Vercel·Render에 실제로 떴는지는 사람이 확인하고 확인 날짜를 적는다. 진행분은 즉시 커밋·푸시로 유실 방지.
