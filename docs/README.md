@@ -20,6 +20,7 @@
 | [`../README.md`](../README.md) | 프로젝트 소개 · 공모전 서사 · 기술 스택 (외부 독자용) |
 | [`../AGENTS.md`](../AGENTS.md) | 사람·에이전트 규칙 정본 (게이트 · 가드레일 · 파일 위치 · 세션 프로토콜) |
 | [`../apps/web/AGENTS.md`](../apps/web/AGENTS.md) | 웹 하위 규칙 (빌드 · i18n · 스타일 · 폴더) |
+| [`../apps/mobile/AGENTS.md`](../apps/mobile/AGENTS.md) | 모바일 앱 하위 규칙 (Expo · 웹 공유 모듈 · WebView 금지 · 검증) — 다시 쓴 파일의 원본은 [`../apps/mobile/PORTING.md`](../apps/mobile/PORTING.md) |
 | [`../apps/api/README.md`](../apps/api/README.md) | API 실행 · 계층 · 주요 엔드포인트 · 수집 활성화 절차 |
 | [`../apps/web/e2e/README.md`](../apps/web/e2e/README.md) | Playwright e2e 범위 |
 
