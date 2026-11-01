@@ -383,7 +383,7 @@ export function HomeScreen() {
   }, [focusOn]);
 
   const onFestivalFocus = useCallback((ev: FestivalEvent) => {
-    const focus = festivalFocus(ev, t('home.festivalAreaLabel', { title: ev.title }), `🏮 ${ev.title}`);
+    const focus = festivalFocus(ev, t('app.home.festivalAreaLabel', { title: ev.title }), `🏮 ${ev.title}`);
     if (!focus) return;
     setSelection(null);
     setActiveGroup(null);

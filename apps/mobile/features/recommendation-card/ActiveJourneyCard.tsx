@@ -33,7 +33,7 @@ import {
   tripEvents,
   type ActiveTrip,
 } from './tripLoop';
-import { useCardT } from './useCardT';
+import { useT } from '~/lib/i18n/I18nProvider';
 
 export interface ActiveJourneyCardProps {
   /** 내 위치(없으면 이 카드는 재계획을 못 한다 — 길안내 다시 열기 · 도착은 그대로). 홈이 넘긴다. */
@@ -49,7 +49,7 @@ export interface ActiveJourneyCardProps {
  * 웹 components/main/ActiveJourneyCard.tsx(기준 커밋 0d145a1). 저장소·이벤트는 tripLoop, 판정은 journeyCore.
  */
 export function ActiveJourneyCard({ location, className, onArrived }: ActiveJourneyCardProps) {
-  const { t } = useCardT();
+  const t = useT();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);

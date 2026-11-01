@@ -69,7 +69,7 @@ export function SearchPanel({ query, local, external, onPickLocal, onViewPlace, 
         ) : null}
         {local.length > 0 ? (
           <View>
-            <PanelTitle title={t('home.searchLocalTitle')} />
+            <PanelTitle title={t('app.home.searchLocalTitle')} />
             {local.map(({ facility, distM }) => (
               <Pressable
                 key={facility.id}
@@ -267,9 +267,9 @@ export function LocationPrimer({ onContinue }: { onContinue: () => void }) {
     <View className="absolute inset-0 items-center justify-center bg-muk/35 px-[24px]" accessibilityViewIsModal>
       <Card elevation="surface" className="w-full max-w-[360px] items-center gap-[12px]">
         <Text className="text-[34px]" accessibilityElementsHidden>📍</Text>
-        <Text className="text-center text-[18px]" weight="bold" accessibilityRole="header">{t('home.locationPrimer.title')}</Text>
-        <Text className="text-center text-[14px] leading-[21px] text-muk-soft">{t('home.locationPrimer.body')}</Text>
-        <Button block variant="primary" label={t('home.locationPrimer.continue')} onPress={onContinue} />
+        <Text className="text-center text-[18px]" weight="bold" accessibilityRole="header">{t('app.home.locationPrimer.title')}</Text>
+        <Text className="text-center text-[14px] leading-[21px] text-muk-soft">{t('app.home.locationPrimer.body')}</Text>
+        <Button block variant="primary" label={t('app.home.locationPrimer.continue')} onPress={onContinue} />
       </Card>
     </View>
   );
@@ -278,7 +278,7 @@ export function LocationPrimer({ onContinue }: { onContinue: () => void }) {
 /** 거부 · 동의 없음 · 대략적 위치 배너 — 닫을 수 있고, 누르면 설정 앱(동의 없음이면 동의 화면)으로. */
 export function LocationBanner({ kind, onOpenSettings, onDismiss }: { kind: 'denied' | 'coarse'; onOpenSettings: () => void; onDismiss: () => void }) {
   const t = useT();
-  const message = kind === 'denied' ? t('home.locationBanner.enable') : t('home.locationBanner.coarse');
+  const message = kind === 'denied' ? t('app.home.locationBanner.enable') : t('app.home.locationBanner.coarse');
   return (
     <Card padded={false} className="flex-row items-center gap-[4px] pl-[14px] pr-[4px]" elevation="surface">
       <Pressable

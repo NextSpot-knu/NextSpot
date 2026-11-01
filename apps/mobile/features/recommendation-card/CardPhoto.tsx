@@ -11,7 +11,7 @@ import { colors } from '~/lib/theme/tokens';
 
 import type { CardModel } from './cardModel';
 import { hidePhoto, reportPhoto } from './photoSafety';
-import { useCardT } from './useCardT';
+import { useT } from '~/lib/i18n/I18nProvider';
 
 const GLYPH = { restaurant: Utensils, cafe: Coffee, attraction: Mountain, culture: Landmark, default: MapPin } as const;
 
@@ -32,7 +32,7 @@ export function CardPhoto({
   onHidden: (url: string) => void;
   height?: number;
 }) {
-  const { t } = useCardT();
+  const t = useT();
   const [index, setIndex] = useState(0);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -52,15 +52,15 @@ export function CardPhoto({
 
   const confirmReport = useCallback(() => {
     if (!raw) return;
-    Alert.alert(t('cardSheet.photoReportTitle'), t('cardSheet.photoReportBody'), [
+    Alert.alert(t('app.cardSheet.photoReportTitle'), t('app.cardSheet.photoReportBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
-        text: t('cardSheet.photoReportSend'),
+        text: t('app.cardSheet.photoReportSend'),
         style: 'destructive',
         onPress: () => {
           void reportPhoto(createPublicClient(), { facilityId: model.id, facilityName, photoUrl: raw }).then((ok) => {
-            if (ok) toast.success(t('cardSheet.photoReported'));
-            else toast.error(t('cardSheet.photoReportFailed'));
+            if (ok) toast.success(t('app.cardSheet.photoReported'));
+            else toast.error(t('app.cardSheet.photoReportFailed'));
           });
           setMenuOpen(false);
         },
@@ -73,7 +73,7 @@ export function CardPhoto({
     hidePhoto(raw);
     setMenuOpen(false);
     onHidden(raw);
-    toast(t('cardSheet.photoHidden'));
+    toast(t('app.cardSheet.photoHidden'));
   }, [raw, onHidden, t]);
 
   return (
@@ -120,7 +120,7 @@ export function CardPhoto({
           <View className="absolute right-[4px] top-[4px]">
             <IconButton
               icon={MoreHorizontal}
-              accessibilityLabel={t('cardSheet.photoMenu')}
+              accessibilityLabel={t('app.cardSheet.photoMenu')}
               accessibilityState={{ expanded: menuOpen }}
               onPress={() => setMenuOpen((v) => !v)}
               className="rounded-full bg-white/90"
@@ -133,21 +133,21 @@ export function CardPhoto({
         <View className="mt-[6px] flex-row gap-[8px]">
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('cardSheet.photoReport')}
+            accessibilityLabel={t('app.cardSheet.photoReport')}
             onPress={confirmReport}
             className="min-h-[44px] flex-1 flex-row items-center justify-center gap-[6px] rounded-2xl border border-line bg-white px-[8px]"
           >
             <Icon icon={Flag} size="sm" color="terracotta" />
-            <Text className="text-[13px] leading-[16px] text-terracotta" weight="bold">{t('cardSheet.photoReport')}</Text>
+            <Text className="text-[13px] leading-[16px] text-terracotta" weight="bold">{t('app.cardSheet.photoReport')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('cardSheet.photoHide')}
+            accessibilityLabel={t('app.cardSheet.photoHide')}
             onPress={hide}
             className="min-h-[44px] flex-1 flex-row items-center justify-center gap-[6px] rounded-2xl border border-line bg-white px-[8px]"
           >
             <Icon icon={EyeOff} size="sm" color="muk-soft" />
-            <Text className="text-[13px] leading-[16px] text-muk-soft" weight="bold">{t('cardSheet.photoHide')}</Text>
+            <Text className="text-[13px] leading-[16px] text-muk-soft" weight="bold">{t('app.cardSheet.photoHide')}</Text>
           </Pressable>
         </View>
       )}

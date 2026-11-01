@@ -6,7 +6,7 @@ import { Icon, Text } from '~/components/ui';
 import { apiClient } from '~/lib/core/apiClient';
 import { colors } from '~/lib/theme/tokens';
 
-import { useCardT } from './useCardT';
+import { useT } from '~/lib/i18n/I18nProvider';
 
 interface GoldenHour {
   available: boolean;
@@ -19,7 +19,7 @@ interface GoldenHour {
  * 백엔드 미기동·실패·모델 미학습은 조용히 숨긴다.
  */
 export function GoldenHourLine({ facilityId }: { facilityId: string }) {
-  const { t } = useCardT();
+  const t = useT();
   const [data, setData] = useState<GoldenHour | null>(null);
   useEffect(() => {
     let active = true;
@@ -63,7 +63,7 @@ interface DayPrediction {
 
 /** 오늘 24시간 예측 막대 — 상세를 펼쳤을 때만 불러온다. 실패는 조용히 숨긴다. */
 export function DayForecast({ facilityType, enabled }: { facilityType: string; enabled: boolean }) {
-  const { t } = useCardT();
+  const t = useT();
   const [pred, setPred] = useState<DayPrediction | null>(null);
   useEffect(() => {
     if (!enabled || !facilityType) return;

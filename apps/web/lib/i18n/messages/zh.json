@@ -1639,5 +1639,95 @@
     "learnHint": "在推荐卡片上点“现在就去”使用导航会立即更新这份档案；“不再显示”要在你于我的实验室说明原因后才会更新。",
     "detailsToggle": "详情",
     "detailsBody": "从推荐卡片使用导航（接受）会立即按+10%调整8个口味维度；“不再显示”（拒绝）要在你于我的实验室说明是口味原因后才按−5%调整。"
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "使用 Google 或 Kakao 注册的账号暂时无法在 iOS 应用中登录。请使用邮箱账号或以访客身份使用。",
+      "resetOpensOnWeb": "邮件中的链接会在网页浏览器中打开。请在网页上设置新密码，然后用该密码登录应用。"
+    },
+    "consent": {
+      "title": "同意使用位置信息",
+      "lead": "NextSpot 使用位置信息为您推荐附近人少的地方。请阅读以下内容并选择是否同意。",
+      "purposeTitle": "使用目的",
+      "purposeBody": "用于推荐您附近人少的地方、计算步行时间，以及确认您是否在庆州。",
+      "whenTitle": "使用时机",
+      "whenBody": "仅在打开首页、替代推荐或路线页面时读取一次。应用在后台时不会读取位置。",
+      "retentionTitle": "记录与保存",
+      "retentionBody": "处理推荐请求时，位置和距离数值可能会保留在记录中。保存期限和处理方式请参阅隐私政策。",
+      "declineTitle": "如果不同意",
+      "declineBody": "我们不会使用您的位置，将以皇理团路为中心进行推荐。之后可在“我的”设置中更改。",
+      "ageConfirm": "我已满 14 周岁",
+      "ageHint": "未满 14 周岁需要法定监护人同意，因此应用无法接受其位置信息使用同意。请点按“不同意”。",
+      "agree": "同意",
+      "decline": "不同意",
+      "saveFailed": "无法保存您的选择。将在不使用位置的情况下继续。"
+    },
+    "intro": {
+      "languageLabel": "语言",
+      "faq1Q": "需要注册才能使用吗？",
+      "faq1A": "不需要。无需登录即可直接使用。注册后，收藏的地点和偏好可以在其他设备上继续使用。"
+    },
+    "course": {
+      "emptyBody": "再多选一种类型，或放宽步行时间、行程时间，就能马上为你生成路线。",
+      "slotLateNight": "时间较晚，难以确认营业情况。白天再来查看，餐厅和咖啡馆的选择会更多。",
+      "reorderHint": "长按并拖动即可调整顺序",
+      "moveEarlier": "将{type}前移",
+      "moveLater": "将{type}后移"
+    },
+    "home": {
+      "searchLocalTitle": "NextSpot 地点搜索结果",
+      "locationPrimer": {
+        "title": "为你寻找附近人少的地方",
+        "body": "允许定位后，我们会优先显示你当前位置步行可到的空闲地点。不允许也会以皇理团路为中心推荐。",
+        "continue": "继续"
+      },
+      "locationBanner": {
+        "enable": "开启附近推荐",
+        "coarse": "开启精确定位可找到更近的地点"
+      },
+      "festivalAreaLabel": "🏮 {title} 一带"
+    },
+    "mypage": {
+      "openOnWeb": "在网页中打开",
+      "privacyWebLink": "在网页中查看全文",
+      "deleteDataTitle": "删除我的数据",
+      "deleteDataDesc": "将从服务器永久删除已收藏的地点以及推荐和到访记录，并清除本设备上的数据。",
+      "deleteData": "永久删除我的数据",
+      "deleteDataConfirm": "要永久删除您的数据吗？",
+      "deleteDataConfirmDesc": "已收藏的地点以及推荐和到访记录将从服务器上一并删除，且无法恢复。删除后将以新的游客身份重新开始。",
+      "deleteDataAction": "删除",
+      "deleteDataSuccess": "已删除您的数据",
+      "deleteDataFailed": "删除失败，请稍后再试。"
+    },
+    "cardSheet": {
+      "handle": "调整推荐卡片高度",
+      "state": {
+        "minimized": "预览",
+        "normal": "标准",
+        "expanded": "展开"
+      },
+      "emptyTitle": "目前没有可推荐的地点",
+      "photoMenu": "照片选项",
+      "photoReport": "举报照片",
+      "photoReportTitle": "要举报这张照片吗？",
+      "photoReportBody": "如果这张照片不适当或与店铺无关，请告诉我们。我们会核实并下架。",
+      "photoReportSend": "举报",
+      "photoReported": "已举报，我们会核实处理。",
+      "photoReportFailed": "暂时无法提交举报，请稍后再试。",
+      "photoHide": "隐藏这张照片",
+      "photoHidden": "已隐藏这张照片。"
+    },
+    "settings": {
+      "locationConsentTitle": "位置信息使用同意",
+      "locationConsentDesc": "同意后，首页、替代推荐和路线会优先推荐您附近的地方。不同意时以皇理团路为中心推荐。",
+      "locationConsentGranted": "已同意",
+      "locationConsentDeclined": "未同意",
+      "locationConsentNone": "尚未选择",
+      "locationConsentWithdraw": "撤回同意",
+      "locationConsentGive": "前往同意",
+      "locationConsentWithdrawConfirm": "要撤回位置信息使用同意吗？",
+      "locationConsentWithdrawConfirmDesc": "撤回后将不再读取您的位置，并以皇理团路为中心推荐。您可以随时重新同意。",
+      "locationConsentWithdrawn": "已撤回同意，将不再使用您的位置。"
+    }
   }
 }

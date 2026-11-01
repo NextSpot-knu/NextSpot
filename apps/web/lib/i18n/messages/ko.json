@@ -1639,5 +1639,95 @@
     "learnHint": "추천 카드에서 '바로 갈래요'로 길안내를 받으면 바로 반영되고, '다시 안볼래요'는 나의 실험실에서 이유를 알려 주시면 반영돼요.",
     "detailsToggle": "자세히",
     "detailsBody": "추천 카드에서 길안내를 받으면(수락) 바로 +10%, '다시 안볼래요'(거절)는 나의 실험실에서 취향 때문이라고 알려 주시면 −5%만큼 8가지 취향 축이 조정돼요."
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "구글·카카오로 가입한 계정은 아직 iOS 앱에서 로그인할 수 없어요. 이메일 계정이나 게스트로 이용해 주세요.",
+      "resetOpensOnWeb": "메일의 링크는 웹 브라우저에서 열려요. 새 비밀번호는 웹에서 정한 뒤, 앱에서 그 비밀번호로 로그인해 주세요."
+    },
+    "consent": {
+      "title": "위치정보 이용 동의",
+      "lead": "NextSpot은 지금 있는 곳 근처에서 덜 붐비는 곳을 추천하려고 위치정보를 이용해요. 아래 내용을 읽고 동의 여부를 골라 주세요.",
+      "purposeTitle": "이용 목적",
+      "purposeBody": "지금 있는 곳 근처의 한산한 장소 추천, 걸어서 가는 시간 계산, 경주 안에 있는지 확인에 써요.",
+      "whenTitle": "이용 시점",
+      "whenBody": "홈·대안 추천·코스 화면을 열 때 한 번씩 읽어요. 앱을 쓰지 않을 때(백그라운드)는 위치를 읽지 않아요.",
+      "retentionTitle": "기록과 보관",
+      "retentionBody": "추천 요청을 처리하면서 위치와 거리 값이 기록에 남을 수 있어요. 보관 기간과 처리 방법은 개인정보 처리방침에서 안내해요.",
+      "declineTitle": "동의하지 않으면",
+      "declineBody": "위치를 쓰지 않고 황리단길 중심으로 추천해요. 나중에 마이페이지 설정에서 바꿀 수 있어요.",
+      "ageConfirm": "만 14세 이상이에요",
+      "ageHint": "만 14세 미만은 법정대리인의 동의가 필요해 앱에서 위치정보 이용 동의를 받을 수 없어요. '동의 안 함'을 눌러 주세요.",
+      "agree": "동의",
+      "decline": "동의 안 함",
+      "saveFailed": "선택을 저장하지 못했어요. 위치 없이 계속해요."
+    },
+    "intro": {
+      "languageLabel": "언어",
+      "faq1Q": "가입해야 쓸 수 있나요?",
+      "faq1A": "아니요. 로그인 없이 바로 쓸 수 있어요. 가입하면 다른 기기에서도 저장한 곳과 취향이 이어져요."
+    },
+    "course": {
+      "emptyBody": "종류를 하나 더 고르거나 도보 시간·여행 시간을 넓히면 바로 코스를 만들어 드려요.",
+      "slotLateNight": "늦은 시간이라 영업 확인이 어려워요. 낮 시간대에 다시 찾으면 식당·카페 선택지가 넓어져요.",
+      "reorderHint": "길게 눌러 끌면 순서를 바꿀 수 있어요",
+      "moveEarlier": "{type} 앞으로 옮기기",
+      "moveLater": "{type} 뒤로 옮기기"
+    },
+    "home": {
+      "searchLocalTitle": "NextSpot 장소 검색 결과",
+      "locationPrimer": {
+        "title": "내 주변에서 덜 붐비는 곳을 찾을게요",
+        "body": "위치를 허용하면 지금 있는 곳에서 걸어갈 수 있는 한산한 장소를 먼저 보여 드려요. 허용하지 않아도 황리단길 중심으로 추천해요.",
+        "continue": "계속"
+      },
+      "locationBanner": {
+        "enable": "내 주변 추천 켜기",
+        "coarse": "정확한 위치를 켜면 더 가까운 곳을 찾아요"
+      },
+      "festivalAreaLabel": "🏮 {title} 일원"
+    },
+    "mypage": {
+      "openOnWeb": "웹에서 열기",
+      "privacyWebLink": "웹에서 전체 안내 보기",
+      "deleteDataTitle": "내 데이터 삭제",
+      "deleteDataDesc": "저장 장소와 추천·방문 기록을 서버에서도 영구 삭제하고, 이 기기의 데이터도 지워요.",
+      "deleteData": "내 데이터 영구 삭제",
+      "deleteDataConfirm": "내 데이터를 영구 삭제할까요?",
+      "deleteDataConfirmDesc": "저장 장소와 추천·방문 기록이 서버에서도 지워지고 되돌릴 수 없어요. 지운 뒤에는 새 게스트로 시작해요.",
+      "deleteDataAction": "삭제",
+      "deleteDataSuccess": "내 데이터를 삭제했어요",
+      "deleteDataFailed": "삭제하지 못했어요. 잠시 후 다시 시도해 주세요"
+    },
+    "cardSheet": {
+      "handle": "추천 카드 높이 조절",
+      "state": {
+        "minimized": "미리보기",
+        "normal": "기본",
+        "expanded": "펼침"
+      },
+      "emptyTitle": "지금은 추천할 곳이 없어요",
+      "photoMenu": "사진 메뉴",
+      "photoReport": "사진 신고",
+      "photoReportTitle": "이 사진을 신고할까요?",
+      "photoReportBody": "부적절하거나 가게와 관계없는 사진이면 알려 주세요. 확인 후 내릴게요.",
+      "photoReportSend": "신고하기",
+      "photoReported": "신고했어요. 확인 후 조치할게요.",
+      "photoReportFailed": "지금은 신고를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.",
+      "photoHide": "이 사진 숨기기",
+      "photoHidden": "이 사진을 숨겼어요."
+    },
+    "settings": {
+      "locationConsentTitle": "위치정보 이용 동의",
+      "locationConsentDesc": "동의하면 홈·대안 추천·코스에서 지금 있는 곳 근처를 먼저 추천해요. 동의하지 않으면 황리단길 중심으로 추천해요.",
+      "locationConsentGranted": "동의함",
+      "locationConsentDeclined": "동의하지 않음",
+      "locationConsentNone": "아직 고르지 않았어요",
+      "locationConsentWithdraw": "동의 철회",
+      "locationConsentGive": "동의하기",
+      "locationConsentWithdrawConfirm": "위치정보 이용 동의를 철회할까요?",
+      "locationConsentWithdrawConfirmDesc": "철회하면 위치를 읽지 않고 황리단길 중심으로 추천해요. 언제든 다시 동의할 수 있어요.",
+      "locationConsentWithdrawn": "동의를 철회했어요. 이제 위치를 쓰지 않아요."
+    }
   }
 }

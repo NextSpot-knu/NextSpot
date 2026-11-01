@@ -9,7 +9,7 @@ import { trackEvent } from '~/lib/platform/analytics';
 import { colors } from '~/lib/theme/tokens';
 
 import { congestionReportErrorKey, rewardBadge, type ReportLevel } from './reportCore';
-import { useCardT } from './useCardT';
+import { useT } from '~/lib/i18n/I18nProvider';
 
 const OPTIONS: { value: ReportLevel; emoji: string; labelKey: string; descKey: string; active: string }[] = [
   { value: '한산', emoji: '🍃', labelKey: 'congestion.quiet', descKey: 'report.quietDesc', active: 'border-jade bg-jade/10' },
@@ -31,7 +31,7 @@ export function CongestionReportButton({
   isFirst?: boolean;
   onReported?: (level: ReportLevel) => void;
 }) {
-  const { t } = useCardT();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ReportLevel | null>(null);
   const [submitting, setSubmitting] = useState(false);

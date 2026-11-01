@@ -1639,5 +1639,95 @@
     "learnHint": "Getting directions with “Let's go” on a recommendation updates this profile right away. “Don't show again” counts once you tell us why in My Lab.",
     "detailsToggle": "Details",
     "detailsBody": "Directions from a recommendation (accept) adjust all 8 taste axes by +10% right away. “Don't show again” (reject) adjusts them by −5% once you tell us in My Lab that it was about your taste."
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "Accounts created with Google or Kakao can't sign in on the iOS app yet. Please use an email account or continue as a guest.",
+      "resetOpensOnWeb": "The link in the email opens in your web browser. Set your new password there, then sign in to the app with it."
+    },
+    "consent": {
+      "title": "Consent to use location information",
+      "lead": "NextSpot uses your location to recommend less crowded places near you. Please read the details below and choose whether to agree.",
+      "purposeTitle": "Purpose",
+      "purposeBody": "To recommend quiet places near you, estimate walking times, and check whether you are in Gyeongju.",
+      "whenTitle": "When it is used",
+      "whenBody": "Your location is read once when you open Home, Alternatives, or Course. It is not read while the app is in the background.",
+      "retentionTitle": "Records and retention",
+      "retentionBody": "Location and distance values may remain in records while we process recommendation requests. Retention periods and handling are described in the privacy policy.",
+      "declineTitle": "If you don't agree",
+      "declineBody": "We won't use your location and will recommend places around Hwangnidan-gil instead. You can change this later in My Page settings.",
+      "ageConfirm": "I am 14 years of age or older",
+      "ageHint": "Users under 14 need a legal guardian's consent, so the app can't accept location consent from them. Please tap \"Don't agree\".",
+      "agree": "Agree",
+      "decline": "Don't agree",
+      "saveFailed": "We couldn't save your choice. Continuing without location."
+    },
+    "intro": {
+      "languageLabel": "Language",
+      "faq1Q": "Do I need to sign up?",
+      "faq1A": "No. You can start right away without signing in. If you sign up, your saved places and preferences carry over to other devices."
+    },
+    "course": {
+      "emptyBody": "Pick one more type, or widen your walking or trip time, and we'll build a course right away.",
+      "slotLateNight": "Opening hours are hard to confirm this late. Try again during the day for more restaurant and cafe options.",
+      "reorderHint": "Press and hold, then drag to reorder",
+      "moveEarlier": "Move {type} earlier",
+      "moveLater": "Move {type} later"
+    },
+    "home": {
+      "searchLocalTitle": "Places in NextSpot",
+      "locationPrimer": {
+        "title": "We'll find less crowded places near you",
+        "body": "If you allow location, we'll show quiet places you can walk to from where you are. If you don't, we'll recommend around Hwangnidan-gil.",
+        "continue": "Continue"
+      },
+      "locationBanner": {
+        "enable": "Turn on nearby recommendations",
+        "coarse": "Turn on precise location to find closer places"
+      },
+      "festivalAreaLabel": "🏮 {title} area"
+    },
+    "mypage": {
+      "openOnWeb": "Open on the web",
+      "privacyWebLink": "View the full notice on the web",
+      "deleteDataTitle": "Delete my data",
+      "deleteDataDesc": "Permanently deletes your saved places and recommendation and visit history from our server, and clears this device's data.",
+      "deleteData": "Permanently delete my data",
+      "deleteDataConfirm": "Permanently delete your data?",
+      "deleteDataConfirmDesc": "Your saved places and recommendation and visit history will be erased from our server and this cannot be undone. You'll start over as a new guest.",
+      "deleteDataAction": "Delete",
+      "deleteDataSuccess": "Your data has been deleted",
+      "deleteDataFailed": "Couldn't delete your data. Please try again in a moment."
+    },
+    "cardSheet": {
+      "handle": "Adjust recommendation card height",
+      "state": {
+        "minimized": "Preview",
+        "normal": "Default",
+        "expanded": "Expanded"
+      },
+      "emptyTitle": "No places to recommend right now",
+      "photoMenu": "Photo options",
+      "photoReport": "Report photo",
+      "photoReportTitle": "Report this photo?",
+      "photoReportBody": "Tell us if this photo is inappropriate or unrelated to the place. We will review it and take it down if needed.",
+      "photoReportSend": "Report",
+      "photoReported": "Reported. We will review it.",
+      "photoReportFailed": "Could not send the report right now. Please try again shortly.",
+      "photoHide": "Hide this photo",
+      "photoHidden": "Photo hidden."
+    },
+    "settings": {
+      "locationConsentTitle": "Location information consent",
+      "locationConsentDesc": "With your consent, Home, alternatives and courses recommend places near you first. Without it, recommendations are based around Hwangnidan-gil.",
+      "locationConsentGranted": "Consented",
+      "locationConsentDeclined": "Not consented",
+      "locationConsentNone": "Not chosen yet",
+      "locationConsentWithdraw": "Withdraw consent",
+      "locationConsentGive": "Give consent",
+      "locationConsentWithdrawConfirm": "Withdraw consent to use location information?",
+      "locationConsentWithdrawConfirmDesc": "After withdrawing, NextSpot won't read your location and will recommend places around Hwangnidan-gil. You can consent again at any time.",
+      "locationConsentWithdrawn": "Consent withdrawn. NextSpot no longer uses your location."
+    }
   }
 }

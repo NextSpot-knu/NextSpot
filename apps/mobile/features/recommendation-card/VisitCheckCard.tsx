@@ -26,7 +26,7 @@ import {
   type PendingVisit,
   type VisitStage,
 } from './tripLoop';
-import { useCardT } from './useCardT';
+import { useT } from '~/lib/i18n/I18nProvider';
 
 export interface VisitCheckCardProps {
   className?: string;
@@ -47,7 +47,7 @@ const CONGESTION: readonly [ObservedCongestion, string, string][] = [
  * 안내 문구가 다르다(웹과 같은 규칙). 단계 판정·저장은 tripLoop.
  */
 export function VisitCheckCard({ className, onOpenCoupons }: VisitCheckCardProps) {
-  const { t } = useCardT();
+  const t = useT();
   const { account } = useAccount();
   const isGuest = isGuestAccount(account);
   const asksCrowd = true; // 앱 v1 은 경주만 — 혼잡 제보가 켜진 지역

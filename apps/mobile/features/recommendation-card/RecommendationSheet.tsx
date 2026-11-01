@@ -52,7 +52,7 @@ import { CongestionReportButton } from './CongestionReportButton';
 import { DayForecast, GoldenHourLine } from './Extras';
 import { hoursAnswerNotRecorded, type ReportLevel } from './reportCore';
 import { loadHiddenPhotos } from './photoSafety';
-import { useCardT } from './useCardT';
+import { useI18n, useT } from '~/lib/i18n/I18nProvider';
 import { localReportLevel } from './tripLoop';
 import type { CompareAnchor, SheetCandidate } from './types';
 
@@ -99,13 +99,13 @@ const SNAPS = ['27%', '52%', '90%'] as const;
 
 export function RecommendationSheet(props: RecommendationSheetProps) {
   const { selected, status = 'ready', openAs = 'minimized', bottomInset = 0 } = props;
-  const { t } = useCardT();
+  const t = useT();
   const [sheetState, setSheetState] = useState<SheetState>(openAs);
   const stateLabels = useMemo(
     () => ({
-      minimized: t('cardSheet.state.minimized'),
-      normal: t('cardSheet.state.normal'),
-      expanded: t('cardSheet.state.expanded'),
+      minimized: t('app.cardSheet.state.minimized'),
+      normal: t('app.cardSheet.state.normal'),
+      expanded: t('app.cardSheet.state.expanded'),
     }),
     [t],
   );
@@ -125,7 +125,7 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
       snapPoints={SNAPS}
       state={sheetState}
       onStateChange={setSheetState}
-      handleLabel={t('cardSheet.handle')}
+      handleLabel={t('app.cardSheet.handle')}
       stateLabels={stateLabels}
       bottomInset={bottomInset}
     >
@@ -142,7 +142,7 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
           ) : status === 'error' ? (
             <ErrorState message={t('recommend.loadFailed')} onRetry={props.onRetry ?? (() => undefined)} retryLabel={t('common.retry')} />
           ) : (
-            <EmptyState emoji="🧭" title={t('cardSheet.emptyTitle')} description={t('map.noRecBody')} />
+            <EmptyState emoji="🧭" title={t('app.cardSheet.emptyTitle')} description={t('map.noRecBody')} />
           )}
         </SheetView>
       )}
@@ -158,7 +158,7 @@ function CardBody(
   },
 ) {
   const { selected: c, candidates, sheetState, setSheetState } = props;
-  const { t, locale } = useCardT();
+  const { t, locale } = useI18n();
   const busyAt = useBusyThreshold();
   const f = c.facility;
   const [now, setNow] = useState<Date | null>(null);
@@ -579,7 +579,7 @@ function CardBody(
 }
 
 function ValueBox({ model, now }: { model: CardModel; now: Date | null }) {
-  const { t } = useCardT();
+  const t = useT();
   return (
     <View className="rounded-2xl border border-terracotta/25 bg-terracotta/10 px-[12px] py-[8px]">
       <View className="flex-row flex-wrap items-center gap-x-[8px] gap-y-[4px]">
@@ -628,7 +628,7 @@ function HoursPrompt({
   onAnswer: (s: 'open' | 'closed') => void;
   onUnsure: () => void;
 }) {
-  const { t } = useCardT();
+  const t = useT();
   return (
     <View accessibilityRole="none" accessibilityLabel={t('card.hoursCheckQuestion')} className="rounded-2xl border border-gold/30 bg-gold/10 p-[12px]">
       <Text className="text-[13px] leading-[18px]" weight="extrabold">{t('card.hoursCheckQuestion')}</Text>

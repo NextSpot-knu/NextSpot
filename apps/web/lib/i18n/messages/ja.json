@@ -1639,5 +1639,95 @@
     "learnHint": "おすすめカードの「今すぐ行く」で道案内を受けるとすぐに反映され、「もう表示しない」はマイラボで理由を教えていただくと反映されます。",
     "detailsToggle": "詳しく",
     "detailsBody": "おすすめカードから道案内を受けると（受け入れ）すぐに+10%、「もう表示しない」（拒否）はマイラボで好みが理由だと教えていただくと−5%、8つの好みの軸が調整されます。"
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "Google・Kakaoで登録したアカウントは、まだiOSアプリでログインできません。メールアカウントまたはゲストでご利用ください。",
+      "resetOpensOnWeb": "メールのリンクはウェブブラウザで開きます。ウェブで新しいパスワードを設定してから、アプリでそのパスワードでログインしてください。"
+    },
+    "consent": {
+      "title": "位置情報の利用への同意",
+      "lead": "NextSpotは、今いる場所の近くで混雑の少ない場所をおすすめするために位置情報を利用します。以下の内容をお読みのうえ、同意するかどうかを選んでください。",
+      "purposeTitle": "利用目的",
+      "purposeBody": "近くの空いている場所のおすすめ、徒歩での所要時間の計算、慶州市内にいるかどうかの確認に使います。",
+      "whenTitle": "利用するタイミング",
+      "whenBody": "ホーム・代わりのおすすめ・コース画面を開いたときに一度ずつ読み取ります。アプリを使っていないとき（バックグラウンド）は読み取りません。",
+      "retentionTitle": "記録と保管",
+      "retentionBody": "おすすめのリクエストを処理する際、位置と距離の値が記録に残ることがあります。保管期間と取り扱いはプライバシーポリシーでご案内します。",
+      "declineTitle": "同意しない場合",
+      "declineBody": "位置情報を使わず、皇理団通りを中心におすすめします。あとからマイページの設定で変更できます。",
+      "ageConfirm": "満14歳以上です",
+      "ageHint": "満14歳未満の方は法定代理人の同意が必要なため、アプリでは位置情報の利用への同意を受け付けられません。「同意しない」を押してください。",
+      "agree": "同意する",
+      "decline": "同意しない",
+      "saveFailed": "選択を保存できませんでした。位置情報なしで続けます。"
+    },
+    "intro": {
+      "languageLabel": "言語",
+      "faq1Q": "会員登録は必要ですか？",
+      "faq1A": "いいえ。ログインなしですぐに使えます。登録すると、保存した場所や好みがほかの端末にも引き継がれます。"
+    },
+    "course": {
+      "emptyBody": "種類をもう1つ選ぶか、徒歩時間・旅行時間を広げると、すぐにコースを作ります。",
+      "slotLateNight": "遅い時間のため営業を確認しにくいです。昼の時間帯に探すと飲食店・カフェの選択肢が広がります。",
+      "reorderHint": "長押ししてドラッグすると順番を変えられます",
+      "moveEarlier": "{type}を前へ移動",
+      "moveLater": "{type}を後ろへ移動"
+    },
+    "home": {
+      "searchLocalTitle": "NextSpotの場所の検索結果",
+      "locationPrimer": {
+        "title": "近くの空いている場所を探します",
+        "body": "位置情報を許可すると、今いる場所から歩いて行ける空いている場所を先にお見せします。許可しなくても、皇理団通り中心でおすすめします。",
+        "continue": "続ける"
+      },
+      "locationBanner": {
+        "enable": "近くのおすすめをオンにする",
+        "coarse": "正確な位置情報をオンにすると、より近い場所を探せます"
+      },
+      "festivalAreaLabel": "🏮 {title} 一帯"
+    },
+    "mypage": {
+      "openOnWeb": "ウェブで開く",
+      "privacyWebLink": "ウェブで全文を見る",
+      "deleteDataTitle": "データを削除",
+      "deleteDataDesc": "保存した場所とおすすめ・訪問の記録をサーバーから完全に削除し、この端末のデータも消去します。",
+      "deleteData": "データを完全に削除",
+      "deleteDataConfirm": "データを完全に削除しますか？",
+      "deleteDataConfirmDesc": "保存した場所とおすすめ・訪問の記録はサーバーからも消え、元に戻せません。削除後は新しいゲストとして始まります。",
+      "deleteDataAction": "削除",
+      "deleteDataSuccess": "データを削除しました",
+      "deleteDataFailed": "削除できませんでした。しばらくしてからもう一度お試しください。"
+    },
+    "cardSheet": {
+      "handle": "おすすめカードの高さを調整",
+      "state": {
+        "minimized": "プレビュー",
+        "normal": "標準",
+        "expanded": "展開"
+      },
+      "emptyTitle": "今はおすすめできる場所がありません",
+      "photoMenu": "写真のメニュー",
+      "photoReport": "写真を報告",
+      "photoReportTitle": "この写真を報告しますか？",
+      "photoReportBody": "不適切な写真や店舗と関係のない写真であればお知らせください。確認のうえ削除します。",
+      "photoReportSend": "報告する",
+      "photoReported": "報告しました。確認して対応します。",
+      "photoReportFailed": "今は報告を送信できません。しばらくしてからもう一度お試しください。",
+      "photoHide": "この写真を非表示",
+      "photoHidden": "この写真を非表示にしました。"
+    },
+    "settings": {
+      "locationConsentTitle": "位置情報の利用への同意",
+      "locationConsentDesc": "同意すると、ホーム・代わりのおすすめ・コースで今いる場所の近くを先におすすめします。同意しない場合は皇理団通りを中心におすすめします。",
+      "locationConsentGranted": "同意済み",
+      "locationConsentDeclined": "同意していません",
+      "locationConsentNone": "まだ選んでいません",
+      "locationConsentWithdraw": "同意を撤回",
+      "locationConsentGive": "同意する",
+      "locationConsentWithdrawConfirm": "位置情報の利用への同意を撤回しますか？",
+      "locationConsentWithdrawConfirmDesc": "撤回すると位置情報を読み取らず、皇理団通りを中心におすすめします。いつでも再び同意できます。",
+      "locationConsentWithdrawn": "同意を撤回しました。位置情報は使用しません。"
+    }
   }
 }
