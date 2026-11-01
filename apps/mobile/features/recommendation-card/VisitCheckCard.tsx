@@ -1,5 +1,6 @@
 import { Check, MapPin, ThumbsDown, ThumbsUp, X } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 
 import { Button, Card, Icon, IconButton, Pressable, Text, cn, toast } from '~/components/ui';
@@ -17,7 +18,9 @@ import { track, trackEvent } from '~/lib/platform/analytics';
 import {
   completeVisit,
   dismissVisitCheck,
+  DUE_AFTER_MS,
   getDueVisit,
+  getPendingVisit,
   isGuestAccount,
   nextVisitStage,
   ratedOutcomeFields,
@@ -72,23 +75,48 @@ export function VisitCheckCard({ className, onOpenCoupons }: VisitCheckCardProps
     [t],
   );
 
-  useEffect(() => {
-    const check = () => {
-      const d = getDueVisit();
-      setDue(d);
-      if (!d) {
-        setStage('ask');
-        cardOpen.current = false;
+  // 다시 볼 때: 화면에 돌아올 때(탭 전환·다른 화면에서 뒤로) · 앱이 앞으로 올 때 · 도착/길안내 알림 · 30분이 차는 순간(타이머).
+  // 타이머가 없으면 홈을 켜 둔 채 30분이 지나도 카드가 뜨지 않았다.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const check = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const now = Date.now();
+    const d = getDueVisit(now);
+    setDue(d);
+    if (!d) {
+      setStage('ask');
+      cardOpen.current = false;
+      const pending = getPendingVisit();
+      if (pending) {
+        // 30분 시점까지 남은 만큼 기다렸다가 다시 본다(+1초 여유 — 경계에서 한 번 더 비지 않게).
+        const wait = Math.max(0, pending.acceptedAt + DUE_AFTER_MS - now) + 1000;
+        timerRef.current = setTimeout(check, wait);
       }
-    };
+    }
+  }, []);
+
+  useEffect(() => {
     check();
     const sub = AppState.addEventListener('change', (s) => s === 'active' && check());
-    const off = tripEvents.on('trip-arrived', check);
+    const offArrived = tripEvents.on('trip-arrived', check);
+    const offNavigating = tripEvents.on('trip-navigating', check);
     return () => {
       sub.remove();
-      off();
+      offArrived();
+      offNavigating();
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
     };
-  }, []);
+  }, [check]);
+
+  useFocusEffect(
+    useCallback(() => {
+      check();
+    }, [check]),
+  );
 
   if (!due) return null;
 

@@ -1,7 +1,7 @@
 // 공유받은 코스(?s=) 읽기 전용 복원 — 웹 course/page.tsx 의 공유 모드(기준 커밋 0d145a1).
 // 받는 사람은 웹 링크를 앱에서 열 수도 있다(딥링크가 연결되면 course?s=… 로 들어온다). 새 추천 호출은 없다.
 // 정류지 id 로 facilities 를 읽어 이름·좌표는 최신, 오프셋·혼잡은 공유 시점 스냅샷으로 채운다.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createPublicClient } from '~/lib/core/supabase';
 import { useT } from '~/lib/i18n/I18nProvider';
@@ -33,8 +33,20 @@ export function useSharedCourse(shareParam: string | null): SharedCourseState {
   const [stops, setStops] = useState<CourseStop[]>([]);
   const [loading, setLoading] = useState(isShareMode);
   const [error, setError] = useState<string | null>(null);
+  const tRef = useRef(t);
+  tRef.current = t;
+  // 요청 세대 — 공유 코드(s)가 바뀌면 이전 코드의 늦은 응답이 새 코스를 덮지 않게 버린다(화면이 닫혀도 마찬가지).
+  const genRef = useRef(0);
+  useEffect(
+    () => () => {
+      genRef.current += 1;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
+    const gen = ++genRef.current;
+    const stale = () => gen !== genRef.current;
     if (!isShareMode) {
       setStops([]);
       setLoading(false);
@@ -49,24 +61,28 @@ export function useSharedCourse(shareParam: string | null): SharedCourseState {
         .select('id, name, type, latitude, longitude')
         .in('id', ids);
       if (queryError) throw queryError;
+      if (stale()) return;
       setStops(rebuildSharedStops(parsed.stops, (data ?? []) as SharedFacilityRow[], elapsedMin));
     } catch {
+      if (stale()) return;
       setStops([]);
-      setError(t('course.sharedError'));
+      setError(tRef.current('course.sharedError'));
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
-  }, [isShareMode, parsed.stops, elapsedMin, t]);
+  }, [isShareMode, parsed.stops, elapsedMin]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  // 공유 코드마다 한 번 — 같은 화면에서 다른 공유 링크로 들어오면 그 코드도 센다(같은 코드로 다시 그려도 다시 세지 않는다).
+  const trackedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isShareMode) trackCourseShareVisit();
-    // 진입 1회.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!isShareMode || !shareParam || trackedRef.current === shareParam) return;
+    trackedRef.current = shareParam;
+    trackCourseShareVisit();
+  }, [isShareMode, shareParam]);
 
   return { isShareMode, shareParam, stops, loading, error, elapsedMin, reload: () => void load() };
 }

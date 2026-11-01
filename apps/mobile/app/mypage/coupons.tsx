@@ -113,32 +113,38 @@ function CouponCard({
     <Card
       padded={false}
       className={`flex-row overflow-hidden ${dimmed ? 'border-line bg-hanji-deep opacity-70' : 'border-gold/40 bg-white'}`}
-      accessible
-      accessibilityLabel={[`${pct}% ${t('coupons.discount')}`, name, typeLabel, statusLabel, ddayLabel, issued].filter(Boolean).join(', ')}
     >
-      <View className={`min-w-[84px] items-center justify-center px-[16px] py-[16px] ${dimmed ? 'bg-muk-soft/15' : 'bg-gold-deep'}`}>
+      {/* 카드 전체를 한 요소로 묶으면 안의 '사용하기' 버튼에 VoiceOver·TalkBack 이 닿지 않는다. 쿠폰 내용은 왼쪽 할인 칸 한 요소가
+          읽고(오른쪽 글자는 중복이라 숨긴다), 버튼은 따로 초점을 받는다. */}
+      <View
+        accessible
+        accessibilityLabel={[`${pct}% ${t('coupons.discount')}`, name, typeLabel, statusLabel, ddayLabel, issued].filter(Boolean).join(', ')}
+        className={`min-w-[84px] items-center justify-center px-[16px] py-[16px] ${dimmed ? 'bg-muk-soft/15' : 'bg-gold-deep'}`}
+      >
         <Text className={`text-2xl ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="bold">{pct}%</Text>
         <Text className={`mt-[4px] text-[10px] ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="semibold">{t('coupons.discount')}</Text>
       </View>
       <View className="min-w-0 flex-1 justify-center gap-[4px] px-[16px] py-[12px]">
-        <View className="flex-row flex-wrap items-center gap-[8px]">
-          {typeLabel ? (
-            <View className="rounded-md border border-jade/25 bg-jade/10 px-[8px] py-[2px]">
-              <Text className="text-[11px] text-jade" weight="semibold">{typeLabel}</Text>
+        <View className="gap-[4px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View className="flex-row flex-wrap items-center gap-[8px]">
+            {typeLabel ? (
+              <View className="rounded-md border border-jade/25 bg-jade/10 px-[8px] py-[2px]">
+                <Text className="text-[11px] text-jade" weight="semibold">{typeLabel}</Text>
+              </View>
+            ) : null}
+            <View className="flex-row items-center gap-[4px]">
+              {used ? <Icon icon={CheckCircle2} size="xs" color="muk-soft" /> : expired ? <Icon icon={AlertCircle} size="xs" color="muk-soft" /> : null}
+              <Text className={`text-[11px] ${dimmed ? 'text-muk-soft' : 'text-gold-deep'}`} weight="semibold">{statusLabel}</Text>
             </View>
-          ) : null}
-          <View className="flex-row items-center gap-[4px]">
-            {used ? <Icon icon={CheckCircle2} size="xs" color="muk-soft" /> : expired ? <Icon icon={AlertCircle} size="xs" color="muk-soft" /> : null}
-            <Text className={`text-[11px] ${dimmed ? 'text-muk-soft' : 'text-gold-deep'}`} weight="semibold">{statusLabel}</Text>
+            {dday ? (
+              <View className={`rounded-md border px-[8px] py-[2px] ${dday.urgent ? 'border-terracotta/30 bg-terracotta/10' : 'border-muk-soft/20 bg-muk-soft/10'}`}>
+                <Text className={`text-[11px] ${dday.urgent ? 'text-terracotta' : 'text-muk-soft'}`} weight="bold">{ddayLabel}</Text>
+              </View>
+            ) : null}
           </View>
-          {dday ? (
-            <View className={`rounded-md border px-[8px] py-[2px] ${dday.urgent ? 'border-terracotta/30 bg-terracotta/10' : 'border-muk-soft/20 bg-muk-soft/10'}`}>
-              <Text className={`text-[11px] ${dday.urgent ? 'text-terracotta' : 'text-muk-soft'}`} weight="bold">{ddayLabel}</Text>
-            </View>
-          ) : null}
+          <Text className={`text-base ${dimmed ? 'text-muk-soft' : 'text-muk'}`} weight="bold" numberOfLines={2}>{name}</Text>
+          {issued ? <Text className="text-[11px] text-muk-soft">{issued}</Text> : null}
         </View>
-        <Text className={`text-base ${dimmed ? 'text-muk-soft' : 'text-muk'}`} weight="bold" numberOfLines={2}>{name}</Text>
-        {issued ? <Text className="text-[11px] text-muk-soft">{issued}</Text> : null}
         {!dimmed ? (
           <Button
             className="mt-[8px] self-start"

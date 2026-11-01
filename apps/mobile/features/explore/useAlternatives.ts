@@ -34,7 +34,7 @@ import {
   needsHoursCheck,
   type OriginGrade,
 } from './logic';
-import { candidateTypesFor, currentOriginLevel, isNamedOrigin, type RecommendParams } from './origin';
+import { candidateTypesFor, currentOriginLevel, handoffOrigin, isNamedOrigin, type RecommendParams } from './origin';
 import { parseCongestionEstimate } from './port/congestionEstimate';
 import { loadTravelContext, markTasteFeedback, recordActiveTrip } from './tripAdapter';
 
@@ -55,10 +55,12 @@ interface Args {
   params: RecommendParams;
   coords: { lat: number; lng: number };
   locationReady: boolean;
+  /** coords 가 실제 내 위치인가(주소 좌표·지역 중심이 아니라). 아니면 길찾기에 출발지를 싣지 않는다(웹과 같다). */
+  isUserLocation?: boolean;
   t: TFunc;
 }
 
-export function useAlternatives({ params, coords, locationReady, t }: Args) {
+export function useAlternatives({ params, coords, locationReady, isUserLocation = false, t }: Args) {
   const busyAt = useBusyThreshold();
   const { facilityId, name: originNameParam, type: originTypeParam } = params;
   const named = isNamedOrigin(params);
@@ -142,6 +144,17 @@ export function useAlternatives({ params, coords, locationReady, t }: Args) {
   const [reloadKey, setReloadKey] = useState(0);
   const coordsRef = useRef(coords);
   coordsRef.current = coords;
+  const isUserLocationRef = useRef(isUserLocation);
+  isUserLocationRef.current = isUserLocation;
+  // 요청 세대 — 새 조회(주소·좌표 변경, 다시 시도)나 '다른 대안 보기'가 시작되면 늘린다. 늦게 온 이전 응답은 버린다.
+  const genRef = useRef(0);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   const deps = useCallback(
     (cancelled: () => boolean) => ({
@@ -176,20 +189,22 @@ export function useAlternatives({ params, coords, locationReady, t }: Args) {
   useEffect(() => {
     if (!locationReady || !hasOriginNow) return;
     let cancelled = false;
+    const gen = ++genRef.current;
+    const stale = () => cancelled || gen !== genRef.current;
     setLoading(true);
     void (async () => {
       try {
-        const list = await loadAlternativesFlow(deps(() => cancelled), params);
-        if (cancelled || list === null) return;
+        const list = await loadAlternativesFlow(deps(stale), params);
+        if (stale() || list === null) return;
         setRecommendations(list);
         setLoadFailed(false);
       } catch (err) {
-        if (cancelled) return;
+        if (stale()) return;
         console.warn('Error calling FastAPI, showing empty recommendations:', err);
         setRecommendations([]);
         setLoadFailed(true);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!stale()) setLoading(false);
       }
     })();
     return () => {
@@ -238,13 +253,16 @@ export function useAlternatives({ params, coords, locationReady, t }: Args) {
       // 방문 결과의 첫 단계 — 없으면 '도착 확인' 이 서버에서 409 로 거절돼 집계에서 빠진다.
       queueRecommendationOutcome(rec.recommendationId, 'navigation_started');
       const dest = { name: rec.facility.name, latitude: rec.facility.latitude, longitude: rec.facility.longitude };
+      // 출발지는 실제 내 위치일 때만 — 주소 좌표·지역 중심을 출발지로 넘기면 카카오맵이 엉뚱한 곳에서 길을 그린다.
+      // 없으면 카카오맵이 기기 현재 위치에서 시작한다(웹 openWalkingDirections(rec.facility) 와 같다).
       const here = coordsRef.current;
+      const from = handoffOrigin(here, isUserLocationRef.current);
       if (navigationMode === 'walk') {
         toast.info(tt('trip.selectWalking'));
-        void openWalkingDirections(dest, { latitude: here.lat, longitude: here.lng });
+        void openWalkingDirections(dest, from);
       } else {
         toast.info(tt('trip.driveBasisHint'));
-        void openDrivingDirections(dest, { latitude: here.lat, longitude: here.lng });
+        void openDrivingDirections(dest, from);
       }
       try {
         markTasteFeedback();
@@ -345,6 +363,9 @@ export function useAlternatives({ params, coords, locationReady, t }: Args) {
     refreshingRef.current = true;
     setRefreshing(true);
     const tt = tRef.current;
+    // 이 새로고침도 한 세대다 — 도중에 주소가 바뀌어 새 조회가 시작되거나 화면이 닫히면 결과를 버린다.
+    const gen = ++genRef.current;
+    const stale = () => !aliveRef.current || gen !== genRef.current;
     try {
       await Promise.allSettled(
         recommendations
@@ -352,27 +373,25 @@ export function useAlternatives({ params, coords, locationReady, t }: Args) {
           .map((rec) => submitFeedback(rec.recommendationId, 'dismissed_batch')),
       );
       try {
-        const fresh = await fetchAlternatives(
-          {
-            getRecommendations: deps(() => false).getRecommendations,
-            byType: deps(() => false).byType,
-          },
-          params,
-        );
+        const d = deps(stale);
+        const fresh = await fetchAlternatives({ getRecommendations: d.getRecommendations, byType: d.byType }, params);
+        if (stale()) return;
         setRecommendations(fresh);
         setLoadFailed(false);
       } catch (e) {
+        if (stale()) return;
         console.warn('refresh fetch failed, showing empty recommendations:', e);
         setRecommendations([]);
         setLoadFailed(true);
       }
       toast.success(tt('recommend.refreshed'));
     } catch (err) {
+      if (stale()) return;
       console.warn('Error during rejecting and refreshing:', err);
       toast.error(tt('recommend.refreshError'));
     } finally {
       refreshingRef.current = false;
-      setRefreshing(false);
+      if (aliveRef.current) setRefreshing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recommendations, deps, facilityId, originNameParam, originTypeParam]);

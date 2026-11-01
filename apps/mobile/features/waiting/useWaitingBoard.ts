@@ -201,8 +201,14 @@ export function useWaitingBoard(): WaitingBoard {
   }, [fetchBoard]);
 
   // 화면으로 돌아왔을 때 마지막 성공이 오래됐으면 조용히 새로고침(스테일-우선 — 이미 그려진 보드는 그대로).
+  // 첫 포커스는 건너뛴다 — 마운트 효과가 이미 요청을 보냈다. 오래된 캐시로 열면 두 요청이 겹쳐 첫 것을 버리고 다시 보냈다.
+  const firstFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      if (firstFocusRef.current) {
+        firstFocusRef.current = false;
+        return;
+      }
       if (hasResultsRef.current && Date.now() - lastOkRef.current > REFRESH_AFTER_MS) void fetchBoard();
     }, [fetchBoard]),
   );

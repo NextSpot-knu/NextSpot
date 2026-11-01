@@ -57,7 +57,13 @@ export default function RecommendScreen() {
   }, []);
 
   const location = useRecommendLocation(params, t);
-  const data = useAlternatives({ params, coords: location.coords, locationReady: location.ready, t });
+  const data = useAlternatives({
+    params,
+    coords: location.coords,
+    locationReady: location.ready,
+    isUserLocation: location.isUserLocation,
+    t,
+  });
   const {
     origin,
     recommendations,

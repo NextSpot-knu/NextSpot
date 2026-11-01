@@ -146,3 +146,15 @@ export function isNamedOrigin(p: Pick<RecommendParams, 'facilityId' | 'name' | '
 export function hasOrigin(p: Pick<RecommendParams, 'facilityId' | 'name' | 'type'>): boolean {
   return !!p.facilityId || isNamedOrigin(p);
 }
+
+/**
+ * 길찾기(카카오맵) 출발지 — 좌표가 실제 내 위치일 때만 싣는다. 주소 좌표(대기 보드·고른 장소)나 지역 중심을 출발지로
+ * 넘기면 엉뚱한 곳에서 길이 시작된다. null 이면 지도 앱이 기기 현재 위치에서 시작한다(웹은 출발지를 아예 넘기지 않는다).
+ */
+export function handoffOrigin(
+  coords: { lat: number; lng: number },
+  isUserLocation: boolean,
+): { latitude: number; longitude: number } | null {
+  if (!isUserLocation || !Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return null;
+  return { latitude: coords.lat, longitude: coords.lng };
+}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   candidateTypesFor,
   currentOriginLevel,
+  handoffOrigin,
   hasOrigin,
   isNamedOrigin,
   isStrictlyCalmer,
@@ -81,5 +82,10 @@ assert.equal(isNamedOrigin(p2), true);
 const p3 = parseRecommendParams({ name: '모르는 곳', type: 'parking' });
 assert.equal(hasOrigin(p3), false, '종류를 모르면 물을 수 없다');
 assert.equal(hasOrigin(parseRecommendParams({})), false);
+
+// 길찾기 출발지 — 실제 내 위치일 때만
+assert.deepEqual(handoffOrigin({ lat: 35.8, lng: 129.2 }, true), { latitude: 35.8, longitude: 129.2 });
+assert.equal(handoffOrigin({ lat: 35.8, lng: 129.2 }, false), null, '주소 좌표·지역 중심은 출발지가 아니다');
+assert.equal(handoffOrigin({ lat: Number.NaN, lng: 129.2 }, true), null);
 
 console.log('origin.test.ts ok');
