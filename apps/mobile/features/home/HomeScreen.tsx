@@ -5,7 +5,9 @@
 //   (rec_* 이용 이벤트는 시트가 직접 보낸다 — 홈은 보내지 않는다). 시트에 넘길 값은 sheetModel.ts 의 순수 함수가 만든다.
 // 흐름: 시설 로드(/infrastructures) → 칩의 종류로 서버 추천(by-type) → 1위를 카드 자리에 연다 → 핀·검색으로 직접 고르면
 //   그 장소가 '선택한 장소'. 핀 겹침은 지도가 알려 준 영역으로 declutterPins.
-import { useRouter } from 'expo-router';
+// 첫 설정(nextspot_setup_prefs)이 첫 칩·조건 칩을 정하고, 도보·여행 시간·음식 취향·방문 제외를 추천 요청에 싣는다
+//   (homeContext.ts — 웹 rankContext). 도보 제한으로 0곳이면 한 번 넓혀 다시 묻는다. 서버에는 이번 세션 거절 + 저장한 곳을 빼 달라고 보낸다.
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, ScrollView, TextInput, View } from 'react-native';
@@ -30,7 +32,10 @@ import {
   VisitCheckCard,
   type SheetCandidate,
 } from '~/features/recommendation-card';
+import { loadTravelContext } from '~/features/course/travelContext';
 import { recommendByType, type RecommendationResponse } from '~/lib/core/apiClient';
+import { loadSavedLocal, syncSaved } from '~/lib/core/savedFacilities';
+import type { TravelContext } from '~/lib/core/travelContextTypes';
 import { useBusyThreshold } from '~/lib/core/publicSettings';
 import { isStrollerFriendly } from '~/lib/core/strollerSupport';
 import { useT } from '~/lib/i18n/I18nProvider';
@@ -50,7 +55,6 @@ import {
   distanceM,
   festivalFocus,
   hasAnyConvenience,
-  homeTravelContext,
   isAccessible,
   matchesCuisineChip,
   NO_CONVENIENCE,
@@ -71,7 +75,17 @@ import {
   type PickKind,
   type SheetHeightState,
 } from './sheetModel';
-import { CalmChip, FestivalChip, RestroomChip, WeatherChip, type FestivalEvent } from './ToolChips';
+import {
+  buildExcludeIds,
+  cuisineIntentOf,
+  homeFilterSeed,
+  homeRequestContext,
+  parseRejectedIds,
+  REJECTED_IDS_KEY,
+  relaxWalkLimit,
+  serializeRejectedIds,
+} from './homeContext';
+import { CalmChip, CHIP_HIT_SLOP, FestivalChip, RestroomChip, WeatherChip, type FestivalEvent } from './ToolChips';
 import { useFacilities } from './useFacilities';
 import { usePlaceSearch, type PlaceSearchItem, type TourApiSearchItem } from './usePlaceSearch';
 import { useUserLocation } from './useUserLocation';
@@ -82,6 +96,22 @@ const LOCAL_RESULT_LIMIT = 8;
 const SLOT_FALLBACK_HEIGHT = 150;
 
 type Selection = { id: string; kind: PickKind };
+
+function sessionStore(): Storage | null {
+  return (globalThis as { sessionStorage?: Storage }).sessionStorage ?? null;
+}
+
+function loadRejectedIds(): Set<string> {
+  try {
+    return parseRejectedIds(sessionStore()?.getItem(REJECTED_IDS_KEY));
+  } catch {
+    return new Set();
+  }
+}
+
+function savedIdSet(): Set<string> {
+  return new Set(loadSavedLocal().map((b) => b.id));
+}
 type PlacePin = { id: string; name: string; latitude: number; longitude: number };
 
 export function HomeScreen() {
@@ -95,15 +125,21 @@ export function HomeScreen() {
   const loc = useUserLocation();
   const userPoint = loc.location;
 
-  const [category, setCategory] = useState<PlaceCategory>('restaurant');
+  // 첫 설정 조건 — 처음 들어올 때 읽고, 탭에 돌아올 때 바뀌었으면(설정 다시 하기) 칩을 다시 맞춘다.
+  const [stored, setStored] = useState<TravelContext>(loadTravelContext);
+  const seed = useMemo(() => homeFilterSeed(stored), [stored]);
+  const [category, setCategory] = useState<PlaceCategory>(seed.category);
   const [query, setQuery] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
-  const [convenience, setConvenience] = useState<Convenience>(NO_CONVENIENCE);
-  const [indoor, setIndoor] = useState(false);
+  const [convenience, setConvenience] = useState<Convenience>(() => ({ ...NO_CONVENIENCE, accessible: seed.accessible, stroller: seed.stroller }));
+  const [indoor, setIndoor] = useState(seed.indoor);
   const [cuisineId, setCuisineId] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [recs, setRecs] = useState<RecommendationResponse[] | null>(null);
-  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
+  // 이번 세션에 거절한 곳(세션 저장소 — 웹과 같은 키)과 저장(킵)한 곳. 둘 다 목록·핀 순위에서 빼고 서버에도 빼 달라고 보낸다.
+  const [rejectedIds, setRejectedIds] = useState<ReadonlySet<string>>(loadRejectedIds);
+  const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(savedIdSet);
+  const excluded = useMemo<ReadonlySet<string>>(() => new Set(buildExcludeIds(rejectedIds, savedIds)), [rejectedIds, savedIds]);
   const [activeGroup, setActiveGroup] = useState<PinCluster<HomeFacility> | null>(null);
   const [festival, setFestival] = useState<FestivalFocus | null>(null);
   const [placePin, setPlacePin] = useState<PlacePin | null>(null);
@@ -121,6 +157,35 @@ export function HomeScreen() {
   facilitiesRef.current = facilities;
   const excludedRef = useRef(excluded);
   excludedRef.current = excluded;
+  const storedRef = useRef(stored);
+  storedRef.current = stored;
+
+  // 로그인 사용자면 저장 목록을 원격과 맞춘다(기기 변경 복원 — 웹과 같다). 실패하면 로컬 그대로.
+  useEffect(() => {
+    let alive = true;
+    void syncSaved()
+      .then((list) => { if (alive) setSavedIds(new Set(list.map((b) => b.id))); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+  // 탭에 돌아올 때 — 저장 탭에서 지웠을 수 있고, 첫 설정을 다시 했을 수 있다.
+  useFocusEffect(useCallback(() => {
+    setSavedIds((prev) => {
+      const next = savedIdSet();
+      return next.size === prev.size && [...next].every((id) => prev.has(id)) ? prev : next;
+    });
+    const nextStored = loadTravelContext();
+    if (JSON.stringify(nextStored) !== JSON.stringify(storedRef.current)) {
+      const nextSeed = homeFilterSeed(nextStored);
+      setStored(nextStored);
+      setCategory(nextSeed.category);
+      setConvenience((prev) => ({ ...prev, accessible: nextSeed.accessible, stroller: nextSeed.stroller }));
+      setIndoor(nextSeed.indoor);
+      setCuisineId(null);
+      setSelection(null);
+      pickedRef.current = false;
+    }
+  }, []));
 
   const byId = useMemo(() => new Map(facilities.map((f) => [f.id, f])), [facilities]);
   const hasFacilities = facilities.length > 0;
@@ -168,15 +233,26 @@ export function HomeScreen() {
 
   // ── 서버 추천(칩 종류별 상위 5) ─────────────────────────────────────
   const userKey = `${userPoint.lat.toFixed(4)},${userPoint.lng.toFixed(4)}`;
+  const travelContext = useMemo(
+    () => homeRequestContext(stored, { accessible: convenience.accessible, stroller: convenience.stroller, indoor }),
+    [stored, convenience.accessible, convenience.stroller, indoor],
+  );
   useEffect(() => {
     if (!hasFacilities) return;
     let cancelled = false;
     const controller = new AbortController();
     setRecs(null);
-    const context = homeTravelContext(convenience, indoor, category);
+    // 거절·저장 id 는 요청 때의 값(ref)으로 — 거절할 때마다 다시 묻지 않는다(웹도 dep 에서 뺐다).
+    const excludeIds = [...excludedRef.current];
+    const intent = cuisineIntentOf(storedRef.current);
+    const request = (context: TravelContext) =>
+      recommendByType(category, userPoint, excludeIds, 5, context, intent, controller.signal, RECOMMENDATION_TIMEOUT_MS);
     (async () => {
       try {
-        const res = await recommendByType(category, userPoint, [], 5, context, null, controller.signal, RECOMMENDATION_TIMEOUT_MS);
+        let res = await request(travelContext);
+        // 서버는 실제 걷는 길로 도보 제한을 잰다 — 0곳이면 도보 제한만 풀어 한 번 더(웹 relaxWalkLimit).
+        const relaxed = res.length === 0 ? relaxWalkLimit(travelContext) : null;
+        if (relaxed && !cancelled) res = await request(relaxed);
         if (cancelled) return;
         const known = new Set(facilitiesRef.current.map((f) => f.id));
         setRecs(res.filter((r) => known.has(r.facility.id)));
@@ -187,7 +263,7 @@ export function HomeScreen() {
     return () => { cancelled = true; controller.abort(); };
     // userPoint 는 userKey 로, facilities 는 ref 로 본다 — 목록이 갱신될 때마다 다시 묻지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasFacilities, category, userKey, convenience.accessible, convenience.stroller, indoor]);
+  }, [hasFacilities, category, userKey, travelContext]);
 
   const visibleRecs = useMemo(() => (recs ?? []).filter((r) => !excluded.has(r.facility.id)), [recs, excluded]);
   const rankById = useMemo(() => {
@@ -397,20 +473,34 @@ export function HomeScreen() {
     router.push(buildInsteadHref(origin, loc.known ? userPoint : null) as never);
   }, [router, loc.known, userPoint]);
 
-  /** 시트가 킵·거절을 처리한 뒤 — 그 장소는 목록·핀 순위에서 빼고, 시트가 알려 준 다음 후보로 넘어간다(없으면 접는다). */
-  const moveToNext = useCallback((done: SheetCandidate, next: SheetCandidate | null) => {
-    setExcluded((prev) => new Set(prev).add(done.facility.id));
+  /** 시트가 킵·거절을 처리한 뒤 — 그 장소는 목록·핀 순위에서 빼고(onKeep·onReject), 시트가 알려 준 다음 후보로 넘어간다(없으면 접는다). */
+  const moveToNext = useCallback((next: SheetCandidate | null) => {
     pickedRef.current = false;
     const facility = next ? byId.get(next.facility.id) : undefined;
     if (facility) { setSelection({ id: facility.id, kind: 'recommended' }); focusOn(facility.latitude, facility.longitude); }
     else setSelection(null);
   }, [byId, focusOn]);
 
+  const onKeep = useCallback((done: SheetCandidate, next: SheetCandidate | null) => {
+    setSavedIds((prev) => new Set(prev).add(done.facility.id));
+    moveToNext(next);
+  }, [moveToNext]);
+  const onReject = useCallback((done: SheetCandidate, next: SheetCandidate | null) => {
+    setRejectedIds((prev) => {
+      const updated = new Set(prev).add(done.facility.id);
+      try { sessionStore()?.setItem(REJECTED_IDS_KEY, serializeRejectedIds(updated)); } catch { /* 이번 화면에서만 뺀다 */ }
+      return updated;
+    });
+    moveToNext(next);
+  }, [moveToNext]);
+
   const closeSheet = useCallback(() => { setSelection(null); pickedRef.current = false; }, []);
+  // 길안내를 고른 뒤에도 카드를 닫지 않는다 — 웹처럼 카드가 남아 '길안내' 버튼이 확인(✓) 상태가 되고,
+  // 진행 중 여행 카드가 위에 뜬다. 늦게 온 추천 1위가 이 카드를 덮지 않게 직접 고른 것으로 둔다.
+  const keepAfterAccept = useCallback(() => { pickedRef.current = true; }, []);
   const showAlternatives = useCallback((c: SheetCandidate) => {
     goInstead({ facilityId: c.facility.id, type: c.facility.type, latitude: c.facility.latitude, longitude: c.facility.longitude });
   }, [goInstead]);
-  const travelContext = useMemo(() => homeTravelContext(convenience, indoor, category), [convenience, indoor, category]);
   const selectedCandidate = useMemo(
     () => (selected && selection ? buildSelectedCandidate(selected, selection.kind, visibleRecs) : null),
     [selected, selection, visibleRecs],
@@ -522,6 +612,7 @@ export function HomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={t('map.mobileTools')}
                   accessibilityState={{ selected: hasAnyConvenience(convenience) || cuisineId !== null }}
+                  hitSlop={CHIP_HIT_SLOP}
                   onPress={() => setFilterOpen(true)}
                   className={`min-h-[36px] shrink-0 flex-row items-center gap-[6px] rounded-full border px-[12px] py-[6px] ${hasAnyConvenience(convenience) || cuisineId ? 'border-jade bg-jade-chip' : 'border-line bg-white'}`}
                 >
@@ -535,6 +626,7 @@ export function HomeScreen() {
                       key={c}
                       accessibilityRole="button"
                       accessibilityState={{ selected: on }}
+                      hitSlop={CHIP_HIT_SLOP}
                       onPress={() => selectCategory(c)}
                       className={`min-h-[36px] shrink-0 flex-row items-center rounded-full border px-[14px] py-[6px] ${on ? 'border-muk bg-muk' : 'border-line bg-white'}`}
                     >
@@ -551,11 +643,13 @@ export function HomeScreen() {
                       <Pressable
                         key={chip.id}
                         accessibilityRole="button"
+                        accessibilityLabel={t(`cuisine.${chip.id}`)}
                         accessibilityState={{ selected: on }}
+                        hitSlop={CHIP_HIT_SLOP}
                         onPress={() => selectCuisine(chip)}
                         className={`min-h-[36px] shrink-0 flex-row items-center gap-[4px] rounded-full border px-[12px] py-[6px] ${on ? 'border-jade bg-jade-chip' : 'border-line bg-white'}`}
                       >
-                        <Text className="text-[13px]" accessibilityElementsHidden>{chip.emoji}</Text>
+                        <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{chip.emoji}</Text>
                         <Text className="text-[13px]" weight="semibold" numberOfLines={1}>{t(`cuisine.${chip.id}`)}</Text>
                       </Pressable>
                     );
@@ -638,9 +732,9 @@ export function HomeScreen() {
         status={status}
         onRetry={reload}
         travelContext={travelContext}
-        onAccept={closeSheet}
-        onKeep={moveToNext}
-        onReject={moveToNext}
+        onAccept={keepAfterAccept}
+        onKeep={onKeep}
+        onReject={onReject}
         onShowAlternatives={selected && canSeeInstead(selected.type) ? showAlternatives : undefined}
         onClose={closeSheet}
         onViewProfile={() => router.push('/mypage' as never)}

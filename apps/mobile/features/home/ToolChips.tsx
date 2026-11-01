@@ -18,6 +18,9 @@ import { telHref } from '@/lib/phoneLink';
 
 import { calmKey, calmSpots, type CalmSpot, type HomeFacility } from './homeModel';
 
+/** 칩은 보이는 높이가 36pt 다 — 위아래 4pt 씩 넓혀 44pt 탭 영역을 채운다(디자인 규칙 11, 웹 .tap-target). */
+export const CHIP_HIT_SLOP = { top: 4, bottom: 4, left: 0, right: 0 } as const;
+
 const CHIP = 'min-h-[36px] shrink-0 flex-row items-center gap-[6px] rounded-full border border-line bg-white px-[12px] py-[6px]';
 const LIST_MAX_HEIGHT = 420;
 type Point = { lat: number; lng: number };
@@ -68,9 +71,9 @@ export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoor
         accessibilityRole="button"
         accessibilityLabel={`${full} · ${summary}`}
         onPress={() => setOpen(true)}
-        className={`${CHIP} ${data.indoorRecommended ? 'border-gold' : ''}`}
+        hitSlop={CHIP_HIT_SLOP} className={`${CHIP} ${data.indoorRecommended ? 'border-gold' : ''}`}
       >
-        <Text className="text-[15px]" accessibilityElementsHidden>{weatherIcon(now)}</Text>
+        <Text className="text-[15px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(now)}</Text>
         <Text className="text-[12px]" weight="bold" numberOfLines={1}>{full}</Text>
         {data.indoorRecommended ? <Icon icon={Umbrella} size="sm" color="gold-deep" /> : null}
       </Pressable>
@@ -80,7 +83,7 @@ export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoor
           {data.forecasts.slice(0, 6).map((f) => (
             <View key={f.at} className="min-h-[64px] flex-1 items-center">
               <Text className="text-[11px] text-muk-soft">{hourOf(f.at)}</Text>
-              <Text className="my-[2px] text-[18px]" accessibilityElementsHidden>{weatherIcon(f)}</Text>
+              <Text className="my-[2px] text-[18px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(f)}</Text>
               <Text className="text-[12px]" weight="semibold">{`${Math.round(f.temperatureC)}°`}</Text>
             </View>
           ))}
@@ -177,9 +180,9 @@ export function FestivalChip({ location, onFocus }: { location: Point; onFocus: 
           accessibilityRole="button"
           accessibilityLabel={t('festival.bannerAria', { title: model.first.title })}
           onPress={() => setOpen(true)}
-          className={`${CHIP} max-w-[260px] border-terracotta/35`}
+          hitSlop={CHIP_HIT_SLOP} className={`${CHIP} max-w-[260px] border-terracotta/35`}
         >
-          <Text className="text-[13px]" accessibilityElementsHidden>🏮</Text>
+          <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🏮</Text>
           <Text className="shrink text-[12px]" weight="semibold" numberOfLines={1}>
             {locale === 'ko' ? model.first.title : t('festival.bannerLabel')}
           </Text>
@@ -190,9 +193,9 @@ export function FestivalChip({ location, onFocus }: { location: Point; onFocus: 
           accessibilityRole="button"
           accessibilityLabel={t('festival.chipAria', { n: String(events.length) })}
           onPress={() => setOpen(true)}
-          className={CHIP}
+          hitSlop={CHIP_HIT_SLOP} className={CHIP}
         >
-          <Text className="text-[13px]" accessibilityElementsHidden>🏮</Text>
+          <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🏮</Text>
           <Text className="text-[13px] text-muk-soft" weight="medium">{t('festival.chip')}</Text>
           <Text className="text-[11px] text-gold-deep" weight="bold">{String(events.length)}</Text>
         </Pressable>
@@ -309,7 +312,7 @@ export function RestroomChip({ location }: { location: Point }) {
   if (!items.length) return null;
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('restroom.chipAria', { n: items.length })} onPress={() => setOpen(true)} className={CHIP}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('restroom.chipAria', { n: items.length })} onPress={() => setOpen(true)} hitSlop={CHIP_HIT_SLOP} className={CHIP}>
         <Icon icon={Toilet} size="sm" color="muk-soft" />
         <Text className="text-[13px] text-muk-soft" weight="medium">{`${t('restroom.chip')} ${items.length}`}</Text>
       </Pressable>
@@ -351,8 +354,8 @@ export function CalmChip({ facilities, location, onFocus }: { facilities: readon
   if (spots.length === 0) return null;
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('calm.chipAria', { n: String(spots.length) })} onPress={() => setOpen(true)} className={CHIP}>
-        <Text className="text-[13px]" accessibilityElementsHidden>🍃</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('calm.chipAria', { n: String(spots.length) })} onPress={() => setOpen(true)} hitSlop={CHIP_HIT_SLOP} className={CHIP}>
+        <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🍃</Text>
         <Text className="text-[13px] text-muk-soft" weight="medium">{t('calm.chip')}</Text>
         <Text className="text-[11px] text-jade" weight="bold">{String(spots.length)}</Text>
       </Pressable>

@@ -10,7 +10,7 @@ import { facilityMatchesSearch } from '@/lib/placeSearch';
 import { isWithinRegion, REGION } from '@/lib/region';
 import { parseAvailability } from '@/lib/restDate';
 import { isStrollerFriendly } from '~/lib/core/strollerSupport';
-import type { PlaceCategory, RequiredAttribute, TravelContext } from '~/lib/core/travelContextTypes';
+import type { PlaceCategory } from '~/lib/core/travelContextTypes';
 import type { PinCluster } from '~/features/map/declutter';
 import type { LatLng, NextSpotCircle, NextSpotMarker, PinMarker } from '~/features/map/types';
 
@@ -159,15 +159,6 @@ export function applyConvenience<T extends Featured>(list: readonly T[], c: Conv
 /** 적재 데이터에 반려동물 값이 하나라도 있는가 — 없으면 🐾 칩을 숨긴다(웹과 같다). */
 export function petDataExists(list: readonly Featured[]): boolean {
   return list.some((f) => parseAvailability((f.features?.chk_pet ?? f.features?.chkPet) as string | null | undefined) !== null);
-}
-
-/** 서버로 보내는 여행 조건 — 앱 v1 의 홈은 칩 한 종류와 ♿·👶·실내만 싣는다. */
-export function homeTravelContext(c: Convenience, indoor: boolean, category: PlaceCategory): TravelContext {
-  const requiredAttributes: RequiredAttribute[] = [];
-  if (c.accessible) requiredAttributes.push('accessible');
-  if (c.stroller) requiredAttributes.push('stroller');
-  if (indoor) requiredAttributes.push('indoor');
-  return { categories: [category], requiredAttributes, excludeVisited: false, visitedFacilityIds: [] };
 }
 
 /** 카테고리 + 검색 — 검색어가 있으면 종류와 무관하게 이름·주소·메뉴로 찾는다(웹 computeDisplayFacilities). */

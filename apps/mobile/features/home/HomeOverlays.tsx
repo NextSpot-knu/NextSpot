@@ -179,7 +179,7 @@ function ToggleTile({ emoji, label, on, onPress }: { emoji: string; label: strin
       onPress={onPress}
       className={`min-h-[48px] w-[48%] flex-row items-center justify-center gap-[6px] rounded-xl border px-[12px] py-[10px] ${on ? 'border-jade bg-jade-chip' : 'border-line bg-white'}`}
     >
-      <Text className="text-[14px]" accessibilityElementsHidden>{emoji}</Text>
+      <Text className="text-[14px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{emoji}</Text>
       <Text className="text-[14px]" weight="semibold">{label}</Text>
     </Pressable>
   );
@@ -217,7 +217,7 @@ export function FilterSheet(props: FilterSheetProps) {
                   onPress={() => props.onSelectCuisine(chip)}
                   className={`min-h-[44px] flex-row items-center gap-[4px] rounded-full border px-[14px] ${on ? 'border-jade bg-jade-chip' : 'border-line bg-white'}`}
                 >
-                  <Text className="text-[13px]" accessibilityElementsHidden>{chip.emoji}</Text>
+                  <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{chip.emoji}</Text>
                   <Text className="text-[13px]" weight="semibold">{t(`cuisine.${chip.id}`)}</Text>
                 </Pressable>
               );
@@ -266,7 +266,7 @@ export function LocationPrimer({ onContinue }: { onContinue: () => void }) {
   return (
     <View className="absolute inset-0 items-center justify-center bg-muk/35 px-[24px]" accessibilityViewIsModal>
       <Card elevation="surface" className="w-full max-w-[360px] items-center gap-[12px]">
-        <Text className="text-[34px]" accessibilityElementsHidden>📍</Text>
+        <Text className="text-[34px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">📍</Text>
         <Text className="text-center text-[18px]" weight="bold" accessibilityRole="header">{t('app.home.locationPrimer.title')}</Text>
         <Text className="text-center text-[14px] leading-[21px] text-muk-soft">{t('app.home.locationPrimer.body')}</Text>
         <Button block variant="primary" label={t('app.home.locationPrimer.continue')} onPress={onContinue} />
@@ -287,7 +287,7 @@ export function LocationBanner({ kind, onOpenSettings, onDismiss }: { kind: 'den
         onPress={onOpenSettings}
         className="min-h-[48px] flex-1 flex-row items-center gap-[8px]"
       >
-        <Text className="text-[13px]" accessibilityElementsHidden>📍</Text>
+        <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">📍</Text>
         <Text className="flex-1 text-[13px]" weight="semibold">{message}</Text>
         <Icon icon={ChevronRight} size="sm" color="muk-soft" />
       </Pressable>

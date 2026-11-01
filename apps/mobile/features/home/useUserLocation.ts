@@ -2,7 +2,8 @@
 //   ② 홈에 처음 들어오면 안내(버튼 하나 '계속') → 그 버튼이 시스템 창(requestForegroundPermissionsAsync)을 연다.
 //   ③ 거부하면 황리단길 중심 + 닫을 수 있는 배너(누르면 설정 앱).
 //   ④ 대략적 위치(정확도 > 1km)면 황리단길 중심 + 안내. ⑤ 경주 밖이면 중심 + 한 번 안내.
-//   ⑥ 위치는 홈을 열 때 한 번 읽는다(계속 추적하지 않는다).
+//   ⑥ 위치는 홈을 열 때 한 번 읽는다(계속 추적하지 않는다). 앱이 다시 앞으로 올 때 다시 볼지는 locationPolicy 가 정한다 —
+//      안드로이드 '위치 정확도' 창이 닫힐 때마다 다시 읽어 창이 끝없이 뜨던 고리를 막는다. 최근 위치가 있으면 그것을 먼저 쓴다.
 //   ① 위치정보 이용 동의(features/auth/consent)가 없으면 OS 권한을 보지도 묻지도 않는다 — 거부와 똑같이 황리단길 중심,
 //      사전 안내 없음. 배너는 설정 앱 대신 동의 화면을 연다. 설정에서 동의를 바꾸면 구독으로 바로 따라간다.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 navigator.geolocation 블록. 판정은 homeModel.resolveUserLocation.
@@ -17,6 +18,11 @@ import { useLocationConsent } from '~/features/auth/useLocationConsent';
 import { REGION } from '@/lib/region';
 
 import { resolveUserLocation, type LocationNotice } from './homeModel';
+import {
+  LAST_KNOWN_MAX_AGE_MS,
+  LAST_KNOWN_REQUIRED_ACCURACY_M,
+  shouldRecheckOnForeground,
+} from './locationPolicy';
 
 /** 'no-consent' — 위치정보 이용 동의가 없다. 화면은 'denied' 와 같이 다루고 배너만 동의 화면을 연다. */
 export type LocationStatus = 'checking' | 'needs-primer' | 'granted' | 'denied' | 'no-consent';
@@ -51,12 +57,22 @@ export function useUserLocation(): UserLocationState {
   const [readFailed, setReadFailed] = useState(false);
   const aliveRef = useRef(true);
   const readingRef = useRef(false);
+  const lastReadAttemptRef = useRef<number | null>(null);
+  // AppState 구독은 한 번만 건다 — 지금 상태는 ref 로 본다.
+  const snapshotRef = useRef({ status, notice, readFailed });
+  snapshotRef.current = { status, notice, readFailed };
 
   const readPosition = useCallback(async () => {
     if (readingRef.current) return;
     readingRef.current = true;
+    lastReadAttemptRef.current = Date.now();
     try {
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // 최근에 알려진 위치가 충분히 정확하면 그것으로(시스템 창 없이 바로). 없으면 새로 읽는다.
+      const lastKnown = await Location.getLastKnownPositionAsync({
+        maxAge: LAST_KNOWN_MAX_AGE_MS,
+        requiredAccuracy: LAST_KNOWN_REQUIRED_ACCURACY_M,
+      }).catch(() => null);
+      const position = lastKnown ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
       // 읽는 동안 동의가 철회됐으면 버린다.
       if (!aliveRef.current || !consentRef.current) return;
       const resolved = resolveUserLocation(position.coords);
@@ -109,9 +125,12 @@ export function useUserLocation(): UserLocationState {
   useEffect(() => {
     aliveRef.current = true;
     void check();
-    // 설정 앱에서 돌아오면 권한이 바뀌었을 수 있다 — 거부·대략적 위치 상태에서만 다시 본다(추적이 아니라 1회 읽기).
+    // 설정 앱에서 돌아오면 권한이 바뀌었을 수 있다 — 거부·사전 안내·동의 없음(그리고 쿨다운이 지난 대략적 위치)에서만
+    // 다시 본다. 허용 상태에서 돌아올 때마다 읽으면 안드로이드 정확도 창이 닫힐 때마다 다시 떠 끝없이 돈다.
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void check();
+      if (state !== 'active') return;
+      const snap = snapshotRef.current;
+      if (shouldRecheckOnForeground({ ...snap, lastReadAttemptAt: lastReadAttemptRef.current, now: Date.now() })) void check();
     });
     return () => {
       aliveRef.current = false;
