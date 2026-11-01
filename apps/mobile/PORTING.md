@@ -15,3 +15,11 @@
 | `lib/platform/{poller.ts,appState.ts}` | `apps/web/lib/visibilityPoller.ts`, `usePolling.ts` | `e07ea61` | 순수 부분 복사(웹 파일은 window·document 로 공유 불가), 화면 보임 → AppState |
 | `lib/platform/{analyticsCore.ts,analytics.ts}` | `apps/web/lib/usageEvents.ts`, `analytics.ts`, `strollerSupport.ts`(세션 플래그) | `e07ea61` | 운영 호스트 판정 → `EXPO_PUBLIC_USAGE_EVENTS`, 전송 함수 주입, pagehide → AppState |
 | `lib/platform/images.ts` | (서버 `apps/api/app/services/tourapi/transform.py` 의 https 승격) | — | 앱 전용 — iOS ATS·안드로이드 평문 차단 대비 |
+| `lib/core/env.ts` | (웹 `NEXT_PUBLIC_*` 읽기) | `e07ea61` | `EXPO_PUBLIC_*` · 기본 API nextspot-t2ib · 사용 기록은 운영 빌드만 |
+| `lib/core/events.ts` | `apps/web/lib/api-client.ts`·`recommendationOutcomes.ts` 의 window CustomEvent | `e07ea61` | 타입 있는 이벤트 버스 `appEvents` |
+| `lib/core/{httpCore.ts,apiClient.ts}` | `apps/web/lib/api-client.ts` | `e07ea61` | AbortError 이름 검사 · `X-NextSpot-Client` · 지역 헤더·가정 시각·데모 프리페치 없음 |
+| `lib/core/supabase.ts` | `apps/web/lib/supabase.ts` | `e07ea61` | expo-sqlite localStorage · detectSessionInUrl false · AppState 자동 갱신 |
+| `lib/core/{anonymousSessionCore.ts,anonymousSession.ts,sessionHeal.ts,SessionBootstrap.tsx}` | `apps/web/lib/anonymousSession.ts`, `components/shell/SessionBootstrap.tsx` | `e07ea61` | Turnstile 제거 · visibilitychange → AppState |
+| `lib/core/{guestMerge.ts,userData.ts,savedFacilities.ts,recommendationOutcomes.ts}` | `apps/web/lib/auth.ts`(capture/merge/discard), `userData.ts`, `savedFacilities.ts`, `recommendationOutcomes.ts` | `e07ea61` | 지역 캐시·헤더 제거(경주만) · 앱 Supabase 클라이언트 |
+| `lib/core/{account.tsx,publicSettings.tsx,noticeDismissal.ts}` | `apps/web/lib/account.tsx`, `components/shell/PublicSettingsProvider.tsx`, `lib/noticeDismissal.ts` | `e07ea61` | 앱 클라이언트 · RN 자리 UI · 문구는 props |
+| `lib/core/{strollerSupport.ts,travelContextTypes.ts}` | `apps/web/lib/strollerSupport.ts`, `travelContext.ts`, `voice/voiceCommands.ts`(타입) | `e07ea61` | 웹 `visits.ts` 의 `window.localStorage` 때문에 사슬이 공유 검사에 걸려 다시 씀 |
