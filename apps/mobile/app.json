@@ -82,7 +82,8 @@
         }
       ],
       "./plugins/withAndroidQueries",
-      "./plugins/withLocationPurposeOnly"
+      "./plugins/withLocationPurposeOnly",
+      "./plugins/withDevOnlyLocalNetwork"
     ],
     "experiments": {
       "typedRoutes": true
