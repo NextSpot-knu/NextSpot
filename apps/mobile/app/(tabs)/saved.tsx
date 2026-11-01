@@ -1,5 +1,5 @@
 // 저장 탭 — 웹 apps/web/app/saved/page.tsx 의 앱판. 저장한 장소를 점수 순으로 보여 주고(분류 필터), 지금 출발하면의 출발·도착·이용 시각을
-// 카드마다 말한다. 카드를 누르면 추천 카드 시트(features/saved/sheetSlot — 통합 대기), 삭제·전체 초기화는 여기서 한다.
+// 카드마다 말한다. 카드를 누르면 추천 카드 시트(features/saved/sheetSlot), 삭제·전체 초기화는 여기서 한다.
 // 로컬 저장을 먼저 그리고 Supabase 와 동기화해 갱신한다(기기 변경 복원). 알림(한산해지면 알려 주기)은 앱 v1 에 없다.
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Compass, Star } from 'lucide-react-native';
@@ -10,7 +10,6 @@ import { Button, Chip, EmptyState, Icon, Screen, Skeleton, Text, toast } from '~
 import { submitFeedback } from '~/lib/core/apiClient';
 import { clearSavedAll, loadSavedLocal, removeBookmark, syncSaved } from '~/lib/core/savedFacilities';
 import { useT } from '~/lib/i18n/I18nProvider';
-import { openExternalUrl, openWalkingDirections } from '~/lib/platform/links';
 import { haptic } from '~/lib/platform/haptics';
 import { NowChip } from '~/features/waiting/NowChip';
 import { SavedCard } from '~/features/saved/SavedCard';
@@ -18,7 +17,6 @@ import {
   CATEGORY_LABEL_TO_KEY,
   categoryView,
   isRealRecommendationId,
-  savedCardInput,
   sortBookmarks,
   type SavedBookmark,
 } from '~/features/saved/savedList';
@@ -106,19 +104,10 @@ export default function SavedScreen() {
     ]);
   }, [t]);
 
-  const directions = useCallback((b: SavedBookmark) => {
-    if (typeof b.latitude === 'number' && typeof b.longitude === 'number') {
-      void openWalkingDirections({ name: b.name, latitude: b.latitude, longitude: b.longitude });
-    } else {
-      void openExternalUrl(`https://map.kakao.com/?q=${encodeURIComponent(b.name)}`);
-    }
-  }, []);
-
   const view = categoryView(bookmarks, category);
-  const card = selected ? savedCardInput(selected) : null;
-  const reason = card ? t('recommend.fallbackTravelOnly', { name: card.title, walk: card.walkMinutes }) : '';
 
   return (
+    <View className="flex-1">
     <Screen edges={TAB_EDGES} scroll contentClassName="px-[16px] pb-[24px] pt-[16px]">
       {loading ? (
         <View className="gap-[16px]" accessible accessibilityLabel={t('common.loading')} accessibilityState={{ busy: true }}>
@@ -204,14 +193,14 @@ export default function SavedScreen() {
         </View>
       )}
 
+    </Screen>
       <SavedSheetSlot
         bookmark={selected}
-        card={card}
-        reason={reason}
         onClose={() => setSelected(null)}
-        onDirections={directions}
         onRemove={(b) => remove(b, t('saved.removedFromSaved', { name: b.name }))}
+        onViewProfile={() => router.push('/mypage' as never)}
+        onViewLab={() => router.push('/mypage/lab' as never)}
       />
-    </Screen>
+    </View>
   );
 }

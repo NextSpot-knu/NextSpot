@@ -86,6 +86,13 @@ export interface RecommendationSheetProps {
   /** '취향 프로필에 반영했어요 · 보기' / 실험실 안내의 '보기' 이동. 없으면 버튼 없이 알린다. */
   onViewProfile?: () => void;
   onViewLab?: () => void;
+  /**
+   * '다시 안볼래요' 를 서버 거절·취향 학습 없이 알리기만 한다 — 저장 목록처럼 '목록에서 뺀다' 는 정리 동작일 때(웹 저장 화면의 onReject 는 unsaved).
+   * 뒤처리(삭제·알림)는 onReject 가 맡는다.
+   */
+  rejectIsRemoval?: boolean;
+  /** 시트 높이(미리보기·기본·펼침)가 바뀔 때 — 홈이 지도 가려진 띠를 다시 계산한다. */
+  onStateChange?: (state: SheetState) => void;
 }
 
 const SNAPS = ['27%', '52%', '90%'] as const;
@@ -106,6 +113,11 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
   useEffect(() => {
     setSheetState(openAs);
   }, [id, openAs]);
+  const onStateChangeRef = useRef(props.onStateChange);
+  onStateChangeRef.current = props.onStateChange;
+  useEffect(() => {
+    onStateChangeRef.current?.(sheetState);
+  }, [sheetState]);
 
   if (!selected && status === 'ready') return null;
   return (
@@ -239,7 +251,7 @@ function CardBody(
     trackEvent('rec_next', usageCardProps(f, rank));
     handled.current.add(String(f.id));
     const next = nextAfter();
-    rejectCandidate(c, { t, hasNext: next !== null, onViewLab: props.onViewLab });
+    if (!props.rejectIsRemoval) rejectCandidate(c, { t, hasNext: next !== null, onViewLab: props.onViewLab });
     props.onReject?.(c, next);
   };
   const doKeep = () => {

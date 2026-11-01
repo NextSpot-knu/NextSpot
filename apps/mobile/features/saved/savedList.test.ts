@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  candidateFromBookmark,
   categoryView,
   clockText,
   compareBookmarks,
@@ -82,3 +83,16 @@ assert.equal(bare.facility.latitude, null);
 assert.equal(bare.walkMinutes, 1);
 
 console.log('savedList.test.ts ok');
+
+// 시트 후보: spot·대기·추천 id 를 싣고, 없으면 장소만
+const cand = candidateFromBookmark(b('c1', { latitude: 35.8, longitude: 129.2, waitTime: '7', waitEvidence: 'verified_model', recommendationId: 'rec-1', spot: spot(77, 12, 60, 5) }));
+assert.equal(cand.recommendationId, 'rec-1');
+assert.equal(cand.spotScore, 77);
+assert.equal(cand.breakdown?.preference, 0.6);
+assert.equal(cand.breakdown?.waitTime, 7);
+assert.equal(cand.facility.type, 'cafe');
+const noSpot = candidateFromBookmark(b('c2', { recommendationId: 'mock-1' }));
+assert.equal(noSpot.recommendationId, undefined);
+assert.equal(noSpot.spotScore, undefined);
+assert.equal(noSpot.breakdown, undefined);
+assert.ok(Number.isNaN(noSpot.facility.latitude));

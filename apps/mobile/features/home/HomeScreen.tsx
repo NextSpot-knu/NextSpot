@@ -1,8 +1,8 @@
 // 홈(지도) 화면 — 웹 /main(apps/web/app/main/page.tsx, 기준 커밋 0d145a1)의 앱판.
 //
 // 뺀 것(계획 §3.1): 음성 비서 · 히트맵 · 혼잡 예측 띠/가정 시각 · 데모 조작 패널 · 지역 전환(내부 계정) · 주차장 탭 ·
-//   경주 테마(✨) · 적재 요청 UI. 추천 카드 시트·진행 중 여행·방문 확인·혼잡 제보는 다른 에이전트의 몫이라
-//   slots.tsx 의 RecommendationSheetSlot 자리만 둔다.
+//   경주 테마(✨) · 적재 요청 UI. 추천 카드 시트·진행 중 여행·방문 확인·혼잡 제보는 features/recommendation-card 의 것을 그대로 올린다
+//   (rec_* 이용 이벤트는 시트가 직접 보낸다 — 홈은 보내지 않는다). 시트에 넘길 값은 sheetModel.ts 의 순수 함수가 만든다.
 // 흐름: 시설 로드(/infrastructures) → 칩의 종류로 서버 추천(by-type) → 1위를 카드 자리에 연다 → 핀·검색으로 직접 고르면
 //   그 장소가 '선택한 장소'. 핀 겹침은 지도가 알려 준 영역으로 declutterPins.
 import { useRouter } from 'expo-router';
@@ -24,9 +24,14 @@ import {
   type PinCluster,
   type PinMarker,
 } from '~/features/map';
-import { recommendByType, type CongestionEstimate, type RecommendationResponse } from '~/lib/core/apiClient';
+import {
+  ActiveJourneyCard,
+  RecommendationSheet,
+  VisitCheckCard,
+  type SheetCandidate,
+} from '~/features/recommendation-card';
+import { recommendByType, type RecommendationResponse } from '~/lib/core/apiClient';
 import { useBusyThreshold } from '~/lib/core/publicSettings';
-import type { RequiredAttribute } from '~/lib/core/travelContextTypes';
 import { isStrollerFriendly } from '~/lib/core/strollerSupport';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { haptic } from '~/lib/platform/haptics';
@@ -44,7 +49,6 @@ import {
   CUISINE_CHIPS,
   distanceM,
   festivalFocus,
-  freshEstimate,
   hasAnyConvenience,
   homeTravelContext,
   isAccessible,
@@ -60,7 +64,13 @@ import {
   type HomeFacility,
   type PlaceCategory,
 } from './homeModel';
-import { RecommendationSheetSlot, type PickKind } from './slots';
+import {
+  buildSelectedCandidate,
+  mapBottomInset,
+  sheetStatus,
+  type PickKind,
+  type SheetHeightState,
+} from './sheetModel';
 import { CalmChip, FestivalChip, RestroomChip, WeatherChip, type FestivalEvent } from './ToolChips';
 import { useFacilities } from './useFacilities';
 import { usePlaceSearch, type PlaceSearchItem, type TourApiSearchItem } from './usePlaceSearch';
@@ -81,7 +91,7 @@ export function HomeScreen() {
   const busyAt = useBusyThreshold();
   const mapRef = useRef<NextSpotMapHandle>(null);
 
-  const { facilities, loading, error, reload, estimateById } = useFacilities();
+  const { facilities, loading, error, reload } = useFacilities();
   const loc = useUserLocation();
   const userPoint = loc.location;
 
@@ -101,7 +111,8 @@ export function HomeScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [headerH, setHeaderH] = useState(160);
-  const [slotH, setSlotH] = useState(SLOT_FALLBACK_HEIGHT);
+  const [sheetState, setSheetState] = useState<SheetHeightState | null>(null);
+  const [containerH, setContainerH] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // 사용자가 이 칩에서 직접 고른 카드가 있으면 추천 1위가 늦게 와도 덮지 않는다(웹 userPickRef).
@@ -115,10 +126,15 @@ export function HomeScreen() {
   const hasFacilities = facilities.length > 0;
 
   // ── 카메라 ───────────────────────────────────────────────────────────
+  // 지도 가려진 띠 = 시트 높이(시트가 알려 주는 3단 상태 × 화면 높이). 시트가 없으면 작은 여백만.
+  const searching = query.trim() !== '';
+  const status = sheetStatus({ hasFacilities, recsLoaded: recs !== null, hasSelection: selection !== null, searching });
+  const sheetShown = selection !== null || status === 'loading';
+  const bottomInset = mapBottomInset(sheetShown ? sheetState : null, containerH, SLOT_FALLBACK_HEIGHT);
   const focusOn = useCallback((latitude: number, longitude: number, level?: number) => {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-    mapRef.current?.animateTo({ latitude, longitude }, { level, insets: { top: headerH + 8, bottom: slotH + 16 } });
-  }, [headerH, slotH]);
+    mapRef.current?.animateTo({ latitude, longitude }, { level, insets: { top: headerH + 8, bottom: bottomInset } });
+  }, [headerH, bottomInset]);
 
   // 첫 진입·위치가 잡힐 때 그 자리로(웹 centerOnFreeArea). 한 번 옮긴 뒤에는 사용자가 움직이는 대로 둔다.
   const centeredRef = useRef(false);
@@ -242,10 +258,6 @@ export function HomeScreen() {
   }, []);
 
   const selected = selection ? byId.get(selection.id) ?? null : null;
-  const selectedRec = selected ? (recs ?? []).find((r) => r.facility.id === selected.id) ?? null : null;
-  const listIndex = selected ? visibleRecs.findIndex((r) => r.facility.id === selected.id) : -1;
-  const forced = selection?.kind === 'search' || selection?.kind === 'place';
-  const rank = listIndex < 0 || forced ? null : listIndex + 1;
 
   const toggleConvenience = useCallback((key: keyof Convenience) => {
     haptic('selection');
@@ -277,7 +289,6 @@ export function HomeScreen() {
   }, [cuisineId, filtered, nearestOf, select, focusOn, t]);
 
   // ── 핀 ───────────────────────────────────────────────────────────────
-  const searching = query.trim() !== '';
   const pinMarkers: PinMarker[] = useMemo(() => {
     const ordered = orderForPins(poolList, rankById, userPoint);
     const clusters = declutterPins(ordered, viewport ? { region: viewport.region, size: viewport.size } : null, { searching });
@@ -386,27 +397,24 @@ export function HomeScreen() {
     router.push(buildInsteadHref(origin, loc.known ? userPoint : null) as never);
   }, [router, loc.known, userPoint]);
 
-  const advance = useCallback(() => {
-    const next = visibleRecs.find((r) => r.facility.id !== selection?.id);
-    const facility = next ? byId.get(next.facility.id) : undefined;
+  /** 시트가 킵·거절을 처리한 뒤 — 그 장소는 목록·핀 순위에서 빼고, 시트가 알려 준 다음 후보로 넘어간다(없으면 접는다). */
+  const moveToNext = useCallback((done: SheetCandidate, next: SheetCandidate | null) => {
+    setExcluded((prev) => new Set(prev).add(done.facility.id));
     pickedRef.current = false;
+    const facility = next ? byId.get(next.facility.id) : undefined;
     if (facility) { setSelection({ id: facility.id, kind: 'recommended' }); focusOn(facility.latitude, facility.longitude); }
     else setSelection(null);
-  }, [visibleRecs, selection?.id, byId, focusOn]);
+  }, [byId, focusOn]);
 
-  const excludeFacility = useCallback((id: string) => setExcluded((prev) => new Set(prev).add(id)), []);
-
-  const estimate = selected ? (freshEstimate(estimateById[selected.id]) as unknown as CongestionEstimate | null) : null;
-  const conditions: RequiredAttribute[] = [
-    ...(convenience.accessible ? (['accessible'] as const) : []),
-    ...(convenience.stroller ? (['stroller'] as const) : []),
-    ...(indoor ? (['indoor'] as const) : []),
-  ];
-  const removeCondition = useCallback((key: RequiredAttribute) => {
-    if (key === 'indoor') toggleIndoor(false);
-    else toggleConvenience(key);
-  }, [toggleIndoor, toggleConvenience]);
-
+  const closeSheet = useCallback(() => { setSelection(null); pickedRef.current = false; }, []);
+  const showAlternatives = useCallback((c: SheetCandidate) => {
+    goInstead({ facilityId: c.facility.id, type: c.facility.type, latitude: c.facility.latitude, longitude: c.facility.longitude });
+  }, [goInstead]);
+  const travelContext = useMemo(() => homeTravelContext(convenience, indoor, category), [convenience, indoor, category]);
+  const selectedCandidate = useMemo(
+    () => (selected && selection ? buildSelectedCandidate(selected, selection.kind, visibleRecs) : null),
+    [selected, selection, visibleRecs],
+  );
   // 이 칩에 보여 줄 카드가 없을 때 — 지금 후보가 있는 다른 칩을 바로 고르게 한다(웹 category-suggestion).
   const suggestions = useMemo(() => {
     if (selection || loading || error || !hasFacilities || recs === null) return [];
@@ -415,7 +423,6 @@ export function HomeScreen() {
       .filter((s) => s.count > 0);
   }, [selection, loading, error, hasFacilities, recs, category, filtered]);
 
-  const showSkeleton = hasFacilities && recs === null && !selection && !searching;
   const showBanner = !bannerDismissed && (loc.status === 'denied' || loc.notice === 'coarse');
 
   const accessibleAnywhere = useMemo(() => facilities.some((f) => isAccessible(f)), [facilities]);
@@ -427,7 +434,7 @@ export function HomeScreen() {
   const overlayWidth = { width: '100%' as const, maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' as const };
 
   return (
-    <View className="flex-1 bg-hanji">
+    <View className="flex-1 bg-hanji" onLayout={(e) => setContainerH(Math.round(e.nativeEvent.layout.height))}>
       <NextSpotMap
         ref={mapRef}
         style={{ flex: 1 }}
@@ -581,7 +588,7 @@ export function HomeScreen() {
       <View
         pointerEvents="box-none"
         className="absolute inset-x-0 bottom-0 px-[12px]"
-        style={{ paddingBottom: 12, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
+        style={{ paddingBottom: bottomInset, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
       >
         <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
           {showBanner ? (
@@ -589,33 +596,6 @@ export function HomeScreen() {
               kind={loc.status === 'denied' ? 'denied' : 'coarse'}
               onOpenSettings={loc.openSettings}
               onDismiss={() => setBannerDismissed(true)}
-            />
-          ) : null}
-          {showSkeleton ? (
-            <View accessibilityRole="progressbar" accessibilityLabel={t('map.pickingFirst')} accessibilityState={{ busy: true }} className="min-h-[56px] flex-row items-center gap-[10px] rounded-2xl border border-line bg-white px-[16px]">
-              <ActivityIndicator size="small" color={colors['gold-deep']} />
-              <Text className="flex-1 text-[13px]" weight="extrabold">{t('map.pickingFirst')}</Text>
-            </View>
-          ) : null}
-          {selected && selection ? (
-            <RecommendationSheetSlot
-              facility={selected}
-              pickKind={selection.kind}
-              recommendation={selectedRec}
-              rank={rank}
-              totalCandidates={visibleRecs.length > 0 ? visibleRecs.length : null}
-              userLocation={userPoint}
-              userLocationKnown={loc.known}
-              congestionEstimate={estimate}
-              conditions={conditions}
-              onRemoveCondition={removeCondition}
-              onSeeInstead={rank === null && canSeeInstead(selected.type)
-                ? () => goInstead({ facilityId: selected.id, type: selected.type, latitude: selected.latitude, longitude: selected.longitude })
-                : undefined}
-              onDismiss={() => { setSelection(null); pickedRef.current = false; }}
-              onAdvance={visibleRecs.some((r) => r.facility.id !== selected.id) ? advance : undefined}
-              onExcludeFacility={excludeFacility}
-              onHeightChange={setSlotH}
             />
           ) : null}
           {!selected && suggestions.length > 0 ? (
@@ -637,6 +617,35 @@ export function HomeScreen() {
           ) : null}
         </View>
       </View>
+
+      {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다(둘 다 없으면 아무것도 그리지 않는다). */}
+      <View
+        pointerEvents="box-none"
+        className="absolute inset-x-0 px-[12px]"
+        style={{ top: headerH + 8, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
+      >
+        <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
+          <ActiveJourneyCard location={userPoint} />
+          <VisitCheckCard onOpenCoupons={() => router.push('/mypage/coupons' as never)} />
+        </View>
+      </View>
+
+      <RecommendationSheet
+        selected={selectedCandidate}
+        candidates={visibleRecs}
+        excludedIds={excluded}
+        status={status}
+        onRetry={reload}
+        travelContext={travelContext}
+        onAccept={closeSheet}
+        onKeep={moveToNext}
+        onReject={moveToNext}
+        onShowAlternatives={selected && canSeeInstead(selected.type) ? showAlternatives : undefined}
+        onClose={closeSheet}
+        onViewProfile={() => router.push('/mypage' as never)}
+        onViewLab={() => router.push('/mypage/lab' as never)}
+        onStateChange={setSheetState}
+      />
 
       <FilterSheet
         open={filterOpen}

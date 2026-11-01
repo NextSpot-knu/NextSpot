@@ -6,5 +6,5 @@ export { VisitCheckCard, type VisitCheckCardProps } from './VisitCheckCard';
 export { CongestionReportButton } from './CongestionReportButton';
 export { candidateFromPlace } from './types';
 export type { CardFacility, CompareAnchor, SheetCandidate } from './types';
-export type { NavigationMode } from './actions';
-export { getActiveTrip, getDueVisit, getPendingVisit, getVisitHistory, tripEvents } from './tripLoop';
+export { markTasteFeedback, type NavigationMode } from './actions';
+export { recordActiveTrip, getActiveTrip, getDueVisit, getPendingVisit, getVisitHistory, tripEvents } from './tripLoop';

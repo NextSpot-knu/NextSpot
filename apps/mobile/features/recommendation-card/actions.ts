@@ -31,7 +31,7 @@ export type TFn = (key: string, vars?: Record<string, string | number>) => strin
 // ── 부수효과 ───────────────────────────────────────────────────────────────────
 
 /** 취향 학습이 일어날 수 있는 행동을 했다(마이페이지 레이더 배지가 읽는다 — 웹 lib/tasteBadge.markTasteFeedback). */
-function markTasteFeedback(): void {
+export function markTasteFeedback(): void {
   try { globalThis.localStorage?.setItem(TASTE_FEEDBACK_KEY, '1'); } catch { /* 무시 */ }
 }
 

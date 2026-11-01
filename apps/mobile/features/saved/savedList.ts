@@ -1,5 +1,6 @@
 // 저장 목록의 순수 로직 — 웹 apps/web/app/saved/page.tsx 의 정렬·분류·타임라인 계산·상세 카드 입력 만들기를 React 없이 옮겼다
 // (테스트: savedList.test.ts). 저장소(로컬 + Supabase 동기화)는 lib/core/savedFacilities.
+import type { SheetCandidate } from '~/features/recommendation-card';
 import { displayWalkingMinutes } from '~/features/waiting/boardData';
 
 /** 저장 당시의 Spot 중 목록이 읽는 필드(웹 lib/recommender.ts Spot 의 부분). */
@@ -179,4 +180,39 @@ export function savedCardInput(b: SavedBookmark): SavedCardInput {
       congestionLevel: typeof b.congestionLevel === 'number' ? b.congestionLevel : null,
     },
   };
+}
+
+/**
+ * 저장 장소 → 추천 카드 시트 후보. 저장 당시 spot(점수·선호·이동)이 있으면 그대로 싣고, 없으면 장소만(점수 줄이 안 그려진다).
+ * 대기는 저장 당시 학습 모델이 잰 값(verified_model)일 때만 싣는다 — savedCardInput 과 같은 규칙. reason 은 저장 당시 문장.
+ * 좌표가 없으면 NaN — 길안내 링크가 이름 검색으로 돌아간다(저장 화면의 directions 와 같은 폴백).
+ */
+export function candidateFromBookmark(b: SavedBookmark): SheetCandidate {
+  const input = savedCardInput(b);
+  const spot = b.spot;
+  const candidate: SheetCandidate = {
+    recommendationId: isRealRecommendationId(b.recommendationId) ? b.recommendationId : undefined,
+    reason: b.reason,
+    facility: {
+      id: b.id,
+      name: b.name,
+      type: input.facilityType,
+      latitude: b.latitude ?? Number.NaN,
+      longitude: b.longitude ?? Number.NaN,
+      address: b.address ?? null,
+      phone: b.phone ?? null,
+      features: b.features ?? null,
+      congestionLevel: typeof b.congestionLevel === 'number' ? b.congestionLevel : undefined,
+    },
+  };
+  if (spot) {
+    candidate.spotScore = spot.score;
+    candidate.breakdown = {
+      preference: spot.preferencePercent / 100,
+      travelTime: spot.expectedTravel,
+      incentive: 0,
+      ...(input.expectedWait !== undefined ? { waitTime: input.expectedWait } : {}),
+    };
+  }
+  return candidate;
 }
