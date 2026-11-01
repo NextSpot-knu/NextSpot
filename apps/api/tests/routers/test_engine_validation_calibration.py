@@ -20,6 +20,7 @@ def developer_headers() -> dict:
 
 NOW = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
 _ROW_CAP = 1000
+_REAL_BUILD_REPORT = cal.build_report
 
 
 class _Response:
@@ -117,6 +118,13 @@ def _install(monkeypatch, *, seoul=(), gyeongju=None, error=None):
     tables = {cal.TABLE: list(seoul), **(gyeongju or {"area_demand_snapshots": [], "area_demand_snapshot_lots": []})}
     monkeypatch.setattr(cal, "supabase_admin", _Client(tables, error))
     cal.reset_caches()
+    # 라우터는 build_report(days) 를 실제 현재 시각으로 부른다. 표본은 고정 NOW 로 만들었으니 날짜가 지나면
+    # 실제 시계의 28일 창 밖으로 밀려 결과가 바뀐다(2026-11-02 에 rank_gate 가 'insufficient' 로 깨졌다).
+    # 라우트 경로도 NOW 로 고정한다 — 직접 now= 를 넘기는 호출은 그대로다.
+    monkeypatch.setattr(
+        cal, "build_report",
+        lambda days=cal.DEFAULT_WINDOW_DAYS, *, now=None: _REAL_BUILD_REPORT(days, now=now or NOW),
+    )
 
 
 def _client():
