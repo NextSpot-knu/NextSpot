@@ -100,7 +100,7 @@ export function cityPhotoCredit(features: Record<string, unknown> | null | undef
   if (!source || !cityPhotoUrl(features)) return null;
   return {
     kind: 'city',
-    label: text(source.provider) || '경주시',
+    label: text(source.provider), // 'city' 줄의 글자는 i18n common.cityPhotoCredit — label 은 화면이 쓰지 않는다
     license: text(source.license),
     sourceUrl: safeHttpUrl(source.sourceUrl ?? source.source_url),
   };

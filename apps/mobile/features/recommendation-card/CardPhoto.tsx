@@ -156,6 +156,7 @@ export function CardPhoto({
           accessibilityRole={credit.sourceUrl ? 'link' : 'text'}
           disabled={!credit.sourceUrl}
           onPress={() => void openExternalUrl(credit.sourceUrl)}
+          hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
           className="min-h-[24px] justify-center py-[5px]"
         >
           <Text className="text-[10px] leading-[14px] text-muk-soft underline">

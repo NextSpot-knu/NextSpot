@@ -102,7 +102,7 @@ export function CongestionReportButton({
                     submitting && !active ? 'opacity-60' : '',
                   )}
                 >
-                  <Text className="text-[24px] leading-[30px]" accessibilityElementsHidden>{opt.emoji}</Text>
+                  <Text className="text-[24px] leading-[30px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{opt.emoji}</Text>
                   <Text className="text-[14px] leading-[18px]" weight="bold">{t(opt.labelKey)}</Text>
                   <Text className="text-center text-[10px] leading-[13px] text-muk-soft">{t(opt.descKey)}</Text>
                 </Pressable>

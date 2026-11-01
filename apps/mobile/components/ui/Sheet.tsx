@@ -8,7 +8,7 @@ import BottomSheet, {
 } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BackHandler, StyleSheet, View, type AccessibilityActionEvent } from 'react-native';
+import { BackHandler, Platform, StyleSheet, View, type AccessibilityActionEvent } from 'react-native';
 import { ReduceMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,7 +25,8 @@ const DEFAULT_SNAPS = ['18%', '45%', '88%'] as const;
 const SHEET_ANIMATION = { ...springs.sheet, reduceMotion: ReduceMotion.System };
 
 const background = {
-  backgroundColor: 'rgba(255, 255, 255, 0.95)', // 웹 bg-white/95
+  // 웹 bg-white/95. 안드로이드는 흐림이 없어 반투명이면 뒤 지도·목록이 비쳐 글자가 겹친다(규칙 7) — 불투명.
+  backgroundColor: Platform.select({ android: colors.white, default: 'rgba(255, 255, 255, 0.95)' }),
   borderColor: colors.line,
   borderWidth: 1,
   borderRadius: 24, // 웹 rounded-3xl

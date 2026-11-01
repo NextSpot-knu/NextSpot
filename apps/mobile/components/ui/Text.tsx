@@ -1,9 +1,12 @@
 import { createContext, forwardRef, useContext } from 'react';
-import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
+import { Platform, Text as RNText, type TextProps as RNTextProps } from 'react-native';
 
 import { fontFamilies, weightClassToName, type FontWeightName } from '~/lib/theme/tokens';
 
+import { getCurrentLocale } from '~/lib/i18n/localeState';
+
 import { TEXT_SIZE_CLASS, isTextColorClass, withDefault } from './cn';
+import { keepKoreanWordsInChildren, stripWordJoiners } from './koreanWordKeep';
 
 export type TextProps = RNTextProps & {
   className?: string;
@@ -38,7 +41,8 @@ export function weightFromClassName(className: string | undefined): FontWeightNa
  *   Text 안에 겹친 Text 는 기본값을 붙이지 않는다 — 부모의 색·크기·굵기를 물려받는다(굵기를 주면 그 글꼴로 바꾼다).
  * - 큰 글자: maxFontSizeMultiplier 기본 1.6(DEFAULT_MAX_FONT_SCALE). 겹친 Text 에는 기본값을 주지 않는다 — 바깥 Text 가
  *   본문을 더 키우려고(또는 0 으로 풀려고) 준 값을 안쪽 조각이 1.6 으로 다시 묶지 않게(명시해서 넘긴 값만 쓴다).
- * - 한국어 줄바꿈: iOS 는 낱말 단위(hangul-word) — 웹 word-break: keep-all 과 같은 뜻. 안드로이드는 기본이 낱말 단위다.
+ * - 한국어 줄바꿈: iOS 는 낱말 단위(hangul-word) — 웹 word-break: keep-all 과 같은 뜻. 안드로이드는 그런 옵션이 없어 음절마다 끊기므로
+ *   ko 일 때 낱말 안 한글 사이에 U+2060 을 넣는다(koreanWordKeep.ts). 읽기 화면에는 U+2060 을 뺀 글을 넘긴다.
  */
 export const Text = forwardRef<RNText, TextProps>(function Text({ className, weight, style, children, ...rest }, ref) {
   const nested = useContext(NestedText);
@@ -49,6 +53,14 @@ export const Text = forwardRef<RNText, TextProps>(function Text({ className, wei
     classes = withDefault(classes, isTextColorClass, 'text-muk');
     classes = withDefault(classes, TEXT_SIZE_CLASS, 'text-[16px]');
   }
+  const keepWords = Platform.OS === 'android' && getCurrentLocale() === 'ko';
+  const shown = keepWords ? keepKoreanWordsInChildren(children) : children;
+  const label =
+    typeof rest.accessibilityLabel === 'string'
+      ? stripWordJoiners(rest.accessibilityLabel)
+      : keepWords && typeof children === 'string'
+        ? children
+        : rest.accessibilityLabel;
   return (
     <RNText
       ref={ref}
@@ -57,8 +69,9 @@ export const Text = forwardRef<RNText, TextProps>(function Text({ className, wei
       maxFontSizeMultiplier={nested ? undefined : DEFAULT_MAX_FONT_SCALE}
       style={[resolved ? { fontFamily: fontFamilies[resolved], fontWeight: 'normal' } : null, style]}
       {...rest}
+      accessibilityLabel={label}
     >
-      {nested ? children : <NestedText.Provider value>{children}</NestedText.Provider>}
+      {nested ? shown : <NestedText.Provider value>{shown}</NestedText.Provider>}
     </RNText>
   );
 });

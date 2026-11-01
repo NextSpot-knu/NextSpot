@@ -303,7 +303,10 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
       })
     : null;
   const isOpenNow = displayedOpenStatus === 'open_expected' && !closedToday;
-  const foodName = facilityType === 'restaurant' ? faceMenu?.items[0] : null;
+  // 요리 분류(cuisine)는 카카오가 준 한국어 태그라 영어·일어·중국어 문장 틀에 끼우면 한 문장에 두 언어가 섞인다 — ko 가 아니면
+  // 쓰지 않고 compareHeaderText / 혜택 줄(compare.benefitWalk)로 내려간다. 메뉴 이름(kind 'menu')은 데이터 그대로라 유지.
+  const cuisineInForeignLocale = faceMenu?.kind === 'cuisine' && !!ctx.locale && ctx.locale !== 'ko';
+  const foodName = facilityType === 'restaurant' && !cuisineInForeignLocale ? faceMenu?.items[0] : null;
   const foodHeadline = foodName
     ? isOpenNow
       ? waitMins !== null && waitMins > 0

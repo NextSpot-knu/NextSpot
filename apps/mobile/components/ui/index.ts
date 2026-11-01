@@ -30,7 +30,7 @@
  * 11. 탭 영역 44pt: 누를 수 있는 것은 min-h-[44px], 보이는 크기가 작으면 hitSlop 으로 44 를 채운다(웹 .tap-target).
  *     아이콘만 있는 버튼은 accessibilityLabel 필수. 누를 수 있는 것에는 accessibilityRole="button".
  * 12. dvh · vh · fixed · sticky · z-* 쌓기 → Screen · Sheet · 절대 배치(absolute)로. 화면 내용은 Screen 이 가운데 최대 640pt.
- * 13. 이모지는 그대로 Text 로 쓴다. 장식이면 accessibilityElementsHidden.
+ * 13. 이모지는 그대로 Text 로 쓴다. 장식이면 accessibilityElementsHidden(iOS) + importantForAccessibility="no-hide-descendants"(안드로이드)를 함께.
  * 14. 다크 모드(dark:)는 없다 — 앱은 라이트만.
  * 15. space-x-* · space-y-* → 부모에 gap-*(gap-x-* · gap-y-*). divide-* → 두 번째 자식부터 border-t border-line 처럼
  *     테두리를 직접 준다. NativeWind 는 네이티브에서 둘 다 그리지 않는다.

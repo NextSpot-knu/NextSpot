@@ -84,4 +84,14 @@ assert.ok(buildCardModel({ ...base, breakdown: { ...base.breakdown!, areaDemandL
 // now 가 없으면(첫 렌더 전) 도착 줄을 그리지 않는다
 assert.equal(buildCardModel(base, ctx({ now: null })).showArrivalLine, false);
 
+// 요리 분류(한국어 태그)는 ko 가 아닐 때 영어 틀(compare.cuisineWalk)에 끼우지 않는다 — 혜택 줄(benefitWalk)로 내려간다
+const cuisineCand: SheetCandidate = { ...base, facility: { ...base.facility, features: { cuisineTags: ['한식'] } } };
+const cuisineKo = buildCardModel(cuisineCand, ctx({ locale: 'ko' }));
+assert.ok(cuisineKo.peekValueText.includes('한식'), cuisineKo.peekValueText);
+const cuisineEn = buildCardModel(cuisineCand, ctx({ locale: 'en' }));
+assert.ok(!cuisineEn.peekValueText.includes('compare.cuisineWalk') && !cuisineEn.peekValueText.includes('한식'), cuisineEn.peekValueText);
+assert.ok(cuisineEn.peekValueText.includes('compare.benefitWalk'), cuisineEn.peekValueText);
+// 메뉴 이름은 데이터라 그대로
+assert.ok(buildCardModel(base, ctx({ locale: 'en' })).peekValueText.includes('곱창'));
+
 console.log('cardModel.test OK');

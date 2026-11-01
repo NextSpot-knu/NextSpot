@@ -39,7 +39,7 @@ export function ImpactSummaryCard({ summary }: { summary: ImpactSummary | null }
           <View className="mt-[8px] flex-row flex-wrap items-baseline gap-x-[8px] gap-y-[4px]">
             {metrics.map((text, index) => (
               <View key={text} className="flex-row items-baseline gap-[8px]">
-                {index > 0 ? <Text className="text-muk-soft" accessibilityElementsHidden>·</Text> : null}
+                {index > 0 ? <Text className="text-muk-soft" accessibilityElementsHidden importantForAccessibility="no">·</Text> : null}
                 <Text className="text-[15px]" weight="black">{text}</Text>
               </View>
             ))}

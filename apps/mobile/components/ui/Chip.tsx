@@ -40,7 +40,7 @@ export function Chip({ label, selected = false, icon, emoji, disabled = false, c
       )}
       {...rest}
     >
-      {emoji ? <Text className="text-[13px]">{emoji}</Text> : null}
+      {emoji ? <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{emoji}</Text> : null}
       {icon ? <Icon icon={icon} size="sm" color={selected ? 'jade' : 'muk-soft'} /> : null}
       <Text className={cn('text-[13px]', selected ? 'text-muk' : 'text-muk-soft')} weight="semibold" numberOfLines={1}>
         {label}

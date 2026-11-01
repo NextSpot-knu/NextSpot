@@ -501,7 +501,7 @@ function CardBody(
             className="flex-1"
             variant="secondary"
             icon={confirmed === 'saved' ? Check : Bookmark}
-            label={t('card.putOff').replace('\n', ' ')}
+            label={t('card.putOff').replace('\n', ' · ')}
             accessibilityLabel={t('card.putOffAria')}
             onPress={doKeep}
           />
