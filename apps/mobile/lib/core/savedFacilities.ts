@@ -153,30 +153,36 @@ export async function saveBookmark(bookmark: SavedRecord): Promise<void> {
 
 export async function removeBookmark(id: string): Promise<void> {
   writeLocal(loadSavedLocal().filter((b) => b.id !== id));
-  const uid = await currentUserId();
-  if (!uid) return;
+  // currentUserId 의 await 보다 먼저 — deleteWithPending 은 첫 await 전에 보류 목록을 동기로 쓴다.
+  // 로그인 확인을 기다리는 사이 syncSaved 가 끼어들어도 삭제 중인 장소를 되살리지 않는다.
   await deleteWithPending(id, {
     loadPending: loadPendingDeletes,
     writePending: writePendingDeletes,
-    deleteRemote: (target) => deleteRemote(uid, target),
+    deleteRemote: async (target) => {
+      const uid = await currentUserId();
+      if (!uid) return true; // 비로그인 — 지울 원격이 없으니 보류에서 뺀다
+      return deleteRemote(uid, target);
+    },
   });
 }
 
 export async function clearSavedAll(): Promise<void> {
   const ids = loadSavedLocal().map((b) => b.id);
   writeLocal([]);
-  const uid = await currentUserId();
-  if (!uid) return;
-  // removeBookmark 와 같은 순서 — 보류 목록에 먼저 넣고, 전체 삭제가 성공하면 뺀다.
+  // removeBookmark 와 같은 순서 — 첫 await 전에 보류 목록에 먼저 넣고, 전체 삭제가 성공하면 뺀다.
   writePendingDeletes([...new Set([...loadPendingDeletes(), ...ids])]);
+  const cleared = new Set(ids);
+  const dropPending = () => writePendingDeletes(loadPendingDeletes().filter((id) => !cleared.has(id)));
+  const uid = await currentUserId();
+  if (!uid) {
+    dropPending(); // 비로그인 — 지울 원격이 없다
+    return;
+  }
   try {
     const { error } = await createPublicClient()
       .from('saved_facilities')
       .delete()
       .eq('user_id', uid);
-    if (!error) {
-      const cleared = new Set(ids);
-      writePendingDeletes(loadPendingDeletes().filter((id) => !cleared.has(id)));
-    }
+    if (!error) dropPending();
   } catch { /* 보류 목록에 남아 다음 syncSaved 가 지운다 */ }
 }

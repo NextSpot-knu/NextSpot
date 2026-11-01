@@ -49,11 +49,13 @@ export function Screen({
   };
   const width = maxWidth === false ? undefined : { width: '100%' as const, maxWidth, alignSelf: 'center' as const };
   if (scroll) {
+    // 위 안전 영역은 스크롤 밖(바깥 View)에 둔다 — 스크롤 내용 안의 padding 이면 내용이 올라갈 때 상태 표시줄 밑으로 들어간다.
+    const { paddingTop, ...scrollPad } = pad;
     return (
-      <View className={cn('flex-1', bg)}>
+      <View className={cn('flex-1', bg)} style={{ paddingTop }}>
         <ScrollView
           {...scrollProps}
-          contentContainerStyle={[pad, { flexGrow: 1 }]}
+          contentContainerStyle={[scrollPad, { flexGrow: 1 }]}
           keyboardShouldPersistTaps={scrollProps?.keyboardShouldPersistTaps ?? 'handled'}
         >
           <View className={cn('flex-1', contentClassName)} style={width}>

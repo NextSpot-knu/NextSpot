@@ -422,7 +422,8 @@ function CardBody(
               </Text>
             </View>
           </View>
-          {model.faceMenu && (
+          {/* 요리 분류(cuisine)는 카카오 한국어 태그 — ko 가 아니면 배지를 그리지 않는다(cardModel 의 cuisineInForeignLocale 과 같은 이유). */}
+          {model.faceMenu && (model.faceMenu.kind !== 'cuisine' || locale === 'ko') && (
             <View className="flex-row items-start gap-[4px] rounded-lg border border-gold/35 bg-gold/10 px-[8px] py-[4px]">
               <View className="pt-[2px]" accessibilityElementsHidden importantForAccessibility="no">
                 <Icon icon={model.type === 'cafe' ? Coffee : Utensils} size="sm" color="gold-deep" />

@@ -252,7 +252,7 @@ export default function MypageScreen() {
         <Pressable accessibilityRole="link" onPress={() => go('/mypage/privacy')} className="min-h-[44px] justify-center px-[8px]">
           <Text className="text-xs text-muk-soft">{t('mypage.menuPrivacy')}</Text>
         </Pressable>
-        <Text className="text-xs text-line" accessibilityElementsHidden>·</Text>
+        <Text className="text-xs text-line" accessibilityElementsHidden importantForAccessibility="no">·</Text>
         <Pressable accessibilityRole="link" onPress={() => go('/mypage/support')} className="min-h-[44px] justify-center px-[8px]">
           <Text className="text-xs text-muk-soft">{t('mypage.menuHelp')}</Text>
         </Pressable>

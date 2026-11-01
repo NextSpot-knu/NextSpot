@@ -10,6 +10,7 @@ import { View } from 'react-native';
 
 import { Card, Icon, Text } from '~/components/ui';
 import { useT } from '~/lib/i18n/I18nProvider';
+import { splitLeadingEmoji } from '~/lib/i18n/leadingEmoji';
 
 const PROBLEMS: { key: string; icon: LucideIcon }[] = [
   { key: 'problemWait', icon: Clock },
@@ -32,15 +33,35 @@ const FAQ: { q: string; a: string }[] = [
   { q: 'guide.faq7Q', a: 'guide.faq7A' },
 ];
 
+/** 맨 앞 이모지는 장식이라 따로 숨기고(TalkBack 이 '핀 모양 핀' 처럼 읽지 않게), 나머지만 읽히는 글자로 그린다. */
+function EmojiLine({ text, className, weight }: { text: string; className: string; weight: 'medium' | 'semibold' }) {
+  const { emoji, rest } = splitLeadingEmoji(text);
+  if (!emoji) {
+    return (
+      <Text className={className} weight={weight}>
+        {text}
+      </Text>
+    );
+  }
+  return (
+    <View className="flex-row items-start gap-[6px]">
+      <Text className={className} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        {emoji}
+      </Text>
+      <Text className={`min-w-0 shrink ${className}`} weight={weight}>
+        {rest}
+      </Text>
+    </View>
+  );
+}
+
 /** 첫 화면 머리 — 배지 · 가치 문장 · 부제 · 가치 네 줄. */
 export function GuideHero() {
   const t = useT();
   return (
     <View className="items-center">
       <View className="rounded-full border border-gold/30 bg-white px-[14px] py-[6px]">
-        <Text className="text-xs text-gold-deep" weight="semibold">
-          {t('landing.badge')}
-        </Text>
+        <EmojiLine text={t('landing.badge')} className="text-xs text-gold-deep" weight="semibold" />
       </View>
       <Text className="mt-[20px] text-center text-[28px] leading-[38px] text-muk" weight="bold" accessibilityRole="header">
         {t('landing.tagline')}
@@ -49,9 +70,7 @@ export function GuideHero() {
       <View className="mt-[20px] w-full gap-[8px]">
         {(['value1', 'value2', 'value3', 'value4'] as const).map((key) => (
           <View key={key} className="rounded-2xl border border-line bg-white px-[14px] py-[10px]">
-            <Text className="text-sm text-muk" weight="medium">
-              {t(`landing.${key}`)}
-            </Text>
+            <EmojiLine text={t(`landing.${key}`)} className="text-sm text-muk" weight="medium" />
           </View>
         ))}
       </View>

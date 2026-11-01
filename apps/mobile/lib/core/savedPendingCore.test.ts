@@ -53,6 +53,18 @@ async function main() {
     assert.deepEqual(h.pending, ['x']);
   }
 
+  // 호출 직후(첫 await 전)에 이미 보류 목록에 있다 — 로그인 확인 같은 await 사이에 syncSaved 가 돌아도 안전
+  {
+    const h = harness(true);
+    let release: (v: boolean) => void = () => {};
+    const gate = new Promise<boolean>((r) => { release = r; });
+    const p = deleteWithPending('a', { ...h.deps, deleteRemote: async () => gate });
+    assert.deepEqual(h.pending, ['a'], '원격 삭제 전·await 전에 동기로 기록된다');
+    release(true);
+    await p;
+    assert.deepEqual(h.pending, []);
+  }
+
   console.log('savedPendingCore.test OK');
 }
 

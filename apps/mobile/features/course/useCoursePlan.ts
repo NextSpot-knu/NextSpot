@@ -98,6 +98,8 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   const lastOkAtRef = useRef(0);
   const inFlightRef = useRef(false);
   const needsAuthRef = useRef(false);
+  // 요청이 날아가는 동안 SIGNED_IN 이 왔는가 — 그 요청이 옛 토큰으로 401 을 받으면 needsAuth 에 멈추지 않고 한 번 다시 짠다.
+  const signedInDuringFlightRef = useRef(false);
   const markUserReplan = () => {
     userReplanRef.current = true;
   };
@@ -144,6 +146,7 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
     const context = loadTravelContext();
     requestedContextKeyRef.current = JSON.stringify(context);
     inFlightRef.current = true;
+    signedInDuringFlightRef.current = false;
     const types = sequence.length > 0 ? [] : selectedTypes;
     const signature = planSignature(context, sequenceTypesOf(sequence), types, pinList);
     // 화면에 같은 조건의 계획이 이미 있으면 조용한 새로고침 — 로더 없이, 실패해도 보이는 계획을 유지한다(스테일-우선).
@@ -181,6 +184,12 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
       );
     } catch (err) {
       if (gen !== fetchGenRef.current) return;
+      if (isAuthError(err) && signedInDuringFlightRef.current) {
+        // 로그인이 막 끝났는데 이 요청은 로그인 전 토큰이었다 — 안내 화면에 서지 말고 새 세션으로 한 번 더(플래그는 다음 요청 시작에 꺼진다).
+        signedInDuringFlightRef.current = false;
+        setTimeout(() => void fetchCourseRef.current(), 0);
+        return;
+      }
       if (silentRefresh) return;
       hasRenderedResultsRef.current = false;
       setStops([]);
@@ -206,6 +215,7 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   useEffect(() => {
     if (!enabled) return;
     const { data } = createPublicClient().auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session && inFlightRef.current) signedInDuringFlightRef.current = true;
       if (!shouldRecoverOnAuthEvent(event, !!session, needsAuthRef.current)) return;
       // 콜백 안에서 바로 요청하지 않는다(supabase-js 인증 잠금 안이라 세션 읽기가 막힐 수 있다).
       setTimeout(() => void fetchCourseRef.current(), 0);

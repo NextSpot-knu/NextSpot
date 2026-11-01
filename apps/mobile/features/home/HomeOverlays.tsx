@@ -1,11 +1,13 @@
 // 홈 지도 위에 얹는 조각들 — 검색 결과 · 필터·편의 시트 · 같은 건물 목록 · 위치 안내 · 위치 배너.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 검색 결과 블록 · showMobileTools 시트 · 그룹 마커 팝업.
+import { useRouter, type Href } from 'expo-router';
 import { ChevronRight, Search, X } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 
 import { formatDistance } from '@/lib/map/geo';
 import { Button, Card, Icon, IconButton, ModalSheet, Pressable, SheetScrollView, Text } from '~/components/ui';
+import { AI_SETTINGS_ROUTE } from '~/features/aiConsent';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { colors } from '~/lib/theme/tokens';
 
@@ -57,7 +59,8 @@ function Loading() {
 export function SearchPanel({ query, local, external, onPickLocal, onViewPlace, onOpenKakaoPlace, onRouteTour, onSeeInsteadPlace }: SearchPanelProps) {
   const t = useT();
   const q = query.trim();
-  const { places, placesLoading, tour, tourLoading, tourAsked } = external;
+  const router = useRouter();
+  const { places, placesLoading, tour, tourLoading, tourAsked, aiSkipped } = external;
   const none = local.length === 0 && !placesLoading && places.length === 0 && !tourLoading && tour.length === 0;
   return (
     <Card padded={false} className="overflow-hidden bg-white/95" style={{ maxHeight: 360 }}>
@@ -65,6 +68,19 @@ export function SearchPanel({ query, local, external, onPickLocal, onViewPlace, 
         {none ? (
           <View className="min-h-[44px] justify-center px-[12px] py-[8px]">
             <Text className="text-[12px]">{tourAsked ? t('map.searchNoResultAnywhere', { q }) : t('map.searchNoResult', { q })}</Text>
+            {aiSkipped ? (
+              <Text className="text-[12px] leading-[17px] text-muk-soft">
+                {t('app.aiConsent.declinedHint')}{' '}
+                <Text
+                  className="text-[12px] text-gold-deep"
+                  weight="semibold"
+                  accessibilityRole="link"
+                  onPress={() => router.push(AI_SETTINGS_ROUTE as Href)}
+                >
+                  {t('app.aiConsent.openSettings')}
+                </Text>
+              </Text>
+            ) : null}
           </View>
         ) : null}
         {local.length > 0 ? (

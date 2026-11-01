@@ -55,6 +55,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((next: Locale) => {
     ensureMessages(next);
+    // 렌더 전에 먼저 — useEffect 로만 알리면 언어를 바꾼 첫 렌더가 이전 언어의 한국어 낱말 단위 줄바꿈 설정으로 그려진다.
+    setCurrentLocale(next);
     setLocaleState(next);
     try {
       globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, next);
