@@ -1,0 +1,32 @@
+{
+  "app.course.emptyBody": {
+    "ko": "종류를 하나 더 고르거나 도보 시간·여행 시간을 넓히면 바로 코스를 만들어 드려요.",
+    "en": "Pick one more type, or widen your walking or trip time, and we'll build a course right away.",
+    "ja": "種類をもう1つ選ぶか、徒歩時間・旅行時間を広げると、すぐにコースを作ります。",
+    "zh": "再多选一种类型，或放宽步行时间、行程时间，就能马上为你生成路线。"
+  },
+  "app.course.slotLateNight": {
+    "ko": "늦은 시간이라 영업 확인이 어려워요. 낮 시간대에 다시 찾으면 식당·카페 선택지가 넓어져요.",
+    "en": "Opening hours are hard to confirm this late. Try again during the day for more restaurant and cafe options.",
+    "ja": "遅い時間のため営業を確認しにくいです。昼の時間帯に探すと飲食店・カフェの選択肢が広がります。",
+    "zh": "时间较晚，难以确认营业情况。白天再来查看，餐厅和咖啡馆的选择会更多。"
+  },
+  "app.course.reorderHint": {
+    "ko": "길게 눌러 끌면 순서를 바꿀 수 있어요",
+    "en": "Press and hold, then drag to reorder",
+    "ja": "長押ししてドラッグすると順番を変えられます",
+    "zh": "长按并拖动即可调整顺序"
+  },
+  "app.course.moveEarlier": {
+    "ko": "{type} 앞으로 옮기기",
+    "en": "Move {type} earlier",
+    "ja": "{type}を前へ移動",
+    "zh": "将{type}前移"
+  },
+  "app.course.moveLater": {
+    "ko": "{type} 뒤로 옮기기",
+    "en": "Move {type} later",
+    "ja": "{type}を後ろへ移動",
+    "zh": "将{type}后移"
+  }
+}
