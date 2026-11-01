@@ -63,8 +63,11 @@ assert.match(session, /if \(!isSocialLoginAllowed\(Platform\.OS, provider\)\) re
 assert.deepEqual(using(/\bexchangeCodeForSession\s*\(/), ['features/auth/callbackFlow.ts']);
 // 토큰을 딥링크에서 직접 세션으로 넣는 implicit 경로도 없다.
 assert.deepEqual(using(/\bsetSession\s*\(/), []);
-// 소셜 로그인을 여는 곳은 로그인 화면과 콜백 흐름뿐이고, 로그인 화면은 버튼 목록을 규칙 함수로만 만든다.
-assert.deepEqual(using(/\brunOAuthSession\s*\(/), ['app/login.tsx', 'features/auth/callbackFlow.ts', 'features/auth/oauthSession.ts']);
+// 소셜 로그인을 여는 곳은 로그인 화면·마이페이지 계정 연결(안드로이드 구글)·콜백 흐름뿐이다. 모두 같은 입구를 거쳐
+// 입구가 Platform.OS 규칙을 다시 본다. 로그인 화면은 버튼 목록을 규칙 함수로만 만든다.
+assert.deepEqual(using(/\brunOAuthSession\s*\(/), [
+  'app/login.tsx', 'features/auth/callbackFlow.ts', 'features/auth/oauthSession.ts', 'features/mypage/actions.ts',
+]);
 const login = readFileSync(join(ROOT, 'app/login.tsx'), 'utf8');
 assert.match(login, /const providers = socialProvidersFor\(Platform\.OS\);/);
 assert.match(login, /providers\.length > 0 && \(/, '소셜 영역은 목록이 비면 그리지 않는다');
