@@ -1,4 +1,5 @@
 // 지도 기능의 공개 입구 — 화면은 '~/features/map' 만 import 한다(react-native-maps 직접 import 금지).
+export { MAP_AVAILABLE } from './NextSpotMap';
 export { NextSpotMap, DEFAULT_INITIAL_REGION, type NextSpotMapProps } from './NextSpotMap';
 export { MapSmoke } from './MapSmoke';
 export * from './types';

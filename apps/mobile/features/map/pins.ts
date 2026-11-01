@@ -36,6 +36,8 @@ export const MAP_COLORS = {
   white: '#ffffff',
   festivalOngoing: '#c1553b',
   festivalUpcoming: '#c19a3e',
+  // 키 없는 빌드의 지도 자리(한지 진한 톤)
+  unavailable: '#efe6d6',
 } as const;
 
 /** 내 위치 점 크기(dp) — 웹 /main: 흰 테두리 28 · 금빛 점 14, 번짐은 정적 고리로(지름 44). 코스: 14 + 테두리 3. */

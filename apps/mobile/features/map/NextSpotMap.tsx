@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Platform, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import MapView, { Circle, Marker, Polyline, type MapPressEvent, type Region as RNRegion } from 'react-native-maps';
+import Constants from 'expo-constants';
 import { SvgXml } from 'react-native-svg';
 
 import { REGION } from '@/lib/region';
@@ -80,6 +81,10 @@ export const DEFAULT_INITIAL_REGION: Region = regionForKakaoLevel(
   DEFAULT_KAKAO_LEVEL,
   DEFAULT_VIEW_SIZE,
 );
+
+/** 안드로이드 구글 지도는 키가 없으면 MapView 를 여는 순간 앱이 죽는다("API key not found") — 키 없는 빌드는 지도를 그리지 않는다. */
+export const MAP_AVAILABLE =
+  Platform.OS !== 'android' || Boolean(Constants.expoConfig?.android?.config?.googleMaps?.apiKey);
 
 export function NextSpotMap({
   markers = [],
@@ -180,6 +185,11 @@ export function NextSpotMap({
   }, [onGroupPress, onMarkerPress]);
 
   const isIOS = Platform.OS === 'ios';
+
+  if (!MAP_AVAILABLE) {
+    // 지도 없이도 화면의 나머지(카드·칩·목록)는 쓸 수 있게 자리만 둔다.
+    return <View style={[styles.root, style, { backgroundColor: MAP_COLORS.unavailable }]} testID={testID} />;
+  }
 
   return (
     <View style={[styles.root, style]} onLayout={handleLayout} onTouchStart={onUserTouch} testID={testID}>
