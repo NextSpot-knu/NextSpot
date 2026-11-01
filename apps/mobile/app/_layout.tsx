@@ -3,13 +3,15 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useFonts } from 'expo-font';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppToaster } from '~/components/ui';
-import { FirstRunGate } from '~/features/onboarding';
+import { FirstRunGate, useFirstRunGate } from '~/features/onboarding';
+import { shouldTrackPageView } from '~/features/onboarding/firstRun';
 import { ShellBridge } from '~/lib/appShell';
 import { AppProviders } from '~/lib/core/AppProviders';
 import { I18nProvider, useT } from '~/lib/i18n/I18nProvider';
@@ -91,15 +93,24 @@ export default function RootLayout() {
                 </Stack>
                 {/* 첫 실행 게이트 — 라우터 훅을 쓰므로 Stack 과 같은 트리 안, Stack 바로 뒤(features/onboarding/FirstRunGate). */}
                 <FirstRunGate />
+                <TrackedShellBridge />
               </ThemeProvider>
-              <ShellBridge />
             </ProvidersWithLabels>
           </I18nProvider>
           <AppToaster />
+          {/* 앱은 라이트(한지)만 — 상태 표시줄 글자를 어둡게 고정한다. */}
+          <StatusBar style="dark" />
         </BottomSheetModalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+// 이용 기록 연결(page_view) — 첫 실행 화면으로 보낼 참인 경로(콜드 스타트의 '/' 등)에서는 그리지 않는다.
+// 그래서 소개로 바뀌기 전의 홈('/main')이 기록되지 않고, 소개 화면에 닿은 뒤 그 경로로 한 번 기록된다.
+function TrackedShellBridge() {
+  const { redirectTo } = useFirstRunGate();
+  return shouldTrackPageView(redirectTo) ? <ShellBridge /> : null;
 }
 
 // 세션·계정·공개 설정 제공자 — 점검·공지 문구는 웹과 같은 systemNotice.* 키(4로케일)를 쓴다.

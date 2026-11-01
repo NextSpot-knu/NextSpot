@@ -13,12 +13,12 @@ import { usePathname, useRootNavigationState, useRouter, type Href } from 'expo-
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { readPendingFlow } from '~/features/auth/pendingFlow';
 import { colors } from '~/lib/theme/tokens';
 
 import {
   decideFirstRunRedirect,
   getFirstRunStep,
+  isOAuthFlowPending,
   navigatedRecentlyTo,
   noteFirstRunNavigation,
   subscribeFirstRun,
@@ -46,7 +46,7 @@ export function useFirstRunGate(): FirstRunGateState {
   }, [pathname]);
   // 소셜 로그인 왕복 중(진행 중 흐름 기록이 있음)에는 보내지 않는다 — 콜드 스타트에서 콜백 화면이 첫 URL 을
   // 받기 전에 소개로 바꿔치기하면 code 가 처리되지 않는다. 기록은 끝나거나 취소되면 지워지고 10분이면 만료된다.
-  const oauthInFlight = readPendingFlow((globalThis as { localStorage?: Storage }).localStorage ?? null, Date.now()) !== null;
+  const oauthInFlight = isOAuthFlowPending();
   return {
     step,
     redirectTo: oauthInFlight ? null : decideFirstRunRedirect(step, pathname),

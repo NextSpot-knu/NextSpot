@@ -78,3 +78,23 @@ export function decideFirstRunRedirect(step: FirstRunStep | null, pathname: stri
   if (FIRST_RUN_PASS_THROUGH.some((p) => path === p || path.startsWith(`${p}/`))) return null;
   return target;
 }
+
+/**
+ * 탭(app/(tabs)/_layout)에 들어오기 전 판정 — 첫 실행 단계가 남았으면 탭 화면을 하나도 띄우지 않고 그 단계로 보낸다.
+ * 소셜 로그인 왕복 중(oauthPending)에는 보내지 않는다 — 콜백 화면이 code 를 처리하기 전에 바꿔치기하지 않게.
+ */
+export function decideTabsFirstRunRedirect(
+  step: FirstRunStep | null,
+  oauthPending: boolean,
+): '/intro' | '/setup' | null {
+  if (!step || oauthPending) return null;
+  return FIRST_RUN_ROUTES[step];
+}
+
+/**
+ * 이용 기록(page_view)을 지금 경로로 남겨도 되는가 — 첫 실행 화면으로 보낼 참이면(redirectTo 가 있으면) 남기지 않는다.
+ * 콜드 스타트의 첫 경로 '/'(웹 '/main')가 소개로 바뀌기 전에 기록되지 않게 한다.
+ */
+export function shouldTrackPageView(redirectTo: string | null): boolean {
+  return redirectTo === null;
+}

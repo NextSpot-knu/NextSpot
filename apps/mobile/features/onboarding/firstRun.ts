@@ -7,8 +7,15 @@ import {
   SETUP_SEEN_KEY,
   type FirstRunStep,
 } from './firstRunCore';
+import { readPendingFlow } from '../auth/pendingFlow';
 
-export { decideFirstRunRedirect, FIRST_RUN_ROUTES, type FirstRunStep } from './firstRunCore';
+export {
+  decideFirstRunRedirect,
+  decideTabsFirstRunRedirect,
+  FIRST_RUN_ROUTES,
+  shouldTrackPageView,
+  type FirstRunStep,
+} from './firstRunCore';
 
 function store(): Storage | null {
   return (globalThis as { localStorage?: Storage }).localStorage ?? null;
@@ -34,6 +41,11 @@ export function passFirstRunStep(step: FirstRunStep): void {
 export function notifyFirstRunChanged(): void {
   const step = getFirstRunStep();
   for (const l of [...listeners]) l(step);
+}
+
+/** 소셜 로그인 왕복 중인가(진행 중 흐름 기록이 있다) — 그동안은 첫 실행 화면으로 보내지 않는다. */
+export function isOAuthFlowPending(): boolean {
+  return readPendingFlow(store(), Date.now()) !== null;
 }
 
 export function subscribeFirstRun(listener: Listener): () => void {

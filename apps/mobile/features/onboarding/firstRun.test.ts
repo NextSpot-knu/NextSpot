@@ -4,9 +4,11 @@ import { writeLocationConsent } from '../auth/consentCore';
 import {
   computeFirstRunStep,
   decideFirstRunRedirect,
+  decideTabsFirstRunRedirect,
   INTRO_SEEN_KEY,
   markFlag,
   SETUP_SEEN_KEY,
+  shouldTrackPageView,
 } from './firstRunCore';
 
 function memoryStore() {
@@ -61,5 +63,15 @@ assert.equal(decideFirstRunRedirect('consent', '/forgot-password'), null);
 assert.equal(decideFirstRunRedirect('setup', '/auth/callback'), null);
 assert.equal(decideFirstRunRedirect('setup', '/loginx'), '/setup');
 assert.equal(decideFirstRunRedirect('intro', undefined), '/intro');
+
+// 탭 진입 판정 — 단계가 남았으면 그 경로, OAuth 왕복 중이거나 다 끝났으면 null
+assert.equal(decideTabsFirstRunRedirect('intro', false), '/intro');
+assert.equal(decideTabsFirstRunRedirect('consent', false), '/intro');
+assert.equal(decideTabsFirstRunRedirect('setup', false), '/setup');
+assert.equal(decideTabsFirstRunRedirect(null, false), null);
+assert.equal(decideTabsFirstRunRedirect('intro', true), null, 'OAuth 왕복 중에는 보내지 않는다');
+// 첫 실행 화면으로 보낼 참이면 page_view 를 남기지 않는다
+assert.equal(shouldTrackPageView('/intro'), false);
+assert.equal(shouldTrackPageView(null), true);
 
 console.log('firstRun.test OK');

@@ -18,6 +18,7 @@ import {
   nextFirstRunRoute,
   noteFirstRunNavigation,
   notifyFirstRunChanged,
+  subscribeFirstRun,
   type FirstRunStep,
 } from '~/features/onboarding/firstRun';
 import { GuideHero, GuideSections } from '~/features/onboarding/GuideSections';
@@ -33,8 +34,10 @@ export default function IntroScreen() {
   const params = useLocalSearchParams<{ step?: string }>();
   const consentOnly = step === null && params.step === 'consent';
 
+  // 단계가 바뀌면 따라간다 — 로그인·동의 화면 등 다른 곳이 기록을 바꿔도(notifyFirstRunChanged) 낡은 단계를 그리지 않는다.
   useEffect(() => {
     setStep(getFirstRunStep());
+    return subscribeFirstRun(setStep);
   }, []);
 
   const goNext = () => {
@@ -54,9 +57,12 @@ export default function IntroScreen() {
     goNext();
   };
 
+  // 첫 실행 중의 로그인은 소개를 바꿔치기한다(replace) — push 면 로그인 뒤 탭이 소개 위에 쌓여, 소개가 스택 밑에 남고
+  // 탭의 첫 실행 판정이 동의 화면을 하나 더 얹는다. 로그인의 '게스트로 둘러보기' 는 돌아갈 곳이 없으면
+  // 남은 첫 실행 단계(동의)로 replace 하므로 흐름이 끊기지 않는다.
   const toLogin = () => {
     markIntroSeen();
-    router.push('/login' as Href);
+    router.replace('/login' as Href);
   };
 
   if (consentOnly) {
@@ -81,6 +87,9 @@ export default function IntroScreen() {
       </Screen>
     );
   }
+
+  // 소개·동의가 끝나고 설정으로 넘어가는 중(구독이 먼저 'setup' 을 알렸다) — 닫기 버튼 소개를 잠깐 그리지 않는다.
+  if (step === 'setup') return <Screen>{null}</Screen>;
 
   const firstRun = step === 'intro';
   return (
