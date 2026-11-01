@@ -37,6 +37,8 @@ export default function SavedScreen() {
   const [category, setCategory] = useState('all');
   const [now, setNow] = useState(() => new Date());
   const aliveRef = useRef(true);
+  // 세대 — 동기화가 날아가는 동안 삭제·전체 초기화·새 동기화가 있으면 그 늦은 결과로 목록을 덮지 않는다(지운 장소가 되살아나지 않게).
+  const genRef = useRef(0);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -49,11 +51,12 @@ export default function SavedScreen() {
 
   // 화면에 올 때마다: 로컬로 먼저 그리고(오프라인·빠른 표시) 동기화 결과로 갱신. 동기화는 실패해도 로컬을 돌려준다.
   const load = useCallback(async () => {
+    const gen = ++genRef.current;
     setNow(new Date());
     setBookmarks(toBookmarks(loadSavedLocal()));
     try {
       const merged = toBookmarks(await syncSaved());
-      if (aliveRef.current) setBookmarks(merged);
+      if (aliveRef.current && gen === genRef.current) setBookmarks(merged);
     } catch {
       /* 로컬 목록 유지 */
     } finally {
@@ -77,6 +80,7 @@ export default function SavedScreen() {
   const remove = useCallback(
     (b: SavedBookmark, message: string) => {
       notifyUnsaved(b);
+      genRef.current += 1; // 진행 중인 동기화 결과는 버린다
       setBookmarks((prev) => prev.filter((x) => x.id !== b.id));
       void removeBookmark(b.id); // 로컬 + Supabase 삭제
       setSelected((cur) => (cur?.id === b.id ? null : cur));
@@ -94,6 +98,7 @@ export default function SavedScreen() {
         text: t('saved.clearAction'),
         style: 'destructive',
         onPress: () => {
+          genRef.current += 1;
           setBookmarks([]);
           setSelected(null);
           void clearSavedAll(); // 로컬 + Supabase 전체 삭제(앱 v1 은 경주만 — 지역 필터 없음)

@@ -3,6 +3,9 @@
 // 웹 원본: apps/web/lib/savedFacilities.ts (기준 커밋 e07ea61)
 // 바꾼 것: Supabase 클라이언트를 앱 것(lib/core/supabase)으로. 저장소는 전역 localStorage(expo-sqlite).
 //          규칙(원격 우선 union · 보류 삭제로 되살아남 막기 · 왕복 뒤 로컬 다시 읽기)은 같다.
+//          보류 삭제는 원격 삭제 **전에** 적고 성공하면 뺀다(savedPendingCore) — 삭제가 날아가는 동안 돈 syncSaved 가
+//          원격에 아직 남은 행으로 그 장소를 되살리지 않게.
+import { deleteWithPending } from './savedPendingCore';
 import { createPublicClient } from './supabase';
 
 const KEY = 'nextspot_saved_facilities';
@@ -106,11 +109,12 @@ export async function syncSaved(): Promise<SavedRecord[]> {
   writeLocal(merged);
 
   if (pending.length) {
-    const stillPending: string[] = [];
+    const deleted = new Set<string>();
     for (const id of pending) {
-      if (!(await deleteRemote(uid, id))) stillPending.push(id);
+      if (await deleteRemote(uid, id)) deleted.add(id);
     }
-    writePendingDeletes(stillPending);
+    // 왕복 사이에 새로 보류된 삭제가 있을 수 있다 — 다시 읽고 지운 것만 뺀다.
+    writePendingDeletes(loadPendingDeletes().filter((id) => !deleted.has(id)));
   }
 
   const remoteIds = new Set(remote.map((b) => b.id));
@@ -151,9 +155,11 @@ export async function removeBookmark(id: string): Promise<void> {
   writeLocal(loadSavedLocal().filter((b) => b.id !== id));
   const uid = await currentUserId();
   if (!uid) return;
-  if (await deleteRemote(uid, id)) return;
-  const pending = loadPendingDeletes();
-  if (!pending.includes(id)) writePendingDeletes([...pending, id]);
+  await deleteWithPending(id, {
+    loadPending: loadPendingDeletes,
+    writePending: writePendingDeletes,
+    deleteRemote: (target) => deleteRemote(uid, target),
+  });
 }
 
 export async function clearSavedAll(): Promise<void> {
@@ -161,12 +167,16 @@ export async function clearSavedAll(): Promise<void> {
   writeLocal([]);
   const uid = await currentUserId();
   if (!uid) return;
+  // removeBookmark 와 같은 순서 — 보류 목록에 먼저 넣고, 전체 삭제가 성공하면 뺀다.
+  writePendingDeletes([...new Set([...loadPendingDeletes(), ...ids])]);
   try {
     const { error } = await createPublicClient()
       .from('saved_facilities')
       .delete()
       .eq('user_id', uid);
-    if (!error) return;
-  } catch { /* 아래 보류 삭제로 */ }
-  writePendingDeletes([...new Set([...loadPendingDeletes(), ...ids])]);
+    if (!error) {
+      const cleared = new Set(ids);
+      writePendingDeletes(loadPendingDeletes().filter((id) => !cleared.has(id)));
+    }
+  } catch { /* 보류 목록에 남아 다음 syncSaved 가 지운다 */ }
 }
