@@ -1,0 +1,73 @@
+{
+  "_note": "마이페이지 묶음이 쓰는데 웹 문구 JSON 에 없는 키. 통합 때 apps/web/lib/i18n/messages/{ko,en,ja,zh}.json 의 app.mypage.* 에 4로케일로 넣는다. 게스트 '내 데이터 삭제'는 계획 §7.3 — 가입 계정용 settings.deleteAccount* 와 같은 톤(해요체).",
+  "app.mypage.openOnWeb": {
+    "ko": "웹에서 열기",
+    "en": "Open on the web",
+    "ja": "ウェブで開く",
+    "zh": "在网页中打开",
+    "where": "마이 탭의 사장님·관제 콘솔 카드, 역할 변경 신청 카드, 설정의 사장님 콘솔 카드 — 짧은 라벨(아이콘 아래 한 줄, 약 10자)"
+  },
+  "app.mypage.privacyWebLink": {
+    "ko": "웹에서 전체 안내 보기",
+    "en": "View the full notice on the web",
+    "ja": "ウェブで全文を見る",
+    "zh": "在网页中查看全文",
+    "where": "개인정보 화면 맨 아래 버튼 — 공개 웹 주소(/mypage/privacy)를 시스템 브라우저로 연다"
+  },
+  "app.mypage.deleteDataTitle": {
+    "ko": "내 데이터 삭제",
+    "en": "Delete my data",
+    "ja": "データを削除",
+    "zh": "删除我的数据",
+    "where": "설정 — 게스트(가입 안 한 사용자)용 카드 제목. 가입 계정이면 settings.deleteAccountTitle"
+  },
+  "app.mypage.deleteDataDesc": {
+    "ko": "저장 장소와 추천·방문 기록을 서버에서도 영구 삭제하고, 이 기기의 데이터도 지워요.",
+    "en": "Permanently deletes your saved places and recommendation and visit history from our server, and clears this device's data.",
+    "ja": "保存した場所とおすすめ・訪問の記録をサーバーから完全に削除し、この端末のデータも消去します。",
+    "zh": "将从服务器永久删除已收藏的地点以及推荐和到访记录，并清除本设备上的数据。",
+    "where": "설정 — 게스트 카드 설명(계획 §7.3: 서버 쪽 게스트 데이터까지 지운다)"
+  },
+  "app.mypage.deleteData": {
+    "ko": "내 데이터 영구 삭제",
+    "en": "Permanently delete my data",
+    "ja": "データを完全に削除",
+    "zh": "永久删除我的数据",
+    "where": "설정 — 게스트 삭제 버튼"
+  },
+  "app.mypage.deleteDataConfirm": {
+    "ko": "내 데이터를 영구 삭제할까요?",
+    "en": "Permanently delete your data?",
+    "ja": "データを完全に削除しますか？",
+    "zh": "要永久删除您的数据吗？",
+    "where": "설정 — 게스트 삭제 확인 대화상자 제목"
+  },
+  "app.mypage.deleteDataConfirmDesc": {
+    "ko": "저장 장소와 추천·방문 기록이 서버에서도 지워지고 되돌릴 수 없어요. 지운 뒤에는 새 게스트로 시작해요.",
+    "en": "Your saved places and recommendation and visit history will be erased from our server and this cannot be undone. You'll start over as a new guest.",
+    "ja": "保存した場所とおすすめ・訪問の記録はサーバーからも消え、元に戻せません。削除後は新しいゲストとして始まります。",
+    "zh": "已收藏的地点以及推荐和到访记录将从服务器上一并删除，且无法恢复。删除后将以新的游客身份重新开始。",
+    "where": "설정 — 게스트 삭제 확인 대화상자 본문"
+  },
+  "app.mypage.deleteDataAction": {
+    "ko": "삭제",
+    "en": "Delete",
+    "ja": "削除",
+    "zh": "删除",
+    "where": "설정 — 확인 대화상자의 위험 버튼(취소는 common.cancel)"
+  },
+  "app.mypage.deleteDataSuccess": {
+    "ko": "내 데이터를 삭제했어요",
+    "en": "Your data has been deleted",
+    "ja": "データを削除しました",
+    "zh": "已删除您的数据",
+    "where": "설정 — 게스트 삭제 성공 토스트"
+  },
+  "app.mypage.deleteDataFailed": {
+    "ko": "삭제하지 못했어요. 잠시 후 다시 시도해 주세요",
+    "en": "Couldn't delete your data. Please try again in a moment.",
+    "ja": "削除できませんでした。しばらくしてからもう一度お試しください。",
+    "zh": "删除失败，请稍后再试。",
+    "where": "설정 — 게스트 삭제 실패 토스트(서버가 실패하면 아무것도 지우지 않았다는 뜻)"
+  }
+}
