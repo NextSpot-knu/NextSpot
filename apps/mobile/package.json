@@ -42,8 +42,10 @@
     "sonner-native": "^0.27.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "@types/react": "~19.2.2",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -53,7 +55,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "check:shared": "node scripts/check-shared-imports.mjs",
-    "export:android": "expo export --platform android --output-dir .expo-export"
+    "export:android": "expo export --platform android --output-dir .expo-export",
+    "test": "node scripts/run-tests.mjs"
   },
   "private": true
 }

@@ -12,7 +12,10 @@
       "shared-types": [
         "../../packages/shared-types"
       ]
-    }
+    },
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "**/*.ts",
