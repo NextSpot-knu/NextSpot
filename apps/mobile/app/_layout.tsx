@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppToaster } from '~/components/ui';
+import { FirstRunGate } from '~/features/onboarding';
 import { ShellBridge } from '~/lib/appShell';
 import { AppProviders } from '~/lib/core/AppProviders';
 import { I18nProvider, useT } from '~/lib/i18n/I18nProvider';
@@ -73,9 +74,23 @@ export default function RootLayout() {
           <I18nProvider>
             <ProvidersWithLabels>
               <ThemeProvider value={navTheme}>
-                <Stack>
+                <Stack screenOptions={{ contentStyle: { backgroundColor: colors.hanji } }}>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  {/* 첫 실행 단계(소개·동의 / 첫 설정)는 자기 화면 안에 뒤로 버튼을 그린다. 스와이프로 앞 단계로 되돌아가지 않게 막는다. */}
+                  <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false }} />
+                  <Stack.Screen name="setup" options={{ headerShown: false, gestureEnabled: false }} />
+                  {/* 로그인·재설정 메일은 화면 안 헤더를 쓴다. 뒤로 스와이프는 허용. */}
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+                  {/* OAuth 복귀는 처리 중에 빠져나가면 교환 결과를 잃는다 — 스와이프로 닫지 않는다. */}
+                  <Stack.Screen name="auth/callback" options={{ headerShown: false, gestureEnabled: false }} />
+                  {/* 대안 화면은 루트 헤더(뒤로)를 쓰고 제목·왼쪽 버튼은 화면이 정한다. */}
+                  <Stack.Screen name="explore/recommend" options={{ headerBackButtonDisplayMode: 'minimal' }} />
+                  {/* 마이페이지 하위 화면은 자기 Stack(app/mypage/_layout)이 헤더를 그린다 — 헤더가 둘이 되지 않게. */}
+                  <Stack.Screen name="mypage" options={{ headerShown: false }} />
                 </Stack>
+                {/* 첫 실행 게이트 — 라우터 훅을 쓰므로 Stack 과 같은 트리 안, Stack 바로 뒤(features/onboarding/FirstRunGate). */}
+                <FirstRunGate />
               </ThemeProvider>
               <ShellBridge />
             </ProvidersWithLabels>

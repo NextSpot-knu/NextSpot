@@ -1,18 +1,13 @@
 // 마이페이지 하위 화면 7개 — 탭 위에 쌓이는 Stack(헤더는 여기서). 웹 app/mypage/*/page.tsx 의 '← 제목' 헤더에 해당한다.
 // 하단 탭 화면은 app/(tabs)/mypage.tsx 다(이 폴더에 index 를 두지 않는다 — 같은 /mypage 주소가 겹친다).
-import { Stack, useNavigation } from 'expo-router';
-import { useLayoutEffect } from 'react';
+// 루트 Stack 의 'mypage' 화면 헤더는 app/_layout.tsx 의 Stack.Screen 옵션(headerShown: false)이 끈다.
+import { Stack } from 'expo-router';
 
 import { useT } from '~/lib/i18n/I18nProvider';
 import { colors, fontFamilies } from '~/lib/theme/tokens';
 
 export default function MypageLayout() {
   const t = useT();
-  const navigation = useNavigation();
-  // 루트 Stack 이 이 폴더를 'mypage' 화면으로 그려 자기 헤더를 얹는다 — 헤더가 둘이 되지 않게 끈다.
-  useLayoutEffect(() => {
-    navigation.setOptions({ headerShown: false });
-  }, [navigation]);
 
   return (
     <Stack
