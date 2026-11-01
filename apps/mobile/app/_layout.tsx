@@ -9,6 +9,9 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppToaster } from '~/components/ui';
+import { ShellBridge } from '~/lib/appShell';
+import { AppProviders } from '~/lib/core/AppProviders';
+import { I18nProvider, useT } from '~/lib/i18n/I18nProvider';
 import { colors, fontFamilies } from '~/lib/theme/tokens';
 
 export {
@@ -17,7 +20,6 @@ export {
 } from 'expo-router';
 
 export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
   initialRouteName: '(tabs)',
 };
 
@@ -33,9 +35,6 @@ const FONT_FILES = {
   [fontFamilies.bold]: require('../assets/fonts/Freesentation-7Bold.ttf'),
   [fontFamilies.extrabold]: require('../assets/fonts/Freesentation-8ExtraBold.ttf'),
   [fontFamilies.black]: require('../assets/fonts/Freesentation-9Black.ttf'),
-  // Expo 템플릿 화면(components/StyledText · EditScreenInfo)이 쓴다 — 없으면 iOS 개발 빌드가 'Unrecognized font family' 로 멈춘다.
-  // 템플릿 화면을 지울 때 이 줄과 assets/fonts/SpaceMono-Regular.ttf 도 지운다.
-  SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
 };
 
 // 내비게이션 바탕·헤더도 한지 톤으로(라이트만).
@@ -66,15 +65,35 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.hanji }}>
       <SafeAreaProvider>
         <BottomSheetModalProvider>
-          <ThemeProvider value={navTheme}>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-            </Stack>
-          </ThemeProvider>
+          <I18nProvider>
+            <ProvidersWithLabels>
+              <ThemeProvider value={navTheme}>
+                <Stack>
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                </Stack>
+              </ThemeProvider>
+              <ShellBridge />
+            </ProvidersWithLabels>
+          </I18nProvider>
           <AppToaster />
         </BottomSheetModalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+// 세션·계정·공개 설정 제공자 — 점검·공지 문구는 웹과 같은 systemNotice.* 키(4로케일)를 쓴다.
+function ProvidersWithLabels({ children }: { children: React.ReactNode }) {
+  const t = useT();
+  return (
+    <AppProviders
+      publicSettingsLabels={{
+        maintenanceTitle: t('systemNotice.maintenanceTitle'),
+        maintenanceBody: t('systemNotice.maintenanceBody'),
+        dismiss: t('systemNotice.dismiss'),
+      }}
+    >
+      {children}
+    </AppProviders>
   );
 }

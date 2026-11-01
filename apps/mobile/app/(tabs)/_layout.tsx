@@ -1,70 +1,34 @@
-import { SymbolView } from 'expo-symbols';
-import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+// 하단 탭 5개 — 웹 BottomNav(components/shell/BottomNav.tsx)와 같은 순서·문구 키·아이콘.
+// 사장님·관제 콘솔 링크는 앱에 두지 않는다(마이페이지의 '웹에서 열기', 계획 §3.3).
+import { Tabs } from 'expo-router';
+import { Bookmark, Home, Route, Timer, User } from 'lucide-react-native';
 
-import Colors from '~/constants/Colors';
-import { useColorScheme } from '~/components/useColorScheme';
-import { useClientOnlyValue } from '~/components/useClientOnlyValue';
+import { Icon } from '~/components/ui';
+import { haptic } from '~/lib/platform/haptics';
+import { useT } from '~/lib/i18n/I18nProvider';
+import { colors, fontFamilies } from '~/lib/theme/tokens';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
+  const t = useT();
+  const tab = (icon: typeof Home) => ({ focused }: { focused: boolean }) => (
+    <Icon icon={icon} size="md" color={focused ? colors['gold-deep'] : colors['muk-soft']} />
+  );
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
-            />
-          ),
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 15 }}>
-                {({ pressed }) => (
-                  <SymbolView
-                    name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                    size={25}
-                    tintColor={Colors[colorScheme].text}
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="two"
-        options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
-            />
-          ),
-        }}
-      />
+        headerShown: false,
+        tabBarActiveTintColor: colors['gold-deep'],
+        tabBarInactiveTintColor: colors['muk-soft'],
+        tabBarStyle: { backgroundColor: colors.hanji, borderTopColor: colors.line },
+        tabBarLabelStyle: { fontFamily: fontFamilies.semibold, fontSize: 11 },
+      }}
+      screenListeners={{ tabPress: () => haptic('selection') }}
+    >
+      <Tabs.Screen name="index" options={{ title: t('nav.home'), tabBarIcon: tab(Home) }} />
+      <Tabs.Screen name="saved" options={{ title: t('nav.saved'), tabBarIcon: tab(Bookmark) }} />
+      <Tabs.Screen name="waiting" options={{ title: t('nav.waiting'), tabBarIcon: tab(Timer) }} />
+      <Tabs.Screen name="course" options={{ title: t('nav.course'), tabBarIcon: tab(Route) }} />
+      <Tabs.Screen name="mypage" options={{ title: t('nav.mypage'), tabBarIcon: tab(User) }} />
     </Tabs>
   );
 }
