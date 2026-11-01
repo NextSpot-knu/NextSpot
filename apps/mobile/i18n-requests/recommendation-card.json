@@ -1,0 +1,86 @@
+{
+  "cardSheet.handle": {
+    "ko": "추천 카드 높이 조절",
+    "en": "Adjust recommendation card height",
+    "ja": "おすすめカードの高さを調整",
+    "zh": "调整推荐卡片高度"
+  },
+  "cardSheet.state.minimized": {
+    "ko": "미리보기",
+    "en": "Preview",
+    "ja": "プレビュー",
+    "zh": "预览"
+  },
+  "cardSheet.state.normal": {
+    "ko": "기본",
+    "en": "Default",
+    "ja": "標準",
+    "zh": "标准"
+  },
+  "cardSheet.state.expanded": {
+    "ko": "펼침",
+    "en": "Expanded",
+    "ja": "展開",
+    "zh": "展开"
+  },
+  "cardSheet.emptyTitle": {
+    "ko": "지금은 추천할 곳이 없어요",
+    "en": "No places to recommend right now",
+    "ja": "今はおすすめできる場所がありません",
+    "zh": "目前没有可推荐的地点"
+  },
+  "cardSheet.photoMenu": {
+    "ko": "사진 메뉴",
+    "en": "Photo options",
+    "ja": "写真のメニュー",
+    "zh": "照片选项"
+  },
+  "cardSheet.photoReport": {
+    "ko": "사진 신고",
+    "en": "Report photo",
+    "ja": "写真を報告",
+    "zh": "举报照片"
+  },
+  "cardSheet.photoReportTitle": {
+    "ko": "이 사진을 신고할까요?",
+    "en": "Report this photo?",
+    "ja": "この写真を報告しますか？",
+    "zh": "要举报这张照片吗？"
+  },
+  "cardSheet.photoReportBody": {
+    "ko": "부적절하거나 가게와 관계없는 사진이면 알려 주세요. 확인 후 내릴게요.",
+    "en": "Tell us if this photo is inappropriate or unrelated to the place. We will review it and take it down if needed.",
+    "ja": "不適切な写真や店舗と関係のない写真であればお知らせください。確認のうえ削除します。",
+    "zh": "如果这张照片不适当或与店铺无关，请告诉我们。我们会核实并下架。"
+  },
+  "cardSheet.photoReportSend": {
+    "ko": "신고하기",
+    "en": "Report",
+    "ja": "報告する",
+    "zh": "举报"
+  },
+  "cardSheet.photoReported": {
+    "ko": "신고했어요. 확인 후 조치할게요.",
+    "en": "Reported. We will review it.",
+    "ja": "報告しました。確認して対応します。",
+    "zh": "已举报，我们会核实处理。"
+  },
+  "cardSheet.photoReportFailed": {
+    "ko": "지금은 신고를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.",
+    "en": "Could not send the report right now. Please try again shortly.",
+    "ja": "今は報告を送信できません。しばらくしてからもう一度お試しください。",
+    "zh": "暂时无法提交举报，请稍后再试。"
+  },
+  "cardSheet.photoHide": {
+    "ko": "이 사진 숨기기",
+    "en": "Hide this photo",
+    "ja": "この写真を非表示",
+    "zh": "隐藏这张照片"
+  },
+  "cardSheet.photoHidden": {
+    "ko": "이 사진을 숨겼어요.",
+    "en": "Photo hidden.",
+    "ja": "この写真を非表示にしました。",
+    "zh": "已隐藏这张照片。"
+  }
+}
