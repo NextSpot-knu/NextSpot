@@ -87,6 +87,13 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "owner": "oys030408s-team",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a2a152d1-4103-4602-ab21-a9e327650235"
+      }
     }
   }
 }
