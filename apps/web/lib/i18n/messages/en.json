@@ -1690,6 +1690,8 @@
         "recenter": "Go to my location",
         "blockedTitle": "Location is turned off",
         "blockedBody": "To get less crowded places near you, open Settings and set NextSpot's location permission to 'Allow only while using the app'.",
+        "blockedBodyIos": "To get less crowded places near you, open Settings and set NextSpot's location access to 'While Using the App'.",
+        "coarseTitle": "Precise location is off",
         "openSettings": "Open Settings"
       },
       "tripCard": {

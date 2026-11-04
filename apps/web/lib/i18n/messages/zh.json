@@ -1690,6 +1690,8 @@
         "recenter": "移到我的位置",
         "blockedTitle": "位置权限已关闭",
         "blockedBody": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置权限改为“仅在使用应用期间允许”。",
+        "blockedBodyIos": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置访问权限改为“使用App期间”。",
+        "coarseTitle": "精确位置已关闭",
         "openSettings": "打开设置"
       },
       "tripCard": {
