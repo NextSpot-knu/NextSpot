@@ -44,7 +44,8 @@ const picked = buildCardModel({ ...base, userPicked: true }, ctx({ listRank: 1 }
 assert.equal(picked.rankIsListed, false);
 
 // 방금 남긴 로컬 제보가 서버 값을 이긴다 + 방문객 제보 칩
-const reported = buildCardModel(base, ctx({ localReport: { level: 0.8, timestamp: NOW.toISOString() } }));
+// 제보 '몇 분 전' 은 relativeParts 가 실제 시계(Date.now)로 잰다 — 고정 NOW 로 두면 날짜가 지나면 깨진다.
+const reported = buildCardModel(base, ctx({ localReport: { level: 0.8, timestamp: new Date(Date.now() - 60_000).toISOString() } }));
 assert.equal(reported.crowdChip?.grade, 'busy');
 assert.equal(reported.displayCongestionLevel, 0.8);
 assert.ok(reported.crowdChip?.text.startsWith('card.crowdByVisitor'));
