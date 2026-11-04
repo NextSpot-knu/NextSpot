@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 
-import { READ_COOLDOWN_MS, shouldRecheckOnForeground, withinCooldown } from './locationPolicy';
+import {
+  myLocationAction,
+  READ_COOLDOWN_MS,
+  shouldRecheckOnForeground,
+  showsMyLocationButton,
+  showsUserDot,
+  withinCooldown,
+} from './locationPolicy';
 
 const base = { notice: null, readFailed: false, lastReadAttemptAt: null, now: 1_000_000 } as const;
 
@@ -32,3 +39,29 @@ assert.equal(withinCooldown(100, 100 + READ_COOLDOWN_MS), false);
 assert.equal(withinCooldown(200, 100), false, '시계가 뒤로 가면 막지 않는다');
 
 console.log('locationPolicy.test OK');
+
+// ── 내 위치 점 · '내 위치로' 버튼 ──
+{
+  const loc = { known: false, notice: null, readFailed: false, canAskAgain: false } as const;
+  // 점: 동의 + 허용 + 실제 위치일 때만
+  assert.equal(showsUserDot({ status: 'granted', known: true }), true);
+  assert.equal(showsUserDot({ status: 'granted', known: false }), false);
+  assert.equal(showsUserDot({ status: 'no-consent', known: false }), false);
+  assert.equal(showsUserDot({ status: 'denied', known: true }), false);
+  // 버튼: 확인 중 · 사전 안내 동안만 숨긴다
+  assert.equal(showsMyLocationButton('checking'), false);
+  assert.equal(showsMyLocationButton('needs-primer'), false);
+  assert.equal(showsMyLocationButton('no-consent'), true);
+  assert.equal(showsMyLocationButton('denied'), true);
+  assert.equal(showsMyLocationButton('granted'), true);
+  // 동작
+  assert.equal(myLocationAction({ ...loc, status: 'no-consent', canAskAgain: true }), 'consent');
+  assert.equal(myLocationAction({ ...loc, status: 'needs-primer', canAskAgain: true }), 'request');
+  assert.equal(myLocationAction({ ...loc, status: 'denied', canAskAgain: true }), 'request');
+  assert.equal(myLocationAction({ ...loc, status: 'denied', canAskAgain: false }), 'settings');
+  assert.equal(myLocationAction({ ...loc, status: 'granted', known: true }), 'recenter');
+  assert.equal(myLocationAction({ ...loc, status: 'granted', notice: 'outOfRegion' }), 'outOfRegion');
+  assert.equal(myLocationAction({ ...loc, status: 'granted', notice: 'coarse' }), 'coarse');
+  assert.equal(myLocationAction({ ...loc, status: 'granted', readFailed: true }), 'retry');
+  assert.equal(myLocationAction({ ...loc, status: 'checking' }), 'none');
+}

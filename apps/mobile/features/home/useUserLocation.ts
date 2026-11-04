@@ -17,7 +17,7 @@ import { useLocationConsent } from '~/features/auth/useLocationConsent';
 
 import { REGION } from '@/lib/region';
 
-import { resolveUserLocation, type LocationNotice } from './homeModel';
+import { resolveUserLocation, type LocationNotice, type ResolvedLocation } from './homeModel';
 import {
   LAST_KNOWN_MAX_AGE_MS,
   LAST_KNOWN_REQUIRED_ACCURACY_M,
@@ -41,6 +41,10 @@ export interface UserLocationState {
   openSettings: () => void;
   /** 동의 화면으로(동의 없음 배너). */
   openConsent: () => void;
+  /** 거부 상태에서 OS 가 권한 창을 다시 띄울 수 있는가(안드로이드는 한 번 거부해도 true, '다시 묻지 않음'이면 false). */
+  canAskAgain: boolean;
+  /** 허용 상태에서 사용자가 '내 위치로'를 눌렀다 — 위치를 한 번 다시 읽는다(동의·허용이 아니면 아무것도 하지 않는다). */
+  refresh: () => Promise<ResolvedLocation | null>;
 }
 
 const CENTER: { lat: number; lng: number } = { lat: REGION.center.lat, lng: REGION.center.lng };
@@ -55,6 +59,7 @@ export function useUserLocation(): UserLocationState {
   const [known, setKnown] = useState(false);
   const [notice, setNotice] = useState<LocationNotice>(null);
   const [readFailed, setReadFailed] = useState(false);
+  const [canAskAgain, setCanAskAgain] = useState(true);
   const aliveRef = useRef(true);
   const readingRef = useRef(false);
   const lastReadAttemptRef = useRef<number | null>(null);
@@ -62,8 +67,9 @@ export function useUserLocation(): UserLocationState {
   const snapshotRef = useRef({ status, notice, readFailed });
   snapshotRef.current = { status, notice, readFailed };
 
-  const readPosition = useCallback(async () => {
-    if (readingRef.current) return;
+  /** 한 번 읽는다. 읽어서 반영했으면 그 결과, 이미 읽는 중·실패·버렸으면 null. */
+  const readPosition = useCallback(async (): Promise<ResolvedLocation | null> => {
+    if (readingRef.current) return null;
     readingRef.current = true;
     lastReadAttemptRef.current = Date.now();
     try {
@@ -74,14 +80,16 @@ export function useUserLocation(): UserLocationState {
       }).catch(() => null);
       const position = lastKnown ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
       // 읽는 동안 동의가 철회됐으면 버린다.
-      if (!aliveRef.current || !consentRef.current) return;
+      if (!aliveRef.current || !consentRef.current) return null;
       const resolved = resolveUserLocation(position.coords);
       setLocation(resolved.location);
       setKnown(resolved.known);
       setNotice(resolved.notice);
       setReadFailed(false);
+      return resolved;
     } catch {
       if (aliveRef.current) setReadFailed(true);
+      return null;
     } finally {
       readingRef.current = false;
     }
@@ -97,6 +105,7 @@ export function useUserLocation(): UserLocationState {
 
   const applyPermission = useCallback(async (permission: Location.LocationPermissionResponse | null) => {
     if (!aliveRef.current) return;
+    setCanAskAgain(permission?.canAskAgain ?? true);
     // 동의는 권한 창이 떠 있는 동안 바뀔 수도 있으니 결과를 받은 뒤 다시 본다.
     const access = decideLocationAccess(consentRef.current, permission);
     if (mayReadPosition(access)) {
@@ -163,6 +172,11 @@ export function useUserLocation(): UserLocationState {
     })();
   }, [applyPermission, toCenter]);
 
+  const refresh = useCallback(async () => {
+    if (!consentRef.current || snapshotRef.current.status !== 'granted') return null;
+    return readPosition();
+  }, [readPosition]);
+
   const openSettings = useCallback(() => {
     void Linking.openSettings().catch(() => undefined);
   }, []);
@@ -171,5 +185,5 @@ export function useUserLocation(): UserLocationState {
     router.push(LOCATION_CONSENT_ROUTE as Href);
   }, [router]);
 
-  return { location, known, status, notice, readFailed, continueFromPrimer, openSettings, openConsent };
+  return { location, known, status, notice, readFailed, continueFromPrimer, openSettings, openConsent, canAskAgain, refresh };
 }

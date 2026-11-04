@@ -1,8 +1,8 @@
-import { Navigation, RefreshCw } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Navigation, RefreshCw } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, TextInput, View } from 'react-native';
 
-import { Button, Card, Chip, Icon, Pressable, Text } from '~/components/ui';
+import { Button, Card, Chip, Icon, IconButton, Pressable, Text } from '~/components/ui';
 import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { parseTravelContext, recommendByType, type PlaceCategory, type TravelContext } from '~/lib/core/apiClient';
 import type { RequiredAttribute } from '~/lib/core/travelContextTypes';
@@ -43,6 +43,11 @@ export interface ActiveJourneyCardProps {
   className?: string;
   /** 도착을 눌렀다 — 방문 확인(VisitCheckCard)이 바로 이어진다. */
   onArrived?: () => void;
+  /**
+   * 접은 판으로 시작한다(홈 지도 위) — 한 줄(이름 + '도착했어요' + 펼치기). 펼치면 원래 카드에 접기 버튼이 붙는다.
+   * 상황 변경을 여는 중에는 접지 않는다.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -51,7 +56,7 @@ export interface ActiveJourneyCardProps {
  * 자유 문장 해석(POST /travel-context/parse)은 서버가 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
  * (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
  */
-export function ActiveJourneyCard({ location, className, onArrived }: ActiveJourneyCardProps) {
+export function ActiveJourneyCard({ location, className, onArrived, compact = false }: ActiveJourneyCardProps) {
   const t = useT();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +65,7 @@ export function ActiveJourneyCard({ location, className, onArrived }: ActiveJour
   const [draft, setDraft] = useState<Partial<TravelContext> | null>(null);
   const [parseError, setParseError] = useState(false);
   const [outcome, setOutcome] = useState<ReplanOutcome | null>(null);
+  const [expanded, setExpanded] = useState(false);
   // 재시도는 같은 조건으로 — 실패한 시도가 draft 였는지 현재 여정 조건이었는지 기억한다(웹과 같다).
   const lastContext = useRef<Partial<TravelContext> | undefined>(undefined);
   const { allowed: aiAllowed } = useAiConsent();
@@ -191,10 +197,35 @@ export function ActiveJourneyCard({ location, className, onArrived }: ActiveJour
     queueRecommendationOutcome(trip.recommendationId, 'navigation_started');
   };
 
+  if (compact && !expanded && !changeOpen) {
+    return (
+      <Card elevation="surface" padded={false} className={`flex-row items-center gap-[6px] py-[6px] pl-[14px] pr-[4px] ${className ?? ''}`}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${t('trip.active')}. ${t('trip.heading', { name: trip.name })}. ${t('app.home.tripCard.expand')}`}
+          onPress={() => { haptic('selection'); setExpanded(true); }}
+          className="min-h-[44px] min-w-0 flex-1 justify-center"
+        >
+          <Text className="text-[11px] leading-[14px] text-jade" weight="bold">{t('trip.active')}</Text>
+          <Text className="text-[14px] leading-[19px]" weight="bold" numberOfLines={1}>{t('trip.heading', { name: trip.name })}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('trip.arrived')} onPress={arrived} className="min-h-[44px] items-center justify-center rounded-xl bg-jade px-[12px]">
+          <Text className="text-center text-[12px] leading-[16px] text-white" weight="bold" numberOfLines={1}>{t('trip.arrived')}</Text>
+        </Pressable>
+        <IconButton icon={ChevronDown} accessibilityLabel={t('app.home.tripCard.expand')} onPress={() => { haptic('selection'); setExpanded(true); }} />
+      </Card>
+    );
+  }
+
   return (
     <Card elevation="surface" className={className ?? ''} accessibilityLabel={t('trip.active')}>
+      {compact ? (
+        <View className="absolute right-[4px] top-[4px] z-10">
+          <IconButton icon={ChevronUp} accessibilityLabel={t('app.home.tripCard.collapse')} onPress={() => { haptic('selection'); setChangeOpen(false); setExpanded(false); }} />
+        </View>
+      ) : null}
       <Text className="text-[12px] leading-[16px] text-jade" weight="bold">{t('trip.active')}</Text>
-      <Text className="mt-[4px] text-[16px] leading-[22px]" weight="bold" numberOfLines={2}>{t('trip.heading', { name: trip.name })}</Text>
+      <Text className={`mt-[4px] text-[16px] leading-[22px] ${compact ? 'pr-[40px]' : ''}`} weight="bold" numberOfLines={2}>{t('trip.heading', { name: trip.name })}</Text>
       {!car && trip.walkMinutes != null && (
         <Text className="mt-[2px] text-[12px] leading-[16px] text-muk-soft">{t('trip.walkEstimate', { n: displayWalkMinutes(trip.walkMinutes) })}</Text>
       )}

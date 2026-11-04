@@ -8,9 +8,9 @@
 // 첫 설정(nextspot_setup_prefs)이 첫 칩·조건 칩을 정하고, 도보·여행 시간·음식 취향·방문 제외를 추천 요청에 싣는다
 //   (homeContext.ts — 웹 rankContext). 도보 제한으로 0곳이면 한 번 넓혀 다시 묻는다. 서버에는 이번 세션 거절 + 저장한 곳을 빼 달라고 보낸다.
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Search, SlidersHorizontal, X } from 'lucide-react-native';
+import { LocateFixed, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Keyboard, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { facilityMatchesSearch } from '@/lib/placeSearch';
@@ -28,7 +28,12 @@ import {
 } from '~/features/map';
 import {
   ActiveJourneyCard,
+  DUE_AFTER_MS,
+  getActiveTrip,
+  getDueVisit,
+  getPendingVisit,
   RecommendationSheet,
+  tripEvents,
   VisitCheckCard,
   type SheetCandidate,
 } from '~/features/recommendation-card';
@@ -42,7 +47,7 @@ import { useT } from '~/lib/i18n/I18nProvider';
 import { haptic } from '~/lib/platform/haptics';
 import { openExternalUrl, openWalkingDirections } from '~/lib/platform/links';
 import { track } from '~/lib/platform/analytics';
-import { CONTENT_MAX_WIDTH, colors, fontFamilies } from '~/lib/theme/tokens';
+import { colors, fontFamilies } from '~/lib/theme/tokens';
 
 import { FilterSheet, GroupSheet, LocationBanner, LocationPrimer, SearchPanel } from './HomeOverlays';
 import {
@@ -53,6 +58,7 @@ import {
   canSeeInstead,
   CUISINE_CHIPS,
   distanceM,
+  HOME_PANEL_MAX_WIDTH,
   festivalFocus,
   hasAnyConvenience,
   isAccessible,
@@ -60,6 +66,8 @@ import {
   NO_CONVENIENCE,
   orderForPins,
   petDataExists,
+  pickTripOverlay,
+  tripOverlayRoom,
   selectByCategoryOrSearch,
   shouldAskExternal,
   walkingMinutes,
@@ -73,8 +81,10 @@ import {
   mapBottomInset,
   sheetStatus,
   type PickKind,
+  SHEET_SNAP_RATIO,
   type SheetHeightState,
 } from './sheetModel';
+import { myLocationAction, showsMyLocationButton, showsUserDot } from './locationPolicy';
 import {
   buildExcludeIds,
   cuisineIntentOf,
@@ -150,6 +160,20 @@ export function HomeScreen() {
   const [sheetState, setSheetState] = useState<SheetHeightState | null>(null);
   const [containerH, setContainerH] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [bottomStackH, setBottomStackH] = useState(0);
+  // 키보드가 이 화면 아래를 가린 두께 — 여정 카드의 '상황 변경' 입력 칸이 키보드 밑으로 숨지 않게 카드 자리를 줄인다.
+  // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.)
+  const rootRef = useRef<View>(null);
+  const [keyboardCover, setKeyboardCover] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      const top = e.endCoordinates.screenY;
+      rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(Math.max(0, Math.round(y + h - top))));
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardCover(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const trip = useTripState();
 
   // 사용자가 이 칩에서 직접 고른 카드가 있으면 추천 1위가 늦게 와도 덮지 않는다(웹 userPickRef).
   const pickedRef = useRef(false);
@@ -522,16 +546,53 @@ export function HomeScreen() {
   const askedExternal = shouldAskExternal(query, allMatches.length);
   const showSearchPanel = searching && panelOpen;
 
-  const overlayWidth = { width: '100%' as const, maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' as const };
+  // 여정 카드 — 한 번에 하나(방문 확인이 먼저), 위 칩 줄과 아래 시트·배너 사이 남은 자리에만(homeModel.pickTripOverlay).
+  const overlayTop = headerH + 8;
+  const sheetCover = sheetShown && sheetState ? Math.round(containerH * SHEET_SNAP_RATIO[sheetState]) : 0;
+  const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
+  const tripOverlay = pickTripOverlay({ ...trip, searching: showSearchPanel, room: tripRoom });
+
+  // 내 위치 — 점은 동의 + 허용 + 실제 위치일 때만, 버튼은 상태에 맞는 흐름으로(locationPolicy.myLocationAction).
+  const userDotShown = showsUserDot(loc);
+  const onMyLocation = useCallback(() => {
+    haptic('selection');
+    const explainBlocked = (coarse: boolean) => Alert.alert(
+      t('app.home.myLocation.blockedTitle'),
+      coarse ? t('app.home.locationBanner.coarse') : t('app.home.myLocation.blockedBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('app.home.myLocation.openSettings'), onPress: loc.openSettings },
+      ],
+    );
+    const action = myLocationAction(loc);
+    if (action === 'consent') { loc.openConsent(); return; }
+    if (action === 'request') { loc.continueFromPrimer(); return; }
+    if (action === 'settings') { explainBlocked(false); return; }
+    if (action === 'none') return;
+    // 허용 상태 — 사용자가 누른 것이니 한 번 다시 읽고(앱을 쓰는 중 · foreground), 읽은 결과로 다시 판정한다.
+    // 경주 안으로 들어왔거나 정확한 위치를 켜고 왔을 수 있다.
+    if (action === 'recenter') focusOn(userPoint.lat, userPoint.lng);
+    void loc.refresh().then((next) => {
+      const after = next ? myLocationAction({ ...loc, status: 'granted', known: next.known, notice: next.notice }) : action;
+      if (after === 'recenter') {
+        if (next) focusOn(next.location.lat, next.location.lng);
+      } else if (after === 'outOfRegion') toast(t('map.outOfRegionStart'));
+      else if (after === 'coarse') explainBlocked(true);
+      else if (!next) toast(t('map.locationFallback'));
+    });
+  }, [loc, focusOn, userPoint.lat, userPoint.lng, t]);
+
+  // 넓은 화면(폴더블 펼침)에서 위 칩 줄 · 여정 카드 · 아래 시트를 같은 폭의 가운데 열로 — 지도가 양옆에 남는다.
+  const overlayWidth = { width: '100%' as const, maxWidth: HOME_PANEL_MAX_WIDTH, alignSelf: 'center' as const };
 
   return (
-    <View className="flex-1 bg-hanji" onLayout={(e) => setContainerH(Math.round(e.nativeEvent.layout.height))}>
+    <View ref={rootRef} className="flex-1 bg-hanji" onLayout={(e) => setContainerH(Math.round(e.nativeEvent.layout.height))}>
       <NextSpotMap
         ref={mapRef}
         style={{ flex: 1 }}
         markers={markers}
         circles={festival?.circles}
-        userLocation={{ latitude: userPoint.lat, longitude: userPoint.lng, variant: 'halo' }}
+        userLocation={userDotShown ? { latitude: userPoint.lat, longitude: userPoint.lng, variant: 'halo' } : null}
         onMarkerPress={onMarkerPress}
         onGroupPress={onGroupPress}
         onMapPress={onMapPress}
@@ -684,8 +745,20 @@ export function HomeScreen() {
         pointerEvents="box-none"
         className="absolute inset-x-0 bottom-0 px-[12px]"
         style={{ paddingBottom: bottomInset, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
+        onLayout={(e) => setBottomStackH(Math.round(e.nativeEvent.layout.height))}
       >
         <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
+          {showsMyLocationButton(loc.status) && hasFacilities ? (
+            <View pointerEvents="box-none" className="items-end">
+              <IconButton
+                icon={LocateFixed}
+                accessibilityLabel={t('app.home.myLocation.recenter')}
+                color={userDotShown ? 'gold-deep' : 'muk-soft'}
+                onPress={onMyLocation}
+                className="border border-line bg-white"
+              />
+            </View>
+          ) : null}
           {showBanner ? (
             <LocationBanner
               kind={loc.status === 'denied' || loc.status === 'no-consent' ? 'denied' : 'coarse'}
@@ -714,16 +787,25 @@ export function HomeScreen() {
       </View>
 
       {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다(둘 다 없으면 아무것도 그리지 않는다). */}
-      <View
-        pointerEvents="box-none"
-        className="absolute inset-x-0 px-[12px]"
-        style={{ top: headerH + 8, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
-      >
-        <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
-          <ActiveJourneyCard location={userPoint} />
-          <VisitCheckCard onOpenCoupons={() => router.push('/mypage/coupons' as never)} />
+      {tripOverlay.card ? (
+        <View
+          pointerEvents="box-none"
+          className="absolute inset-x-0 px-[12px]"
+          style={{ top: overlayTop, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
+        >
+          <ScrollView
+            style={[overlayWidth, { maxHeight: tripRoom, flexGrow: 0 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {tripOverlay.card === 'visit' ? (
+              <VisitCheckCard compact={tripOverlay.compact} onOpenCoupons={() => router.push('/mypage/coupons' as never)} />
+            ) : (
+              <ActiveJourneyCard location={userPoint} compact={tripOverlay.compact} />
+            )}
+          </ScrollView>
         </View>
-      </View>
+      ) : null}
 
       <RecommendationSheet
         selected={selectedCandidate}
@@ -740,6 +822,7 @@ export function HomeScreen() {
         onViewProfile={() => router.push('/mypage' as never)}
         onViewLab={() => router.push('/mypage/lab' as never)}
         onStateChange={setSheetState}
+        maxWidth={HOME_PANEL_MAX_WIDTH}
       />
 
       <FilterSheet
@@ -766,4 +849,58 @@ export function HomeScreen() {
       {loc.status === 'needs-primer' ? <LocationPrimer onContinue={loc.continueFromPrimer} /> : null}
     </View>
   );
+}
+
+// ── 여정 상태 ─────────────────────────────────────────────────────────────
+// 홈이 어느 여정 카드를 띄울지 고르려고 저장된 여정을 지켜본다(판정은 homeModel.pickTripOverlay). 카드들도 같은 저장소를
+// 스스로 읽지만 홈은 한 번에 하나만 올리므로 먼저 알아야 한다. 다시 보는 때는 VisitCheckCard 와 같다 — 화면에 돌아올 때 ·
+// 앱이 앞으로 올 때 · 여정 알림(길안내 시작 · 도착) · 수락 30분이 차는 순간(타이머).
+
+interface TripState {
+  visitDue: boolean;
+  journeyActive: boolean;
+}
+
+function readTripState(now: number): TripState {
+  return {
+    visitDue: getDueVisit(now) !== null,
+    journeyActive: getActiveTrip()?.status === 'navigating',
+  };
+}
+
+function useTripState(): TripState {
+  const [state, setState] = useState<TripState>(() => readTripState(Date.now()));
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const check = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const now = Date.now();
+    const next = readTripState(now);
+    setState((prev) => (prev.visitDue === next.visitDue && prev.journeyActive === next.journeyActive ? prev : next));
+    if (!next.visitDue) {
+      const pending = getPendingVisit();
+      if (pending) timerRef.current = setTimeout(check, Math.max(0, pending.acceptedAt + DUE_AFTER_MS - now) + 1000);
+    }
+  }, []);
+
+  useEffect(() => {
+    check();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && check());
+    const offArrived = tripEvents.on('trip-arrived', check);
+    const offNavigating = tripEvents.on('trip-navigating', check);
+    return () => {
+      sub.remove();
+      offArrived();
+      offNavigating();
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+    };
+  }, [check]);
+
+  useFocusEffect(useCallback(() => { check(); }, [check]));
+
+  return state;
 }

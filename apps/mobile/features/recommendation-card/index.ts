@@ -7,4 +7,4 @@ export { CongestionReportButton } from './CongestionReportButton';
 export { candidateFromPlace } from './types';
 export type { CardFacility, CompareAnchor, SheetCandidate } from './types';
 export { markTasteFeedback, type NavigationMode } from './actions';
-export { recordActiveTrip, getActiveTrip, getDueVisit, getPendingVisit, getVisitHistory, tripEvents } from './tripLoop';
+export { recordActiveTrip, getActiveTrip, getDueVisit, getPendingVisit, getVisitHistory, tripEvents, DUE_AFTER_MS } from './tripLoop';

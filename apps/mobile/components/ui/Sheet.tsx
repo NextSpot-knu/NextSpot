@@ -8,7 +8,7 @@ import BottomSheet, {
 } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BackHandler, Platform, StyleSheet, View, type AccessibilityActionEvent } from 'react-native';
+import { BackHandler, Platform, StyleSheet, useWindowDimensions, View, type AccessibilityActionEvent } from 'react-native';
 import { ReduceMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -102,6 +102,8 @@ export type SheetProps = {
   stateLabels?: Partial<Record<SheetState, string>>;
   /** 아래 탭 막대 높이만큼 띄운다(pt). */
   bottomInset?: number;
+  /** 넓은 화면(폴더블 펼침·태블릿)에서 시트 폭 상한(pt) — 넘으면 가운데에 놓는다. 없으면 화면 폭 그대로. */
+  maxWidth?: number;
 };
 
 /**
@@ -120,8 +122,11 @@ export function Sheet({
   handleLabel,
   stateLabels,
   bottomInset = 0,
+  maxWidth,
 }: SheetProps) {
   const ref = useRef<BottomSheet>(null);
+  const { width: windowWidth } = useWindowDimensions();
+  const sideMargin = maxWidth !== undefined && windowWidth > maxWidth ? Math.round((windowWidth - maxWidth) / 2) : 0;
   const current = useRef<number>(ORDER.indexOf(state ?? initialState));
   const [shown, setShown] = useState<number>(current.current);
   const points = useMemo(() => [...snapPoints], [snapPoints]);
@@ -169,7 +174,7 @@ export function Sheet({
       handleComponent={handle}
       backgroundComponent={SheetBackground}
       backgroundStyle={background}
-      style={{ boxShadow: '0px -4px 24px rgba(43, 35, 32, 0.10)', borderRadius: 24 }}
+      style={{ boxShadow: '0px -4px 24px rgba(43, 35, 32, 0.10)', borderRadius: 24, marginHorizontal: sideMargin }}
       onChange={onChange}
       {...CONTAINER_A11Y}
     >

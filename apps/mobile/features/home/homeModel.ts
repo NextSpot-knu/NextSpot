@@ -464,3 +464,57 @@ export function resolveUserLocation(coords: { latitude: number; longitude: numbe
   if (typeof accuracy === 'number' && accuracy > COARSE_ACCURACY_M) return { location: center, known: false, notice: 'coarse' };
   return { location: { lat: latitude, lng: longitude }, known: true, notice: null };
 }
+
+// ── 지도 위 여정 카드(진행 중 여행 · 방문 확인) ─────────────────────────────
+
+/** 홈 지도 위에 얹는 여정 카드 — 한 번에 하나만. */
+export type TripOverlayCard = 'visit' | 'journey' | null;
+
+/** 카드 높이 어림(dp) — 이 자리가 안 되면 접은 판으로, 접은 판도 안 들어가면 그리지 않는다. */
+export const TRIP_CARD_HEIGHT = { compact: 64, visitFull: 176 } as const;
+
+export interface TripOverlayInput {
+  /** 방문 확인을 물을 때가 됐다(getDueVisit — 수락 30분 뒤 또는 '도착했어요' 직후). */
+  visitDue: boolean;
+  /** 길안내 중인 여정이 있다(getActiveTrip().status === 'navigating'). */
+  journeyActive: boolean;
+  /** 검색 결과 판이 위를 차지하고 있다. */
+  searching: boolean;
+  /** 위 칩 줄 아래부터 아래 시트·배너 위까지 남은 높이(dp). */
+  room: number;
+}
+
+export interface TripOverlay {
+  card: TripOverlayCard;
+  /** 접은 판(한두 줄)으로 그린다 — 지도를 가리지 않게. */
+  compact: boolean;
+}
+
+/**
+ * 여정 카드 고르기. 웹 /main 은 진행 중 여행(위)과 방문 확인(아래, 추천 카드 위 z-55)을 함께 띄웠지만, 두 카드는 같은 여정이다
+ * (recordActiveTrip 이 대기 방문도 같이 쓴다). 그래서 앱 휴대폰 화면에서는 하나만 보인다:
+ *  1. 방문 확인이 때가 되면 그것이 먼저다 — 웹도 이 카드를 가장 위 층(z-55)에 띄웠고, 답('네'·'아직이요')이 여정까지 끝낸다.
+ *     '도착했어요'를 누르면 바로 이 카드로 넘어간다.
+ *  2. 아니면 길안내 중인 여정. 홈에서는 늘 접은 판(이름 + '도착했어요')으로 시작하고 눌러야 펼친다.
+ *  3. 검색 결과 판이 열려 있으면 그 자리를 비운다(같은 위 자리다).
+ *  4. 아래 시트·배너가 올라와 남은 높이가 접은 판보다 작으면 그리지 않는다(시트가 내려오면 다시 보인다). 방문 확인은 자리가 넉넉할
+ *     때만 펼친 판으로 그린다. 펼친 카드도 남은 높이 안에서 스크롤되므로 시트와 겹치지 않는다.
+ */
+export function pickTripOverlay(input: TripOverlayInput): TripOverlay {
+  const card: TripOverlayCard = input.visitDue ? 'visit' : input.journeyActive ? 'journey' : null;
+  if (!card || input.searching || !(input.room >= TRIP_CARD_HEIGHT.compact)) return { card: null, compact: true };
+  return { card, compact: card === 'journey' || input.room < TRIP_CARD_HEIGHT.visitFull };
+}
+
+/** 카드가 쓸 수 있는 높이 — 위 칩 줄 아래(top)부터 아래에서 가린 두께(bottomCover) 위까지, 사이 여백 8씩. */
+export function tripOverlayRoom(containerHeight: number, top: number, bottomCover: number): number {
+  if (!(containerHeight > 0)) return 0;
+  return Math.max(0, Math.round(containerHeight - top - bottomCover - 8));
+}
+
+/**
+ * 홈 지도 위 열(검색·칩 줄 · 여정 카드 · 추천 시트)의 폭 상한(dp). 휴대폰(≈360–430dp)은 꽉 차고, 폴더블을 펼친 화면(≈750dp)·
+ * 태블릿에서는 가운데 열로 좁혀 양옆 지도가 보이게 한다. 웹 /main 은 lg(1024px) 아래에서 카드가 화면 폭을 따라가지만,
+ * 앱 시트는 폭이 넓으면 한 줄이 길어져 읽기 어렵다.
+ */
+export const HOME_PANEL_MAX_WIDTH = 560;

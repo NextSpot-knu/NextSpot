@@ -74,6 +74,8 @@ export interface RecommendationSheetProps {
   openAs?: SheetState;
   /** 아래 탭 막대 높이(pt). */
   bottomInset?: number;
+  /** 넓은 화면에서 시트 폭 상한(pt) — 홈이 지도 위 카드들과 같은 폭으로 맞춘다. */
+  maxWidth?: number;
   /** '바로 갈래요'·'자동차 길안내' 뒤(서버 수락·여정 기록·길안내는 시트가 이미 했다). */
   onAccept?: (c: SheetCandidate, mode: NavigationMode) => void;
   /** 킵 뒤 — next 가 다음에 보일 후보(없으면 null → 빈 상태). */
@@ -128,6 +130,7 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
       handleLabel={t('app.cardSheet.handle')}
       stateLabels={stateLabels}
       bottomInset={bottomInset}
+      maxWidth={props.maxWidth}
     >
       {selected && status === 'ready' ? (
         <CardBody {...props} selected={selected} sheetState={sheetState} setSheetState={setSheetState} />

@@ -40,3 +40,61 @@ export function shouldRecheckOnForeground(input: ForegroundInput): boolean {
 export function withinCooldown(lastReadAttemptAt: number | null, now: number, cooldownMs = READ_COOLDOWN_MS): boolean {
   return lastReadAttemptAt !== null && now - lastReadAttemptAt >= 0 && now - lastReadAttemptAt < cooldownMs;
 }
+
+// ── 내 위치 점 · '내 위치로' 버튼 ───────────────────────────────────────────
+
+export interface MyLocationInput {
+  status: ForegroundStatus;
+  /** 정말 내 위치인가(경주 밖 · 대략적 위치 · 읽기 전이면 false — 황리단길 중심으로 바꾼 값). */
+  known: boolean;
+  notice: LocationNotice;
+  readFailed: boolean;
+  /** OS 가 권한 창을 다시 띄울 수 있는가(expo-location canAskAgain). 거부 상태에서만 본다. */
+  canAskAgain: boolean;
+}
+
+/** 내 위치 점은 동의 + OS 허용 + 실제로 읽은 내 위치일 때만 — 지역 중심으로 바꾼 자리에 '내 위치'를 그리지 않는다. */
+export function showsUserDot(input: Pick<MyLocationInput, 'status' | 'known'>): boolean {
+  return input.status === 'granted' && input.known;
+}
+
+/** '내 위치로' 버튼을 그리는가 — 확인 중 · 사전 안내(전면 안내가 떠 있다)일 때만 숨긴다. */
+export function showsMyLocationButton(status: ForegroundStatus): boolean {
+  return status !== 'checking' && status !== 'needs-primer';
+}
+
+export type MyLocationAction =
+  /** 내 위치로 지도를 옮긴다(최근에 읽지 않았으면 한 번 다시 읽는다 — 앱을 쓰는 중 사용자가 누른 것이다). */
+  | 'recenter'
+  /** 위치정보 이용 동의 화면(동의 없이는 OS 권한을 보지도 묻지도 않는다). */
+  | 'consent'
+  /** 사전 안내의 '계속'과 같다 — 시스템 권한 창(아직 묻지 않았거나, 안드로이드에서 한 번 거부해 다시 물을 수 있을 때). */
+  | 'request'
+  /** 다시 물을 수 없게 거부됐다 — 설명을 보이고 설정 앱으로(Linking.openSettings). */
+  | 'settings'
+  /** 허용했는데 위치를 못 읽었다 — 다시 읽는다. */
+  | 'retry'
+  /** 허용했지만 경주 밖 · 대략적 위치 — 이유를 알린다(대략적이면 정확한 위치를 켜러 설정으로). */
+  | 'outOfRegion'
+  | 'coarse'
+  /** 아직 확인 중 — 아무것도 하지 않는다. */
+  | 'none';
+
+/** '내 위치로' 버튼을 눌렀을 때 할 일. 동의가 없으면 어떤 경우에도 위치·권한에 손대지 않는다. */
+export function myLocationAction(input: MyLocationInput): MyLocationAction {
+  switch (input.status) {
+    case 'no-consent':
+      return 'consent';
+    case 'needs-primer':
+      return 'request';
+    case 'denied':
+      return input.canAskAgain ? 'request' : 'settings';
+    case 'granted':
+      if (input.known) return 'recenter';
+      if (input.notice === 'outOfRegion') return 'outOfRegion';
+      if (input.notice === 'coarse') return 'coarse';
+      return 'retry';
+    default:
+      return 'none';
+  }
+}

@@ -16,6 +16,9 @@ import {
   matchesCuisineChip,
   NO_CONVENIENCE,
   orderForPins,
+  pickTripOverlay,
+  TRIP_CARD_HEIGHT,
+  tripOverlayRoom,
   resolveUserLocation,
   selectByCategoryOrSearch,
   shouldAskExternal,
@@ -183,3 +186,22 @@ assert.equal(resolveUserLocation({ latitude: Number.NaN, longitude: 1 }).known, 
 assert.equal(resolveUserLocation({ latitude: 35.835, longitude: 129.21 }).known, true, '정확도를 모르면 내 위치로 본다');
 
 console.log('homeModel ok');
+
+// ── 여정 카드: 한 번에 하나, 방문 확인이 먼저 ──
+{
+  const roomy = { searching: false, room: 400 };
+  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: true, ...roomy }), { card: 'visit', compact: false });
+  assert.deepEqual(pickTripOverlay({ visitDue: false, journeyActive: true, ...roomy }), { card: 'journey', compact: true });
+  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: false, ...roomy }), { card: 'visit', compact: false });
+  assert.equal(pickTripOverlay({ visitDue: false, journeyActive: false, ...roomy }).card, null);
+  // 검색 판이 위를 쓰는 동안은 비운다
+  assert.equal(pickTripOverlay({ visitDue: true, journeyActive: true, searching: true, room: 400 }).card, null);
+  // 자리가 좁으면 방문 확인도 접은 판, 접은 판도 안 들어가면 그리지 않는다
+  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.visitFull - 1 }), { card: 'visit', compact: true });
+  assert.equal(pickTripOverlay({ visitDue: true, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.compact - 1 }).card, null);
+  assert.equal(pickTripOverlay({ visitDue: false, journeyActive: true, searching: false, room: Number.NaN }).card, null);
+  // 남은 높이: 컨테이너 − 위 − 아래 − 8
+  assert.equal(tripOverlayRoom(800, 200, 300), 292);
+  assert.equal(tripOverlayRoom(800, 500, 400), 0);
+  assert.equal(tripOverlayRoom(0, 100, 100), 0);
+}
