@@ -306,6 +306,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-05 — 모바일 3단계: 홈 여정 카드·내 위치·폴드 펼친 화면 · Z Fold7 실기기 연결
+
+- 도구·브랜치: Claude Code(구현 1 · 작은 수정 Sonnet 1 · 독립 검토 3회) / `yunseong` · 커밋 `77684e8`..`890b093` + 이 기록
+- 한 것: 여정 카드는 한 번에 하나(방문 확인 먼저), 시트 위 남은 높이 안에서 스크롤, 넓은 화면은 560dp 열. 감출 때는 떼지 않는다(상태 유지). 위치 점·'내 위치로'는 약관 동의+허용일 때만, 거부 상태별 흐름. 줌 대응 실측 고정. 대기 머리글 중복·웹 `userData` 대기열 키. Maps 키 Android 앱 제한 적용(사용자) 뒤 지도 정상.
+- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · i18n · web test. 검토 3회(Med 3 → 0). 화면 확인은 에뮬레이터(폰·폴드 크기). 위치 점·키보드는 실기기 미확인.
+- 다음·미결: 실기기에서 위치 점·구글 로그인 복귀·펼친 화면 확인 → 4단계. 오류 URL 이 `seenCodes` 에 안 남는 OAuth 틈(결정 필요). Metro 8081 감시가 죽어 8082 를 쓴다.
+- 사람 작업: Supabase Redirect `nextspot://**`·익명 30/h 는 사용자가 저장(11-05). 남은 것: 진석 님 권한(Apple $99 가입 여부 확인 포함)·법무 검토.
+
 ## 2026-11-02d — 모바일: EAS 연결 · 지도 키 · 첫 클라우드 개발 빌드
 
 - 도구·브랜치: Claude Code / `yunseong` · 커밋 `c929e52` + 이 기록
@@ -366,18 +374,6 @@ from checks order by seq;
 - 검증: 6 작업 묶음 구현 → 통합 → 4 렌즈(보안·경주 불변·엔진·웹) 반박 검증 → 수정 3회 → 남은 Med 4건·Low 다수를 API·웹 에이전트가 고치고 다른 검토자 2명이 다시 봄(High·Med 0 까지). 마지막 트리에서 api ruff · pytest 3739 · web lint 0 error(경고 148 그대로)·typecheck·test 131·build · build_reset(추가만) · check-docs. 마이그레이션은 PGlite 시나리오(57+ 검사)만 — 실 Supabase 미시험. e2e 는 바뀐 spec 만 로컬, 전체는 CI.
 - 다음·미결: 받아들인 잔여 — ① developer 에서 강등된 사람은 자기 서울 추천 행을 브라우저로 계속 읽는다(RLS 소유자 절) — 강등 때 그 행을 지우거나 라벨을 바꾸는 것은 사람 판단 ② 운영 PostgREST 가 임베드 JSON 경로 필터를 받는지 미확인(model-trust 는 실패하면 닫힌 쪽 폴백) ③ 내부 지역 `pack` 을 쓰는 효과 일부(saved 등)는 재확인 때 다시 돈다(무해). S4(재생 평가)는 사용자가 ultracode 로.
 - 사람 작업: "사람 작업 대기" 11-01 S3 ①~⑥(사전 확인 쿼리 · 적용 순서 · region-guard · 시험 계정 비밀·적재 · 구역 경계 · 리허설). 계획의 Render 변수 `INTERNAL_REGION_*` 는 없다(코드에 developer 고정).
-
-## 2026-10-31c — 서울 테스트베드 S1·S2·S5·S6 + 게스트 답 그림자 모드(D3) + 문서 답변
-
-- 도구·브랜치: Claude Code / `yunseong`(`4c31b0b` 위, main 미반영)
-- 커밋: `47ee20c`..`c1daf72`(12건 — 문서 `47ee20c`·`ef04eef`·`45f5dc9`·`eb3a88b` · 서울 `b6cb50a`·`20096dd`·`c534783`·`65a45ff`·`4052f68`·`22ecc1d`·`8c0de61` · D3 `c1daf72`) + 이 기록(문서)
-- 한 것: 상세는 커밋 본문 · [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 진행표 · [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §7.
-  - 문서 답: 두 계획 문서에 사용자가 단 답·질문(A1·A2·A6·A3·A3', S0 A~E 결과)에 답하고 반영했다. D6 확정(도착 확인 때 쿠폰), D3 은 '받되 2주 그림자 모드 뒤 실시간 여부 결정'. S0 은 사용자 SQL 로 끝났다(5곳 09-20부터 10분, `140000` 적용).
-  - 서울: S1 공급원 층 `services/crowd/` + 구역 표 `20261031120000` + 수집기 이중 저장 · S2 9곳(종로 4곳, '인사동'만 — 확인 필요) · 주기 재설계(홍대 권역 10분 · 종로/검증 30분, 주 720 · 최악 864회/일, 동시 조회 4, 조회 45초·실행 80초 마감) · S5 [`CROWD_DATA_CONTRACT.md`](./CROWD_DATA_CONTRACT.md)·통신사 어댑터 틀·합성 격자·계약 테스트 · S6 관리자 '실시간 데이터 리허설'(`pipeline`·`decision_quality`).
-  - D3: 게스트 방문 확인 답은 `guest_shadow`(DB 트리거가 `is_anonymous` 로 분류) · 게스트 방문 답에 1인 1표(등록 사용자는 제한 없음) · 네트워크 키(대역 HMAC, 30일 pg_cron) · 측정 `GET /admin/metrics/guest-answers` · 스위치 `GUEST_CROWD_ANSWERS_LIVE`(꺼짐) · Turnstile 기반(키 있을 때만). 구현마다 렌즈가 다른 독립 검토를 돌렸고 `c534783`·`4052f68`·`22ecc1d`·`8c0de61` 이 그 수정이다.
-- 검증: 마지막 `c1daf72` 에서 api ruff · pytest 3267 · OpenAPI(추가만) · build_reset(추가만) · web lint(0 error)·typecheck·test 118·build · check-docs. 마이그레이션은 PGlite 시나리오만(실 Supabase 미시험). **커밋 메시지 정정**: `c534783` 의 'pytest 3221' 은 S6 변경이 함께 있던 트리에서 센 값이다. 같은 커밋의 '조회 최악 85초 → 35초' 에서 실제 이전 기본값은 버킷당 6곳(75초)이었고, 35초는 `4052f68` 이 마감(조회 45초 · 실행 80초)으로 다시 고쳤다.
-- 다음·미결: main 반영은 오늘 밤 KST(API 먼저 → 웹, 마이그레이션은 API 배포 직후 — 위 "배포 상태"). **S3(엔진 연결)·S4(재생 평가)는 사용자가 ultracode 로 직접** 한다. D3 실시간 전환은 `130000` 적용 2주 뒤 측정으로 정한다. `c1daf72` 보안 검토 지적은 후속 커밋에서 고쳤다. 실시간 전환 전 결정할 것: 게스트+계정 혼합 일치의 약점(L3), 버린 시도의 측정 누락(L7), DB 동작의 CI 검증(L8). S5 남은 결정: 분위수 기준('평소 대비'·'절대 붐빔') · 잠정 임계값.
-- 사람 작업: "사람 작업 대기" 10-31c ①~⑧(Render 서울 대상지 변수 · 마이그레이션 2개 · 종로 이름 확인 · Turnstile · 처리방침 · 2주 뒤 전환 결정 · 인사동 확인). 해결된 '서울 수집 0건'·`140000` 적용 줄은 지웠다(S0 확인).
 
 ## 기록 규칙
 
