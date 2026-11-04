@@ -44,6 +44,20 @@ for (const level of [1, 3, 4, 5, 7, 10]) {
 // 구글 확대 단계 — 경주에서 대략 z ≈ 20 − level.
 near(googleZoomForKakaoLevel(3, center.latitude), 16.95, 0.05);
 near(googleZoomForKakaoLevel(5, center.latitude), 14.95, 0.05);
+// 에뮬레이터 실측(411×833dp, 홈 첫 화면 level 4): 구글 카메라 zoom 15.953 · 경도 폭 0.0091178° — 같은 식이 같은 값을 낸다.
+{
+  const phone = { width: 411.4285583496094, height: 833.1428833007812 };
+  const at = { latitude: 35.83569639564571, longitude: 129.20944785699248 };
+  near(googleZoomForKakaoLevel(4, at.latitude), 15.9535, 0.001, '실측 zoom');
+  const r = regionForKakaoLevel(at, 4, phone);
+  near(r.longitudeDelta, 0.009117834270000458, 1e-6, '실측 경도 폭');
+  near(kakaoLevelOf({ ...at, longitudeDelta: 0.009117834270000458, latitudeDelta: 0.014968199898248713 }, phone), 4, 0.01, '실측 영역 → level');
+  // 같은 level 은 같은 축척 — 웹 390px 폰은 ≈780m, 앱 411dp 폰은 ≈823m 를 가로로 보인다.
+  const web = regionBounds(regionForKakaoLevel(at, 4, { width: 390, height: 844 }));
+  near(haversineMeters(at.latitude, web.west, at.latitude, web.east), 780, 3, '웹 폭 m');
+  const app = regionBounds(r);
+  near(haversineMeters(at.latitude, app.west, at.latitude, app.east), 823, 3, '앱 폭 m');
+}
 
 // ── 투영 ──
 {

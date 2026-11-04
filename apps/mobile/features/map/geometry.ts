@@ -7,7 +7,11 @@
 //
 // ── 카카오 확대 단계 ↔ RN 영역 ────────────────────────────────────────────────────────────────
 // 카카오 지도 level L(1 = 가장 가까움)은 한 단계마다 축척이 2배다. level 3 의 축척 막대가 '50m', level 4 가
-// '100m' 이고(웹 CourseMap 주석 I58), 해상도는 level 3 ≈ 1m/px 이다 [추정 — 에뮬레이터에서 웹과 나란히 놓고 보정].
+// '100m' 이고(웹 CourseMap 주석 I58), 해상도는 level 3 = 1m/px 이다(카카오 타일 해상도 표: level 1 = 0.25m/px, 한 단계마다 2배).
+// 웹은 CSS px, 구글 안드로이드는 dp 로 256 타일을 그리므로 'px ↔ dp' 를 같은 단위로 본다 — 같은 level 이면 같은 축척이고,
+// 보이는 넓이는 화면 폭만큼 다르다(웹 390px 폰 level 4 ≈ 780m, 앱 411dp 폰 ≈ 823m).
+// 검증(2026-11-05, 에뮬레이터 1080×2400 · 420dpi = 411×833dp): 홈 첫 화면 level 4 → 구글 getCamera().zoom 15.953,
+// 아래 식의 googleZoomForKakaoLevel(4, 35.836) = 15.953 과 맞는다(geometry.test.ts 가 이 값을 잠근다).
 //   metersPerPixel(L) = 2^(L − 3)
 // RN 영역은 화면 폭 W(dp)에 경도 폭 Δlng 를 담으므로
 //   metersPerPixel = Δlng × 111 320 × cos(위도) / W   →   L = 3 + log2(metersPerPixel)
