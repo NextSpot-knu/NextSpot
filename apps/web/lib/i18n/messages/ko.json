@@ -1685,7 +1685,17 @@
         "enable": "내 주변 추천 켜기",
         "coarse": "정확한 위치를 켜면 더 가까운 곳을 찾아요"
       },
-      "festivalAreaLabel": "🏮 {title} 일원"
+      "festivalAreaLabel": "🏮 {title} 일원",
+      "myLocation": {
+        "recenter": "내 위치로 이동",
+        "blockedTitle": "위치 사용이 꺼져 있어요",
+        "blockedBody": "내 주변의 덜 붐비는 곳을 추천받으려면 설정 앱에서 NextSpot 위치 권한을 '앱 사용 중에만 허용'으로 바꿔 주세요.",
+        "openSettings": "설정 열기"
+      },
+      "tripCard": {
+        "expand": "여정 카드 펼치기",
+        "collapse": "여정 카드 접기"
+      }
     },
     "mypage": {
       "openOnWeb": "웹에서 열기",

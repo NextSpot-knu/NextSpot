@@ -1685,7 +1685,17 @@
         "enable": "开启附近推荐",
         "coarse": "开启精确定位可找到更近的地点"
       },
-      "festivalAreaLabel": "🏮 {title} 一带"
+      "festivalAreaLabel": "🏮 {title} 一带",
+      "myLocation": {
+        "recenter": "移到我的位置",
+        "blockedTitle": "位置权限已关闭",
+        "blockedBody": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置权限改为“仅在使用应用期间允许”。",
+        "openSettings": "打开设置"
+      },
+      "tripCard": {
+        "expand": "展开行程卡片",
+        "collapse": "收起行程卡片"
+      }
     },
     "mypage": {
       "openOnWeb": "在网页中打开",

@@ -1685,7 +1685,17 @@
         "enable": "近くのおすすめをオンにする",
         "coarse": "正確な位置情報をオンにすると、より近い場所を探せます"
       },
-      "festivalAreaLabel": "🏮 {title} 一帯"
+      "festivalAreaLabel": "🏮 {title} 一帯",
+      "myLocation": {
+        "recenter": "現在地へ移動",
+        "blockedTitle": "位置情報がオフになっています",
+        "blockedBody": "近くの空いている場所のおすすめを受け取るには、設定アプリで NextSpot の位置情報の権限を「アプリの使用中のみ許可」に変更してください。",
+        "openSettings": "設定を開く"
+      },
+      "tripCard": {
+        "expand": "旅程カードを広げる",
+        "collapse": "旅程カードをたたむ"
+      }
     },
     "mypage": {
       "openOnWeb": "ウェブで開く",

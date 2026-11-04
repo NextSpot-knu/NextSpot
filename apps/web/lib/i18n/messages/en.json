@@ -1685,7 +1685,17 @@
         "enable": "Turn on nearby recommendations",
         "coarse": "Turn on precise location to find closer places"
       },
-      "festivalAreaLabel": "🏮 {title} area"
+      "festivalAreaLabel": "🏮 {title} area",
+      "myLocation": {
+        "recenter": "Go to my location",
+        "blockedTitle": "Location is turned off",
+        "blockedBody": "To get less crowded places near you, open Settings and set NextSpot's location permission to 'Allow only while using the app'.",
+        "openSettings": "Open Settings"
+      },
+      "tripCard": {
+        "expand": "Expand trip card",
+        "collapse": "Collapse trip card"
+      }
     },
     "mypage": {
       "openOnWeb": "Open on the web",
