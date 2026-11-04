@@ -178,6 +178,21 @@ async function main() {
     assert.equal(h.exchangeCalls(), 2);
   }
 
+  // 11. 안드로이드 복귀 중복 — 같은 code 가 두 길(openAuthSessionAsync 결과 · 딥링크)로 오고, 그사이 새 흐름이 시작돼도
+  //     교환·합치기는 한 번뿐이다(받은편지함의 code 기억은 reset 뒤에도 남는다).
+  {
+    const h = harness();
+    h.start();
+    assert.equal(h.inbox.deliver('nextspot://auth/callback?code=dup'), true);
+    assert.equal((await h.processor.process()).kind, 'done');
+    h.processor.reset();
+    h.start({ flowId: 'f-2' });
+    assert.equal(h.inbox.deliver('nextspot://auth/callback?code=dup'), false, '이미 받은 code 는 다시 받지 않는다');
+    assert.equal((await h.processor.process()).kind, 'failed');
+    assert.equal(h.exchangeCalls(), 1);
+    assert.equal(h.log.filter((l) => l === 'merge').length, 1);
+  }
+
   console.log('callbackFlow.test OK');
 }
 
