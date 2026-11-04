@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   myLocationAction,
   READ_COOLDOWN_MS,
+  RECENTER_REUSE_MS,
+  reuseRecentFix,
   shouldRecheckOnForeground,
   showsMyLocationButton,
   showsUserDot,
@@ -65,3 +67,8 @@ console.log('locationPolicy.test OK');
   assert.equal(myLocationAction({ ...loc, status: 'granted', readFailed: true }), 'retry');
   assert.equal(myLocationAction({ ...loc, status: 'checking' }), 'none');
 }
+
+// '내 위치로' 연타 — 30초 안에 읽은 위치는 다시 읽지 않는다
+assert.equal(reuseRecentFix(null, 1_000_000), false);
+assert.equal(reuseRecentFix(1_000_000 - 5_000, 1_000_000), true);
+assert.equal(reuseRecentFix(1_000_000 - RECENTER_REUSE_MS, 1_000_000), false);

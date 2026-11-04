@@ -4,6 +4,8 @@ import { classifyReplanOutcome, replanNotice } from '@/lib/replanOutcome';
 
 import {
   EMPTY_TRAVEL_CONTEXT,
+  firstSighting,
+  tripKey,
   buildReplanContext,
   eligibilityTierRank,
   hasCondition,
@@ -68,5 +70,14 @@ assert.equal(classifyReplanOutcome({ timedOut: false, candidateCount: 0 }), 'emp
 assert.equal(replanNotice('empty')?.retryable, false);
 assert.equal(replanNotice('failed')?.retryable, true);
 assert.equal(replanNotice('replaced'), null);
+
+// trip_resumed 는 여정마다 한 번 — 같은 장소라도 다시 수락한 여정은 새 여정이다
+{
+  const seen = new Set<string>();
+  const a = tripKey({ facilityId: 'f1', acceptedAt: 1 });
+  assert.equal(firstSighting(seen, a), true);
+  assert.equal(firstSighting(seen, a), false);
+  assert.equal(firstSighting(seen, tripKey({ facilityId: 'f1', acceptedAt: 2 })), true);
+}
 
 console.log('journeyCore.test OK');

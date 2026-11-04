@@ -20,11 +20,13 @@ import {
   REPLAN_RESPONSE_BUDGET_MS,
   REPLAN_WALKS,
   buildReplanContext,
+  firstSighting,
   hasCondition,
   loadTravelContext,
   replanFacilityTypes,
   sortReplanCandidates,
   toggled,
+  tripKey,
 } from './journeyCore';
 import {
   getActiveTrip,
@@ -48,7 +50,14 @@ export interface ActiveJourneyCardProps {
    * 상황 변경을 여는 중에는 접지 않는다.
    */
   compact?: boolean;
+  /** 그릴 것이 생기거나 없어질 때(길안내 중 여정 · '아직 가는 중'으로 닫음) — 홈이 카드 자리를 고른다. */
+  onActiveChange?: (active: boolean) => void;
+  /** 이 카드 안 입력 칸에 초점이 갔다 — 홈이 스크롤 안에서 그 칸을 보이게 한다. */
+  onInputFocus?: () => void;
 }
+
+/** 이번 앱 실행에서 'trip_resumed' 를 이미 보낸 여정(tripKey). 카드를 다시 붙여도 여정마다 한 번만 보낸다. */
+const resumedTrips = new Set<string>();
 
 /**
  * 진행 중 여행 카드 — 도착했어요 · 아직 가는 중 · 상황 변경(자연어·칩으로 조건을 바꿔 다른 곳으로 갈아타기) · 길안내 다시 열기.
@@ -56,7 +65,7 @@ export interface ActiveJourneyCardProps {
  * 자유 문장 해석(POST /travel-context/parse)은 서버가 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
  * (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
  */
-export function ActiveJourneyCard({ location, className, onArrived, compact = false }: ActiveJourneyCardProps) {
+export function ActiveJourneyCard({ location, className, onArrived, compact = false, onActiveChange, onInputFocus }: ActiveJourneyCardProps) {
   const t = useT();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
@@ -75,7 +84,7 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
       const found = getActiveTrip();
       const active = found?.status === 'navigating' ? found : null;
       setTrip(active);
-      if (active) track('trip_resumed', { facility_type: active.type });
+      if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
     };
     sync();
     const sub = AppState.addEventListener('change', (s) => s === 'active' && sync());
@@ -85,6 +94,13 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
       off();
     };
   }, []);
+
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
+  const isActive = trip !== null && trip.status !== 'arrived';
+  useEffect(() => {
+    onActiveChangeRef.current?.(isActive);
+  }, [isActive]);
 
   const arrived = useCallback(() => {
     if (!trip) return;
@@ -276,6 +292,7 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
             multiline
             value={changeText}
             onChangeText={setChangeText}
+            onFocus={onInputFocus}
             placeholder={t('trip.changePlaceholder')}
             placeholderTextColor="#8a7f78"
             className={aiAllowed ? 'min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk' : 'min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[13px] text-muk-soft'}

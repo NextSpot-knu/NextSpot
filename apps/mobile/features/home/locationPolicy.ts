@@ -64,7 +64,7 @@ export function showsMyLocationButton(status: ForegroundStatus): boolean {
 }
 
 export type MyLocationAction =
-  /** 내 위치로 지도를 옮긴다(최근에 읽지 않았으면 한 번 다시 읽는다 — 앱을 쓰는 중 사용자가 누른 것이다). */
+  /** 내 위치로 지도를 옮긴다. 마지막으로 읽은 위치가 RECENTER_REUSE_MS 보다 오래됐으면 한 번 다시 읽는다(reuseRecentFix). */
   | 'recenter'
   /** 위치정보 이용 동의 화면(동의 없이는 OS 권한을 보지도 묻지도 않는다). */
   | 'consent'
@@ -97,4 +97,15 @@ export function myLocationAction(input: MyLocationInput): MyLocationAction {
     default:
       return 'none';
   }
+}
+
+/**
+ * '내 위치로'를 연달아 눌러도 이 시간 안에 읽은 위치는 다시 읽지 않는다 — 안드로이드는 읽을 때마다 '위치 정확도' 창을
+ * 띄울 수 있다(위 READ_COOLDOWN_MS 와 같은 이유, 사용자가 누른 것이라 더 짧게).
+ */
+export const RECENTER_REUSE_MS = 30_000;
+
+/** 마지막으로 읽은 위치를 그대로 쓸까(다시 읽지 않을까). 읽은 적 없으면 false. */
+export function reuseRecentFix(lastFixAt: number | null, now: number, maxAgeMs = RECENTER_REUSE_MS): boolean {
+  return withinCooldown(lastFixAt, now, maxAgeMs);
 }

@@ -116,3 +116,18 @@ export function toggled<T>(values: readonly T[] | undefined, value: T): T[] {
 export function replanFacilityTypes(context: TravelContext, tripType: string): string[] {
   return context.categories.length ? [...context.categories] : [tripType];
 }
+
+/** 여정 하나를 가리키는 열쇠 — 같은 장소를 다시 수락하면 acceptedAt 이 달라 다른 여정이다. */
+export function tripKey(trip: { facilityId: string; acceptedAt: number }): string {
+  return `${trip.facilityId}@${trip.acceptedAt}`;
+}
+
+/**
+ * 이 열쇠를 처음 보는가 — 처음이면 기억하고 true. 'trip_resumed' 를 여정마다 한 번만 보내는 데 쓴다
+ * (홈이 카드를 다시 붙이거나 앱이 앞으로 올 때마다 보내면 이용 기록이 부풀었다).
+ */
+export function firstSighting(seen: Set<string>, key: string): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return true;
+}

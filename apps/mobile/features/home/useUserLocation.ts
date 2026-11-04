@@ -21,6 +21,7 @@ import { resolveUserLocation, type LocationNotice, type ResolvedLocation } from 
 import {
   LAST_KNOWN_MAX_AGE_MS,
   LAST_KNOWN_REQUIRED_ACCURACY_M,
+  reuseRecentFix,
   shouldRecheckOnForeground,
 } from './locationPolicy';
 
@@ -61,41 +62,48 @@ export function useUserLocation(): UserLocationState {
   const [readFailed, setReadFailed] = useState(false);
   const [canAskAgain, setCanAskAgain] = useState(true);
   const aliveRef = useRef(true);
-  const readingRef = useRef(false);
+  const readingRef = useRef<Promise<ResolvedLocation | null> | null>(null);
+  /** 마지막으로 읽어 반영한 위치와 그 시각 — '내 위치로' 연타 때 다시 읽지 않고 쓴다(locationPolicy.reuseRecentFix). */
+  const lastFixRef = useRef<{ at: number; resolved: ResolvedLocation } | null>(null);
   const lastReadAttemptRef = useRef<number | null>(null);
   // AppState 구독은 한 번만 건다 — 지금 상태는 ref 로 본다.
   const snapshotRef = useRef({ status, notice, readFailed });
   snapshotRef.current = { status, notice, readFailed };
 
-  /** 한 번 읽는다. 읽어서 반영했으면 그 결과, 이미 읽는 중·실패·버렸으면 null. */
-  const readPosition = useCallback(async (): Promise<ResolvedLocation | null> => {
-    if (readingRef.current) return null;
-    readingRef.current = true;
-    lastReadAttemptRef.current = Date.now();
-    try {
-      // 최근에 알려진 위치가 충분히 정확하면 그것으로(시스템 창 없이 바로). 없으면 새로 읽는다.
-      const lastKnown = await Location.getLastKnownPositionAsync({
-        maxAge: LAST_KNOWN_MAX_AGE_MS,
-        requiredAccuracy: LAST_KNOWN_REQUIRED_ACCURACY_M,
-      }).catch(() => null);
-      const position = lastKnown ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
-      // 읽는 동안 동의가 철회됐으면 버린다.
-      if (!aliveRef.current || !consentRef.current) return null;
-      const resolved = resolveUserLocation(position.coords);
-      setLocation(resolved.location);
-      setKnown(resolved.known);
-      setNotice(resolved.notice);
-      setReadFailed(false);
-      return resolved;
-    } catch {
-      if (aliveRef.current) setReadFailed(true);
-      return null;
-    } finally {
-      readingRef.current = false;
-    }
+  /** 한 번 읽는다. 이미 읽는 중이면 그 읽기를 함께 기다린다. 읽어서 반영했으면 그 결과, 실패·버렸으면 null. */
+  const readPosition = useCallback((): Promise<ResolvedLocation | null> => {
+    if (readingRef.current) return readingRef.current;
+    const run = (async (): Promise<ResolvedLocation | null> => {
+      lastReadAttemptRef.current = Date.now();
+      try {
+        // 최근에 알려진 위치가 충분히 정확하면 그것으로(시스템 창 없이 바로). 없으면 새로 읽는다.
+        const lastKnown = await Location.getLastKnownPositionAsync({
+          maxAge: LAST_KNOWN_MAX_AGE_MS,
+          requiredAccuracy: LAST_KNOWN_REQUIRED_ACCURACY_M,
+        }).catch(() => null);
+        const position = lastKnown ?? (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+        // 읽는 동안 동의가 철회됐으면 버린다.
+        if (!aliveRef.current || !consentRef.current) return null;
+        const resolved = resolveUserLocation(position.coords);
+        setLocation(resolved.location);
+        setKnown(resolved.known);
+        setNotice(resolved.notice);
+        setReadFailed(false);
+        lastFixRef.current = { at: Date.now(), resolved };
+        return resolved;
+      } catch {
+        if (aliveRef.current) setReadFailed(true);
+        return null;
+      } finally {
+        readingRef.current = null;
+      }
+    })();
+    readingRef.current = run;
+    return run;
   }, []);
 
   const toCenter = useCallback((next: 'denied' | 'no-consent') => {
+    lastFixRef.current = null;
     setStatus(next);
     setLocation(CENTER);
     setKnown(false);
@@ -174,6 +182,8 @@ export function useUserLocation(): UserLocationState {
 
   const refresh = useCallback(async () => {
     if (!consentRef.current || snapshotRef.current.status !== 'granted') return null;
+    const last = lastFixRef.current;
+    if (last && reuseRecentFix(last.at, Date.now())) return last.resolved;
     return readPosition();
   }, [readPosition]);
 

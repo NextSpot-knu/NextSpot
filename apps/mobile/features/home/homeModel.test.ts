@@ -187,19 +187,27 @@ assert.equal(resolveUserLocation({ latitude: 35.835, longitude: 129.21 }).known,
 
 console.log('homeModel ok');
 
-// ── 여정 카드: 한 번에 하나, 방문 확인이 먼저 ──
+// ── 여정 카드: 한 번에 하나, 방문 확인이 먼저, 자리가 없으면 감추기만(떼지 않는다) ──
 {
   const roomy = { searching: false, room: 400 };
-  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: true, ...roomy }), { card: 'visit', compact: false });
-  assert.deepEqual(pickTripOverlay({ visitDue: false, journeyActive: true, ...roomy }), { card: 'journey', compact: true });
-  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: false, ...roomy }), { card: 'visit', compact: false });
-  assert.equal(pickTripOverlay({ visitDue: false, journeyActive: false, ...roomy }).card, null);
-  // 검색 판이 위를 쓰는 동안은 비운다
-  assert.equal(pickTripOverlay({ visitDue: true, journeyActive: true, searching: true, room: 400 }).card, null);
-  // 자리가 좁으면 방문 확인도 접은 판, 접은 판도 안 들어가면 그리지 않는다
-  assert.deepEqual(pickTripOverlay({ visitDue: true, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.visitFull - 1 }), { card: 'visit', compact: true });
-  assert.equal(pickTripOverlay({ visitDue: true, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.compact - 1 }).card, null);
-  assert.equal(pickTripOverlay({ visitDue: false, journeyActive: true, searching: false, room: Number.NaN }).card, null);
+  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: true, ...roomy }), { card: 'visit', hidden: false, compact: false });
+  assert.deepEqual(pickTripOverlay({ visitActive: false, journeyActive: true, ...roomy }), { card: 'journey', hidden: false, compact: true });
+  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: false, ...roomy }), { card: 'visit', hidden: false, compact: false });
+  assert.deepEqual(pickTripOverlay({ visitActive: false, journeyActive: false, ...roomy }), { card: null, hidden: true, compact: true });
+  // 검색 판이 위를 쓰는 동안은 감춘다 — 고른 카드는 그대로(붙여 둔 채)
+  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: true, searching: true, room: 400 }), { card: 'visit', hidden: true, compact: false });
+  // 판마다 최소 높이 — 방문 확인 접은 판은 버튼까지 들어가야 보인다
+  assert.deepEqual(
+    pickTripOverlay({ visitActive: true, journeyActive: false, searching: false, room: TRIP_CARD_HEIGHT.visitFull - 1 }),
+    { card: 'visit', hidden: false, compact: true },
+  );
+  assert.equal(pickTripOverlay({ visitActive: true, journeyActive: false, searching: false, room: TRIP_CARD_HEIGHT.visitCompact }).hidden, false);
+  assert.equal(pickTripOverlay({ visitActive: true, journeyActive: false, searching: false, room: TRIP_CARD_HEIGHT.visitCompact - 1 }).hidden, true);
+  // 같은 높이에서 진행 중 여행 한 줄은 들어간다
+  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.visitCompact - 1 }).hidden, false);
+  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.journeyCompact - 1 }).hidden, true);
+  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: Number.NaN }).hidden, true);
+  assert.ok(TRIP_CARD_HEIGHT.journeyCompact < TRIP_CARD_HEIGHT.visitCompact && TRIP_CARD_HEIGHT.visitCompact < TRIP_CARD_HEIGHT.visitFull);
   // 남은 높이: 컨테이너 − 위 − 아래 − 8
   assert.equal(tripOverlayRoom(800, 200, 300), 292);
   assert.equal(tripOverlayRoom(800, 500, 400), 0);

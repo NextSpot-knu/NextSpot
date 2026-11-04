@@ -37,6 +37,8 @@ export interface VisitCheckCardProps {
   onOpenCoupons?: () => void;
   /** 자리가 좁을 때(홈 지도 위) — 첫 질문을 단계 점·설명 없이 두 줄로. 답하기 시작하면 원래 판. */
   compact?: boolean;
+  /** 그릴 것이 생기거나 없어질 때(때가 된 방문 — 답하는 중 · 고마워요 단계 포함) — 홈이 카드 자리를 고른다. */
+  onActiveChange?: (active: boolean) => void;
 }
 
 /** 혼잡 한 번 탭 → 서버 계약 값 · 문구 키. 웹 VisitCheckCard 와 같다. */
@@ -51,7 +53,7 @@ const CONGESTION: readonly [ObservedCongestion, string, string][] = [
  * 웹 components/main/VisitCheckCard.tsx(기준 커밋 0d145a1). 체감 혼잡은 가입 계정만 지도 혼잡에 바로 반영되고 게스트는 그림자 저장이라
  * 안내 문구가 다르다(웹과 같은 규칙). 단계 판정·저장은 tripLoop.
  */
-export function VisitCheckCard({ className, onOpenCoupons, compact = false }: VisitCheckCardProps) {
+export function VisitCheckCard({ className, onOpenCoupons, compact = false, onActiveChange }: VisitCheckCardProps) {
   const t = useT();
   const { account } = useAccount();
   const isGuest = isGuestAccount(account);
@@ -119,6 +121,13 @@ export function VisitCheckCard({ className, onOpenCoupons, compact = false }: Vi
       check();
     }, [check]),
   );
+
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
+  const isActive = due !== null;
+  useEffect(() => {
+    onActiveChangeRef.current?.(isActive);
+  }, [isActive]);
 
   if (!due) return null;
 

@@ -10,7 +10,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { LocateFixed, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Keyboard, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Keyboard, Platform, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { facilityMatchesSearch } from '@/lib/placeSearch';
@@ -28,12 +28,7 @@ import {
 } from '~/features/map';
 import {
   ActiveJourneyCard,
-  DUE_AFTER_MS,
-  getActiveTrip,
-  getDueVisit,
-  getPendingVisit,
   RecommendationSheet,
-  tripEvents,
   VisitCheckCard,
   type SheetCandidate,
 } from '~/features/recommendation-card';
@@ -162,18 +157,33 @@ export function HomeScreen() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [bottomStackH, setBottomStackH] = useState(0);
   // 키보드가 이 화면 아래를 가린 두께 — 여정 카드의 '상황 변경' 입력 칸이 키보드 밑으로 숨지 않게 카드 자리를 줄인다.
-  // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.)
+  // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.) 키보드 위치는 창 좌표로 —
+  // 창 높이 − 키보드 높이. 화면 좌표(screenY)는 폴드 분할 화면·팝업 창에서 창과 어긋난다.
   const rootRef = useRef<View>(null);
+  const tripScrollRef = useRef<ScrollView>(null);
+  const tripContentRef = useRef<View>(null);
   const [keyboardCover, setKeyboardCover] = useState(0);
+  /** 여정 카드 안에서 초점 받은 입력 칸을 스크롤 안 보이는 곳으로(키보드가 올라와 자리가 줄어든 뒤에도). */
+  const revealFocusedInput = useCallback(() => {
+    const input = TextInput.State.currentlyFocusedInput?.();
+    const content = tripContentRef.current;
+    if (!input || !content) return;
+    try {
+      input.measureLayout(content, (_x, y) => tripScrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), () => undefined);
+    } catch { /* 여정 카드 밖 입력(검색 칸) — 둘 일 없음 */ }
+  }, []);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
-      const top = e.endCoordinates.screenY;
-      rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(Math.max(0, Math.round(y + h - top))));
+      const keyboardTop = Dimensions.get('window').height - e.endCoordinates.height;
+      rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(Math.max(0, Math.round(y + h - keyboardTop))));
+      setTimeout(revealFocusedInput, 120); // 줄어든 자리로 다시 그린 뒤
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardCover(0));
     return () => { show.remove(); hide.remove(); };
-  }, []);
-  const trip = useTripState();
+  }, [revealFocusedInput]);
+  // 여정 카드가 그릴 것이 있는가 — 카드가 알려 준다(둘 다 늘 붙어 있다).
+  const [visitActive, setVisitActive] = useState(false);
+  const [journeyActive, setJourneyActive] = useState(false);
 
   // 사용자가 이 칩에서 직접 고른 카드가 있으면 추천 1위가 늦게 와도 덮지 않는다(웹 userPickRef).
   const pickedRef = useRef(false);
@@ -550,15 +560,19 @@ export function HomeScreen() {
   const overlayTop = headerH + 8;
   const sheetCover = sheetShown && sheetState ? Math.round(containerH * SHEET_SNAP_RATIO[sheetState]) : 0;
   const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
-  const tripOverlay = pickTripOverlay({ ...trip, searching: showSearchPanel, room: tripRoom });
+  const tripOverlay = pickTripOverlay({ visitActive, journeyActive, searching: showSearchPanel, room: tripRoom });
+  const tripHidden = tripOverlay.card === null || tripOverlay.hidden;
 
   // 내 위치 — 점은 동의 + 허용 + 실제 위치일 때만, 버튼은 상태에 맞는 흐름으로(locationPolicy.myLocationAction).
   const userDotShown = showsUserDot(loc);
   const onMyLocation = useCallback(() => {
     haptic('selection');
+    // 설정 앱의 선택지 이름이 OS 마다 달라 본문을 나눈다(안드로이드 '앱 사용 중에만 허용' · iOS '앱을 사용하는 동안').
     const explainBlocked = (coarse: boolean) => Alert.alert(
-      t('app.home.myLocation.blockedTitle'),
-      coarse ? t('app.home.locationBanner.coarse') : t('app.home.myLocation.blockedBody'),
+      t(coarse ? 'app.home.myLocation.coarseTitle' : 'app.home.myLocation.blockedTitle'),
+      coarse
+        ? t('app.home.locationBanner.coarse')
+        : t(Platform.OS === 'ios' ? 'app.home.myLocation.blockedBodyIos' : 'app.home.myLocation.blockedBody'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         { text: t('app.home.myLocation.openSettings'), onPress: loc.openSettings },
@@ -572,13 +586,15 @@ export function HomeScreen() {
     // 허용 상태 — 사용자가 누른 것이니 한 번 다시 읽고(앱을 쓰는 중 · foreground), 읽은 결과로 다시 판정한다.
     // 경주 안으로 들어왔거나 정확한 위치를 켜고 왔을 수 있다.
     if (action === 'recenter') focusOn(userPoint.lat, userPoint.lng);
+    // 첫 실패는 readFailed 효과가 이미 알린다 — 이미 실패한 상태에서 다시 실패했을 때만 여기서 알린다.
+    const wasFailed = loc.readFailed;
     void loc.refresh().then((next) => {
       const after = next ? myLocationAction({ ...loc, status: 'granted', known: next.known, notice: next.notice }) : action;
       if (after === 'recenter') {
         if (next) focusOn(next.location.lat, next.location.lng);
       } else if (after === 'outOfRegion') toast(t('map.outOfRegionStart'));
       else if (after === 'coarse') explainBlocked(true);
-      else if (!next) toast(t('map.locationFallback'));
+      else if (!next && wasFailed) toast(t('map.locationFallback'));
     });
   }, [loc, focusOn, userPoint.lat, userPoint.lng, t]);
 
@@ -786,26 +802,40 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다(둘 다 없으면 아무것도 그리지 않는다). */}
-      {tripOverlay.card ? (
-        <View
-          pointerEvents="box-none"
-          className="absolute inset-x-0 px-[12px]"
-          style={{ top: overlayTop, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 }}
+      {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다. 두 카드는 늘 붙여 두고(답하던 단계·입력·
+          펼침이 사라지지 않게) pickTripOverlay 가 고른 하나만 보인다. 자리가 없으면 감추기만 한다(display none). */}
+      <View
+        pointerEvents="box-none"
+        className="absolute inset-x-0 px-[12px]"
+        style={{ top: overlayTop, paddingLeft: insets.left + 12, paddingRight: insets.right + 12, display: tripHidden ? 'none' : 'flex' }}
+        accessibilityElementsHidden={tripHidden}
+        importantForAccessibility={tripHidden ? 'no-hide-descendants' : 'auto'}
+      >
+        <ScrollView
+          ref={tripScrollRef}
+          style={[overlayWidth, { maxHeight: tripRoom, flexGrow: 0 }]}
+          keyboardShouldPersistTaps="handled"
+          persistentScrollbar
         >
-          <ScrollView
-            style={[overlayWidth, { maxHeight: tripRoom, flexGrow: 0 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {tripOverlay.card === 'visit' ? (
-              <VisitCheckCard compact={tripOverlay.compact} onOpenCoupons={() => router.push('/mypage/coupons' as never)} />
-            ) : (
-              <ActiveJourneyCard location={userPoint} compact={tripOverlay.compact} />
-            )}
-          </ScrollView>
-        </View>
-      ) : null}
+          <View ref={tripContentRef} collapsable={false}>
+            <View style={{ display: tripOverlay.card === 'visit' ? 'flex' : 'none' }}>
+              <VisitCheckCard
+                compact={tripOverlay.compact}
+                onActiveChange={setVisitActive}
+                onOpenCoupons={() => router.push('/mypage/coupons' as never)}
+              />
+            </View>
+            <View style={{ display: tripOverlay.card === 'journey' ? 'flex' : 'none' }}>
+              <ActiveJourneyCard
+                location={userPoint}
+                compact
+                onActiveChange={setJourneyActive}
+                onInputFocus={() => setTimeout(revealFocusedInput, 350)}
+              />
+            </View>
+          </View>
+        </ScrollView>
+      </View>
 
       <RecommendationSheet
         selected={selectedCandidate}
@@ -849,58 +879,4 @@ export function HomeScreen() {
       {loc.status === 'needs-primer' ? <LocationPrimer onContinue={loc.continueFromPrimer} /> : null}
     </View>
   );
-}
-
-// ── 여정 상태 ─────────────────────────────────────────────────────────────
-// 홈이 어느 여정 카드를 띄울지 고르려고 저장된 여정을 지켜본다(판정은 homeModel.pickTripOverlay). 카드들도 같은 저장소를
-// 스스로 읽지만 홈은 한 번에 하나만 올리므로 먼저 알아야 한다. 다시 보는 때는 VisitCheckCard 와 같다 — 화면에 돌아올 때 ·
-// 앱이 앞으로 올 때 · 여정 알림(길안내 시작 · 도착) · 수락 30분이 차는 순간(타이머).
-
-interface TripState {
-  visitDue: boolean;
-  journeyActive: boolean;
-}
-
-function readTripState(now: number): TripState {
-  return {
-    visitDue: getDueVisit(now) !== null,
-    journeyActive: getActiveTrip()?.status === 'navigating',
-  };
-}
-
-function useTripState(): TripState {
-  const [state, setState] = useState<TripState>(() => readTripState(Date.now()));
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const check = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    const now = Date.now();
-    const next = readTripState(now);
-    setState((prev) => (prev.visitDue === next.visitDue && prev.journeyActive === next.journeyActive ? prev : next));
-    if (!next.visitDue) {
-      const pending = getPendingVisit();
-      if (pending) timerRef.current = setTimeout(check, Math.max(0, pending.acceptedAt + DUE_AFTER_MS - now) + 1000);
-    }
-  }, []);
-
-  useEffect(() => {
-    check();
-    const sub = AppState.addEventListener('change', (s) => s === 'active' && check());
-    const offArrived = tripEvents.on('trip-arrived', check);
-    const offNavigating = tripEvents.on('trip-navigating', check);
-    return () => {
-      sub.remove();
-      offArrived();
-      offNavigating();
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-    };
-  }, [check]);
-
-  useFocusEffect(useCallback(() => { check(); }, [check]));
-
-  return state;
 }
