@@ -13,9 +13,11 @@ import {
   isVisitCheckDue,
   localReportLevel,
   markTripArrived,
+  markTripArrivedIf,
   nextVisitStage,
   ratedOutcomeFields,
   recordActiveTrip,
+  tripEvents,
   visitSteps,
   type KeyValueStore,
 } from './tripLoop';
@@ -96,5 +98,28 @@ assert.equal(isGuestAccount({ isAnonymous: false }), false);
 assert.equal(localReportLevel('한산'), 0.2);
 assert.equal(localReportLevel('보통'), 0.5);
 assert.equal(localReportLevel('혼잡'), 0.8);
+
+// 30분 뒤 방문 확인으로 끝까지 마친 여정 — 지워졌다고 알리고, 남아 있던 진행 카드의 '도착했어요'는 아무것도 바꾸지 않는다
+{
+  const st = memory();
+  recordActiveTrip(fac, { recommendationId: 'r9' }, 5000, st);
+  const shown = getActiveTrip(st)!;
+  assert.ok(getDueVisit(5000 + DUE_AFTER_MS, st), '30분 뒤 방문 확인');
+  let cleared = 0;
+  const off = tripEvents.on('trip-cleared', () => { cleared += 1; });
+  completeVisit({ facilityId: 'f1', name: '우직', type: 'restaurant', rating: 'up' }, 5000 + DUE_AFTER_MS + 1, st);
+  off();
+  assert.equal(cleared, 1, 'completeVisit 은 trip-cleared 를 알린다');
+  assert.equal(getActiveTrip(st), null);
+  assert.equal(markTripArrivedIf({ facilityId: shown.facilityId, acceptedAt: shown.acceptedAt }, st), null);
+  assert.equal(getActiveTrip(st), null, '지워진 여정을 되살리지 않는다');
+  // 같은 장소를 다시 수락한 새 여정이면 옛 카드의 도착은 새 여정을 건드리지 않는다
+  recordActiveTrip(fac, {}, 9000, st);
+  assert.equal(markTripArrivedIf({ facilityId: shown.facilityId, acceptedAt: shown.acceptedAt }, st), null);
+  assert.equal(getActiveTrip(st)?.status, 'navigating');
+  // 지금 여정이면 도착으로
+  assert.equal(markTripArrivedIf({ facilityId: 'f1', acceptedAt: 9000 }, st)?.status, 'arrived');
+  assert.equal(markTripArrivedIf({ facilityId: 'f1', acceptedAt: 9000 }, st), null, '이미 도착이면 두 번 바꾸지 않는다');
+}
 
 console.log('tripLoop.test OK');

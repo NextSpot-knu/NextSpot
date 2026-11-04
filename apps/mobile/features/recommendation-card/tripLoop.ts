@@ -47,8 +47,12 @@ export interface VisitHistoryEntry {
   rating: OutcomeRating | null;
 }
 
-/** 여정이 바뀌었다는 알림(웹 'nextspot:trip-navigating' · 'nextspot:trip-arrived'). 카드들이 저장소를 다시 읽는다. */
-export const tripEvents = createEmitter<{ 'trip-navigating': undefined; 'trip-arrived': undefined }>();
+/**
+ * 여정이 바뀌었다는 알림(웹 'nextspot:trip-navigating' · 'nextspot:trip-arrived'). 카드들이 저장소를 다시 읽는다.
+ * 'trip-cleared' 는 앱 전용 — 방문 확인을 끝까지 마쳐(completeVisit) 여정이 지워졌다. 진행 중 여행 카드만 듣는다
+ * (방문 확인 카드는 '고마워요' 단계를 보여 주는 중이라 다시 읽으면 안 된다).
+ */
+export const tripEvents = createEmitter<{ 'trip-navigating': undefined; 'trip-arrived': undefined; 'trip-cleared': undefined }>();
 
 function defaultStore(): KeyValueStore | null {
   try {
@@ -144,6 +148,24 @@ export function markTripArrived(store = defaultStore()): ActiveTrip | null {
   return arrived;
 }
 
+/**
+ * '도착했어요' — 저장된 여정이 지금 카드가 보여 주는 바로 그 여정(같은 장소 · 같은 수락 시각)이고 아직 길안내 중일 때만
+ * 도착으로 바꾼다. 아니면(이미 방문 확인으로 끝났거나 다른 여정으로 바뀜) 아무것도 바꾸지 않고 null — 화면은 도착 결과 보고를
+ * 다시 보내지 않고 카드를 다시 읽는다.
+ */
+export function markTripArrivedIf(
+  expected: { facilityId: string; acceptedAt: number },
+  store = defaultStore(),
+): ActiveTrip | null {
+  const raw = safeGet(store, ACTIVE_TRIP_KEY);
+  if (!raw) return null;
+  let trip: ActiveTrip;
+  try { trip = JSON.parse(raw) as ActiveTrip; } catch { return null; }
+  if (trip?.version !== 1 || trip.status !== 'navigating') return null;
+  if (trip.facilityId !== expected.facilityId || trip.acceptedAt !== expected.acceptedAt) return null;
+  return markTripArrived(store);
+}
+
 export function clearActiveTrip(store = defaultStore()): void {
   safeRemove(store, ACTIVE_TRIP_KEY);
 }
@@ -193,6 +215,7 @@ export function completeVisit(
   safeSet(store, HISTORY_KEY, JSON.stringify(history));
   clearPendingVisit(store);
   clearActiveTrip(store);
+  tripEvents.emit('trip-cleared', undefined);
 }
 
 // ── 방문 확인 단계 기계 ────────────────────────────────────────────────────────

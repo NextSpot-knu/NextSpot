@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, Navigation, RefreshCw } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, TextInput, View } from 'react-native';
 
@@ -31,7 +32,7 @@ import {
 import {
   getActiveTrip,
   getVisitHistory,
-  markTripArrived,
+  markTripArrivedIf,
   recordActiveTrip,
   tripEvents,
   type ActiveTrip,
@@ -54,6 +55,8 @@ export interface ActiveJourneyCardProps {
   onActiveChange?: (active: boolean) => void;
   /** 이 카드 안 입력 칸에 초점이 갔다 — 홈이 스크롤 안에서 그 칸을 보이게 한다. */
   onInputFocus?: () => void;
+  /** 그 입력 칸에서 초점이 떠났다. */
+  onInputBlur?: () => void;
 }
 
 /** 이번 앱 실행에서 'trip_resumed' 를 이미 보낸 여정(tripKey). 카드를 다시 붙여도 여정마다 한 번만 보낸다. */
@@ -65,7 +68,7 @@ const resumedTrips = new Set<string>();
  * 자유 문장 해석(POST /travel-context/parse)은 서버가 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
  * (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
  */
-export function ActiveJourneyCard({ location, className, onArrived, compact = false, onActiveChange, onInputFocus }: ActiveJourneyCardProps) {
+export function ActiveJourneyCard({ location, className, onArrived, compact = false, onActiveChange, onInputFocus, onInputBlur }: ActiveJourneyCardProps) {
   const t = useT();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,21 +82,29 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
   const lastContext = useRef<Partial<TravelContext> | undefined>(undefined);
   const { allowed: aiAllowed } = useAiConsent();
 
+  // 다시 읽는 때: 앱이 앞으로 올 때 · 화면에 돌아올 때 · 길안내 시작 · 도착 · 방문 확인으로 여정이 끝남(trip-cleared).
+  // 방문 확인을 끝까지 마치면 저장소의 여정이 지워지는데, 이 카드가 옛 여정을 들고 있으면 홈에 다시 뜨고 '도착했어요'가
+  // 결과 보고를 두 번 보냈다.
+  const sync = useCallback(() => {
+    const found = getActiveTrip();
+    const active = found?.status === 'navigating' ? found : null;
+    setTrip(active);
+    if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
+  }, []);
   useEffect(() => {
-    const sync = () => {
-      const found = getActiveTrip();
-      const active = found?.status === 'navigating' ? found : null;
-      setTrip(active);
-      if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
-    };
     sync();
     const sub = AppState.addEventListener('change', (s) => s === 'active' && sync());
-    const off = tripEvents.on('trip-navigating', sync);
+    const offs = [
+      tripEvents.on('trip-navigating', sync),
+      tripEvents.on('trip-arrived', sync),
+      tripEvents.on('trip-cleared', sync),
+    ];
     return () => {
       sub.remove();
-      off();
+      offs.forEach((off) => off());
     };
-  }, []);
+  }, [sync]);
+  useFocusEffect(sync);
 
   const onActiveChangeRef = useRef(onActiveChange);
   onActiveChangeRef.current = onActiveChange;
@@ -104,14 +115,18 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
 
   const arrived = useCallback(() => {
     if (!trip) return;
+    // 저장소의 여정이 이 카드의 여정일 때만 — 이미 끝났거나 바뀌었으면 결과 보고 없이 다시 읽는다.
+    if (!markTripArrivedIf(trip)) {
+      sync();
+      return;
+    }
     haptic('success');
     queueRecommendationOutcome(trip.recommendationId, 'arrival_confirmed');
-    markTripArrived();
     track('arrival_confirmed', { facility_type: trip.type });
     tripEvents.emit('trip-arrived', undefined);
     setTrip(null);
     onArrived?.();
-  }, [trip, onArrived]);
+  }, [trip, onArrived, sync]);
 
   if (!trip || trip.status === 'arrived') return null;
 
@@ -293,6 +308,7 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
             value={changeText}
             onChangeText={setChangeText}
             onFocus={onInputFocus}
+            onBlur={onInputBlur}
             placeholder={t('trip.changePlaceholder')}
             placeholderTextColor="#8a7f78"
             className={aiAllowed ? 'min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk' : 'min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[13px] text-muk-soft'}
