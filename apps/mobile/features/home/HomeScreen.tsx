@@ -54,6 +54,7 @@ import {
   CUISINE_CHIPS,
   distanceM,
   HOME_PANEL_MAX_WIDTH,
+  keyboardCoverFor,
   festivalFocus,
   hasAnyConvenience,
   isAccessible,
@@ -157,9 +158,8 @@ export function HomeScreen() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [bottomStackH, setBottomStackH] = useState(0);
   // 키보드가 이 화면 아래를 가린 두께 — 여정 카드의 '상황 변경' 입력 칸이 키보드 밑으로 숨지 않게 카드 자리를 줄인다.
-  // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.) 키보드 위치는 창 좌표로 —
-  // 화면 좌표(screenY)는 폴드 분할 화면·팝업 창에서 창과 어긋난다. 안드로이드 edge-to-edge 에서는 창 높이에 내비게이션 막대가
-  // 들어 있고 키보드 높이(ime − 시스템 막대)에는 빠져 있어 그 막대 두께(insets.bottom)를 더한다.
+  // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.)
+  // 계산은 homeModel.keyboardCoverFor — 화면 높이 − 키보드 − 내비게이션 막대(안드로이드 14 이하·15 모두 맞게), 분할 창은 창 기준.
   const rootRef = useRef<View>(null);
   const tripScrollRef = useRef<ScrollView>(null);
   const tripContentRef = useRef<View>(null);
@@ -185,9 +185,13 @@ export function HomeScreen() {
   }, []);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
-      const navBar = Platform.OS === 'android' ? bottomInsetRef.current : 0;
-      const keyboardTop = Dimensions.get('window').height - e.endCoordinates.height - navBar;
-      rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(Math.max(0, Math.round(y + h - keyboardTop))));
+      const android = Platform.OS === 'android';
+      const windowH = Dimensions.get('window').height;
+      const screenH = android ? Dimensions.get('screen').height : windowH;
+      const navBar = android ? bottomInsetRef.current : 0;
+      rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(keyboardCoverFor({
+        rootY: y, rootH: h, windowH, screenH, keyboardH: e.endCoordinates.height, navBar,
+      })));
       later(revealFocusedInput, 120); // 줄어든 자리로 다시 그린 뒤
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardCover(0));

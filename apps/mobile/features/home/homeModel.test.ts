@@ -15,6 +15,7 @@ import {
   mapInfrastructures,
   matchesCuisineChip,
   NO_CONVENIENCE,
+  keyboardCoverFor,
   orderForPins,
   pickTripOverlay,
   TRIP_CARD_HEIGHT,
@@ -212,4 +213,20 @@ console.log('homeModel ok');
   assert.equal(tripOverlayRoom(800, 200, 300), 292);
   assert.equal(tripOverlayRoom(800, 500, 400), 0);
   assert.equal(tripOverlayRoom(0, 100, 100), 0);
+}
+
+// 키보드가 가린 두께 — 안드로이드 15 edge-to-edge(창 = 화면) · 14 이하(창 = 화면 − 막대) 가 같은 값, 분할 창은 창 기준
+{
+  // 화면 915 · 막대 48 · 키보드 300(막대 뺀 값) → 키보드 위쪽 = 915 − 300 − 48 = 567. 루트 0..833 → 266
+  const base = { rootY: 0, rootH: 833, screenH: 915, keyboardH: 300, navBar: 48 };
+  assert.equal(keyboardCoverFor({ ...base, windowH: 915 }), 266);
+  assert.equal(keyboardCoverFor({ ...base, windowH: 867 }), 266);
+  // 폴드 분할 화면 — 창 450, 루트 0..400, 키보드 200 → 창 기준 250 위쪽 → 150
+  assert.equal(keyboardCoverFor({ rootY: 0, rootH: 400, windowH: 450, screenH: 915, keyboardH: 200, navBar: 48 }), 150);
+  // 루트 높이를 넘지 않고, 음수가 없다
+  assert.equal(keyboardCoverFor({ rootY: 0, rootH: 100, windowH: 450, screenH: 915, keyboardH: 460, navBar: 0 }), 100);
+  assert.equal(keyboardCoverFor({ ...base, windowH: 915, rootH: 300 }), 0);
+  assert.equal(keyboardCoverFor({ ...base, windowH: 915, keyboardH: 0 }), 0);
+  // iOS — 막대 0, 창 = 화면
+  assert.equal(keyboardCoverFor({ rootY: 0, rootH: 760, windowH: 844, screenH: 844, keyboardH: 336, navBar: 0 }), 252);
 }

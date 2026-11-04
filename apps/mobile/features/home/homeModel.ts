@@ -529,3 +529,30 @@ export function tripOverlayRoom(containerHeight: number, top: number, bottomCove
  * 앱 시트는 폭이 넓으면 한 줄이 길어져 읽기 어렵다.
  */
 export const HOME_PANEL_MAX_WIDTH = 560;
+
+export interface KeyboardCoverInput {
+  /** 홈 루트 뷰의 창 안 위치·높이(measureInWindow). */
+  rootY: number;
+  rootH: number;
+  /** Dimensions 'window' · 'screen' 높이. */
+  windowH: number;
+  screenH: number;
+  /** keyboardDidShow 의 endCoordinates.height — 안드로이드는 ime − 시스템 막대라 내비게이션 막대가 빠져 있다. */
+  keyboardH: number;
+  /** 안드로이드 내비게이션 막대 두께(insets.bottom). iOS 는 0. */
+  navBar: number;
+}
+
+/**
+ * 키보드가 홈 루트 아래를 가린 두께(dp). 창이 화면을 다 쓰면(일반 실행) 키보드 위쪽 끝을 화면 좌표로 구한다 —
+ * 화면 높이 − 키보드 − 내비게이션 막대. 안드로이드 14 이하는 창 높이에 막대가 빠져 있고 15 의 edge-to-edge 는 들어 있어
+ * 창 높이로 재면 한쪽에서 막대만큼 어긋난다. 창이 화면보다 확실히 작으면(폴드 분할 화면 · 팝업 창) 창의 화면 속 위치를 모르므로
+ * 창 높이 − 키보드로 어림한다. 어느 쪽이든 루트 높이를 넘지 않는다.
+ */
+export function keyboardCoverFor(i: KeyboardCoverInput): number {
+  if (!(i.rootH > 0) || !(i.keyboardH > 0)) return 0;
+  const fullScreen = i.windowH >= i.screenH * 0.9;
+  const keyboardTop = fullScreen ? i.screenH - i.keyboardH - i.navBar : i.windowH - i.keyboardH;
+  const cover = i.rootY + i.rootH - keyboardTop;
+  return Math.round(Math.min(i.rootH, Math.max(0, cover)));
+}
