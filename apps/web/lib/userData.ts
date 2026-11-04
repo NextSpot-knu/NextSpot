@@ -13,6 +13,7 @@ import { REGION_STORAGE_KEY } from './regionState';
 // 세션 전환 시 삭제할 개인 데이터 키(명시적 allowlist — 새 키가 실수로 기기설정까지 날리지 않게).
 const USER_SCOPED_KEYS = [
   'nextspot_saved_facilities',        // 저장한 장소
+  'nextspot_saved_pending_deletes',   // 저장 해제 대기열(서버 동기화 전 삭제 — 다음 사용자에게 새면 안 된다)
   'nextspot_setup_prefs',             // 온보딩 취향
   'nextspot_display_name',            // 표시 이름
   'nextspot_visit_history',           // 방문 이력
