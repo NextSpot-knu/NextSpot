@@ -146,6 +146,8 @@ export function useUserLocation(): UserLocationState {
     // 다시 본다. 허용 상태에서 돌아올 때마다 읽으면 안드로이드 정확도 창이 닫힐 때마다 다시 떠 끝없이 돈다.
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
+      // 설정 앱에서 정확한 위치를 끄고 왔을 수 있다 — '내 위치로'가 예전 정확한 위치를 다시 쓰지 않게 잊는다.
+      lastFixRef.current = null;
       const snap = snapshotRef.current;
       if (shouldRecheckOnForeground({ ...snap, lastReadAttemptAt: lastReadAttemptRef.current, now: Date.now() })) void check();
     });

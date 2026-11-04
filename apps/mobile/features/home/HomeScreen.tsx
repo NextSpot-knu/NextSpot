@@ -158,29 +158,41 @@ export function HomeScreen() {
   const [bottomStackH, setBottomStackH] = useState(0);
   // 키보드가 이 화면 아래를 가린 두께 — 여정 카드의 '상황 변경' 입력 칸이 키보드 밑으로 숨지 않게 카드 자리를 줄인다.
   // (안드로이드가 창을 줄여 주면 containerH 가 줄어 이 값은 0 이 된다 — 두 경우 모두 맞다.) 키보드 위치는 창 좌표로 —
-  // 창 높이 − 키보드 높이. 화면 좌표(screenY)는 폴드 분할 화면·팝업 창에서 창과 어긋난다.
+  // 화면 좌표(screenY)는 폴드 분할 화면·팝업 창에서 창과 어긋난다. 안드로이드 edge-to-edge 에서는 창 높이에 내비게이션 막대가
+  // 들어 있고 키보드 높이(ime − 시스템 막대)에는 빠져 있어 그 막대 두께(insets.bottom)를 더한다.
   const rootRef = useRef<View>(null);
   const tripScrollRef = useRef<ScrollView>(null);
   const tripContentRef = useRef<View>(null);
+  const tripInputFocusedRef = useRef(false);
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  const later = useCallback((fn: () => void, ms: number) => {
+    const id = setTimeout(() => { timersRef.current.delete(id); fn(); }, ms);
+    timersRef.current.add(id);
+  }, []);
+  useEffect(() => () => { timersRef.current.forEach(clearTimeout); timersRef.current.clear(); }, []);
+  const bottomInsetRef = useRef(insets.bottom);
+  bottomInsetRef.current = insets.bottom;
   const [keyboardCover, setKeyboardCover] = useState(0);
   /** 여정 카드 안에서 초점 받은 입력 칸을 스크롤 안 보이는 곳으로(키보드가 올라와 자리가 줄어든 뒤에도). */
   const revealFocusedInput = useCallback(() => {
+    if (!tripInputFocusedRef.current) return;
     const input = TextInput.State.currentlyFocusedInput?.();
     const content = tripContentRef.current;
     if (!input || !content) return;
     try {
       input.measureLayout(content, (_x, y) => tripScrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), () => undefined);
-    } catch { /* 여정 카드 밖 입력(검색 칸) — 둘 일 없음 */ }
+    } catch { /* 여정 카드 밖 입력 — 둘 일 없음 */ }
   }, []);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (e) => {
-      const keyboardTop = Dimensions.get('window').height - e.endCoordinates.height;
+      const navBar = Platform.OS === 'android' ? bottomInsetRef.current : 0;
+      const keyboardTop = Dimensions.get('window').height - e.endCoordinates.height - navBar;
       rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(Math.max(0, Math.round(y + h - keyboardTop))));
-      setTimeout(revealFocusedInput, 120); // 줄어든 자리로 다시 그린 뒤
+      later(revealFocusedInput, 120); // 줄어든 자리로 다시 그린 뒤
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardCover(0));
     return () => { show.remove(); hide.remove(); };
-  }, [revealFocusedInput]);
+  }, [revealFocusedInput, later]);
   // 여정 카드가 그릴 것이 있는가 — 카드가 알려 준다(둘 다 늘 붙어 있다).
   const [visitActive, setVisitActive] = useState(false);
   const [journeyActive, setJourneyActive] = useState(false);
@@ -562,6 +574,10 @@ export function HomeScreen() {
   const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
   const tripOverlay = pickTripOverlay({ visitActive, journeyActive, searching: showSearchPanel, room: tripRoom });
   const tripHidden = tripOverlay.card === null || tripOverlay.hidden;
+  // 감춘 카드 안 입력 칸에 키보드가 남지 않게(검색 판이 열리거나 시트를 올림).
+  useEffect(() => {
+    if (tripHidden && tripInputFocusedRef.current) Keyboard.dismiss();
+  }, [tripHidden]);
 
   // 내 위치 — 점은 동의 + 허용 + 실제 위치일 때만, 버튼은 상태에 맞는 흐름으로(locationPolicy.myLocationAction).
   const userDotShown = showsUserDot(loc);
@@ -830,7 +846,8 @@ export function HomeScreen() {
                 location={userPoint}
                 compact
                 onActiveChange={setJourneyActive}
-                onInputFocus={() => setTimeout(revealFocusedInput, 350)}
+                onInputFocus={() => { tripInputFocusedRef.current = true; later(revealFocusedInput, 350); }}
+                onInputBlur={() => { tripInputFocusedRef.current = false; }}
               />
             </View>
           </View>
