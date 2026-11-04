@@ -6,6 +6,7 @@ import {
   EMPTY_TRAVEL_CONTEXT,
   firstSighting,
   tripKey,
+  visibleTrip,
   buildReplanContext,
   eligibilityTierRank,
   hasCondition,
@@ -78,6 +79,17 @@ assert.equal(replanNotice('replaced'), null);
   assert.equal(firstSighting(seen, a), true);
   assert.equal(firstSighting(seen, a), false);
   assert.equal(firstSighting(seen, tripKey({ facilityId: 'f1', acceptedAt: 2 })), true);
+}
+
+// '아직 가는 중'으로 닫은 여정은 다시 띄우지 않는다 — 새 여정은 보인다
+{
+  const t1 = { facilityId: 'f1', acceptedAt: 1, status: 'navigating' };
+  const hidden = new Set([tripKey(t1)]);
+  assert.equal(visibleTrip(t1, hidden), null);
+  assert.equal(visibleTrip({ ...t1, acceptedAt: 2 }, hidden)?.acceptedAt, 2);
+  assert.equal(visibleTrip({ ...t1, status: 'arrived' }, new Set()), null);
+  assert.equal(visibleTrip(null, new Set()), null);
+  assert.equal(visibleTrip(t1, new Set()), t1);
 }
 
 console.log('journeyCore.test OK');

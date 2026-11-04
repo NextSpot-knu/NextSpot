@@ -131,3 +131,15 @@ export function firstSighting(seen: Set<string>, key: string): boolean {
   seen.add(key);
   return true;
 }
+
+/**
+ * 진행 중 여행 카드가 보여 줄 여정 — 길안내 중이고, 사용자가 '아직 가는 중'으로 닫은 그 여정이 아닐 때만.
+ * 닫은 여정은 탭에 돌아오거나 앱이 앞으로 와도 다시 띄우지 않는다. 새로 수락한 여정(열쇠가 다름)은 보인다.
+ */
+export function visibleTrip<T extends { facilityId: string; acceptedAt: number; status: string }>(
+  found: T | null,
+  hidden: ReadonlySet<string>,
+): T | null {
+  if (!found || found.status !== 'navigating') return null;
+  return hidden.has(tripKey(found)) ? null : found;
+}

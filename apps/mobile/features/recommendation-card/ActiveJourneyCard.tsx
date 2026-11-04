@@ -28,6 +28,7 @@ import {
   sortReplanCandidates,
   toggled,
   tripKey,
+  visibleTrip,
 } from './journeyCore';
 import {
   getActiveTrip,
@@ -61,6 +62,8 @@ export interface ActiveJourneyCardProps {
 
 /** 이번 앱 실행에서 'trip_resumed' 를 이미 보낸 여정(tripKey). 카드를 다시 붙여도 여정마다 한 번만 보낸다. */
 const resumedTrips = new Set<string>();
+/** 이번 앱 실행에서 '아직 가는 중'으로 닫은 여정(tripKey) — 다시 읽어도 그 여정은 띄우지 않는다. */
+const hiddenTrips = new Set<string>();
 
 /**
  * 진행 중 여행 카드 — 도착했어요 · 아직 가는 중 · 상황 변경(자연어·칩으로 조건을 바꿔 다른 곳으로 갈아타기) · 길안내 다시 열기.
@@ -86,8 +89,7 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
   // 방문 확인을 끝까지 마치면 저장소의 여정이 지워지는데, 이 카드가 옛 여정을 들고 있으면 홈에 다시 뜨고 '도착했어요'가
   // 결과 보고를 두 번 보냈다.
   const sync = useCallback(() => {
-    const found = getActiveTrip();
-    const active = found?.status === 'navigating' ? found : null;
+    const active = visibleTrip(getActiveTrip(), hiddenTrips);
     setTrip(active);
     if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
   }, []);
@@ -269,7 +271,7 @@ export function ActiveJourneyCard({ location, className, onArrived, compact = fa
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('trip.stillGoing')}
-          onPress={() => { haptic('selection'); setTrip(null); }}
+          onPress={() => { haptic('selection'); hiddenTrips.add(tripKey(trip)); setTrip(null); }}
           className="min-h-[44px] flex-1 items-center justify-center rounded-xl border border-line px-[6px]"
         >
           <Text className="text-center text-[12px] leading-[16px]" weight="bold">{t('trip.stillGoing')}</Text>
