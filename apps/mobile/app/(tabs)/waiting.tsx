@@ -84,9 +84,9 @@ export default function WaitingScreen() {
             <Text className="text-[13px] leading-[19px] text-muk-soft">
               {uniform ? t('waiting.subtitleUniform') : view.showsAnyCalmLine ? t('waiting.subtitle') : t('waiting.subtitleArrival')}
             </Text>
-            <Text className="text-[11px] leading-[16px] text-muk-soft">
-              {uniform ? t(crowd.legendUniformKey) : view.showsAnyCalmLine ? t('wait.legend') : t('wait.legendArrival')}
-            </Text>
+            {uniform ? (
+              <Text className="text-[11px] leading-[16px] text-muk-soft">{t(crowd.legendUniformKey)}</Text>
+            ) : null}
           </View>
           {bestWait !== null ? (
             <View className="flex-row flex-wrap items-center gap-[8px]">
