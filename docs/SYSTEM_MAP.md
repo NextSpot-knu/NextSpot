@@ -4,6 +4,8 @@
 > → 2026-09-07 화면↔API 매핑 전수 재확인(§5 표 전체를 `apps/web/app` 코드와 1행씩 대조, §6.1 코스 재계획 · §11 수집 감시 추가)
 > → 2026-09-20 **추정 모드 · 서울 검증** 반영(§5.1 추정 피드 · §5.3 엔진 검증 화면과 기계 엔드포인트 · §9 외부 데이터 2종 · §10 새 표 · §11 서울 10분 수집)
 > → 2026-10-31 **서울 테스트베드 S1·S2·S5·S6 · 게스트 답 그림자 모드(D3)** 반영(§2 `crowd/` · §5.3 실시간 데이터 리허설 · 게스트 답 측정 · §7.1 방문 확인 · §10 구역 표 · §11 서울 수집 주기 · 네트워크 키 보관)
+> → 2026-11-01 **서울 테스트베드 S3 — 개발자 전용 내부 지역** 반영(§5.3 리허설 화면 developer 전용 · §5.5 내부 지역 · 지역 격리)
+> → 2026-11-01 **서울 테스트베드 S4 — 분산 결정 재생(오프라인) · 검증 지표 기준선 보완** 반영(§2 `batch/`·`kst_calendar` · §5.3 결정 품질·지표·순위 관문 · §11 수동 스크립트)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
 > `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
@@ -74,8 +76,11 @@ NextSpot/
 │       │   └── services/       # 도메인 로직 (평면 34개 + 하위 패키지 4)
 │       │       ├── spot/       # ★ SPOT 산식 런타임 정본 (score·preference·travel·wait_time)
 │       │       ├── crowd/      # 혼잡 공급원 층(서울 테스트베드 S1·S5) — CrowdObservation · CrowdProvider · seoul_provider · store · telecom_template
+│       │       │               #   · decision_quality(S4 요약 읽기 — data/decision_quality/<cluster>.json)
 │       │       ├── tourapi/    # 한국관광공사 OpenAPI 클라이언트·변환·인사이트
 │       │       └── batch/      # 적재 스크립트 전용 (localdata · wikimedia · kakao_coordinate · tourism_demand_evaluation)
+│       │                       #   + S4 재생 crowd_replay_data · crowd_replay_engine · crowd_dispersion_replay (운영 런타임은 import 하지 않음)
+│       │                       #   공용 KST 달력·시간대 평균은 평면 kst_calendar.py(재생·검증 지표가 같이 씀)
 │       ├── scripts/            # 12개 배치 — 적재 · 학습 · 품질평가 · 번역 · 태깅 · 보행 그래프
 │       └── tests/              # pytest — routers · services · core · scripts · migrations
 │
@@ -84,7 +89,7 @@ NextSpot/
 │   ├── migrations/             # 스키마 정본 (타임스탬프 순)
 │   └── RESET_AND_SETUP.sql     # scripts/build_reset.mjs 가 마이그레이션에서 자동 생성
 ├── scripts/                    # build_reset.mjs · check-i18n-keys.mjs · check-docs.mjs · run-web-tests.mjs
-├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert · warmup · deploy-verify
+├── .github/workflows/          # ci · ingest · ingest-seoul · train-recommendation-model · area-demand-alert · warmup · deploy-verify · region-guard
 │                               # + 수동: collect-area-demand · uptime
 └── docs/                       # 운영 문서 · contest/ · archive/ (색인 docs/README.md)
 ```
@@ -357,8 +362,8 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
 | ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
 | ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). 대시보드에서 **"24시간 모의 발생"·"주차 실측 기반 추정 적재(수동)" 두 버튼은 2026-09-20 제거**(D6 — 합성 로그로 화면을 채우지 않는다). 백엔드 엔드포인트(`POST /admin/simulate-peak`, `GET/POST /admin/congestion-estimates/parking-derived*`)는 잔존하나 호출하는 화면이 없다 |
-| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **실시간 데이터 리허설**(옛 '엔진 검증', 2026-10-31 S6 — 메뉴에서는 계속 숨김, `AdminSidebar` `HIDDEN_FROM_MENU`) — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py` — 최소 표본 36 버킷 = 10분 대상지 6시간 · 30분 대상지 18시간). 응답에 더해진 `pipeline`(설정·키·원본 표 상태·사람 작업·호출 예산·대상지별 주기/신선도 기준/채움률·구역 표 행 수·마지막 시도)과 `decision_quality`(S4 전에는 `not_evaluated`) — 판정 규칙은 `services/seoul_collection_status.py`: 신선도 기준 `max(30, 2×주기+8)`분(10분 30 · 30분 68), 채움률 분모 = max(창 시작, 그 대상지 첫 버킷)부터 차례였던 버킷 수(`counted_since_at`). 배너는 대상지 하나라도 마지막 시도가 실패면 경고. '가동 중' 문구는 쓰지 않는다 |
-| ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음) |
+| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **실시간 데이터 리허설**(옛 '엔진 검증', 2026-10-31 S6 — **11-01 부터 developer 전용**: 이 절의 리허설 API 3종·`GET /engine-validation/seoul/status` 는 admin 에게 403, 메뉴·대시보드 링크는 개발자에게만. 수집 `POST …/collect` 는 기계 토큰 또는 developer) — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py` — 최소 표본 36 버킷 = 10분 대상지 6시간 · 30분 대상지 18시간). **S4(11-01) 기준선 보완** — 지표 키는 그대로, 필드만 덧붙임: Spearman 은 시간대 평균(다른 날 LODO, `kst_calendar`)을 뺀 `anomaly_rho ≥ 0.10` 도 요구 · 30분 전망 MAE 는 목표 날짜 뒤 1/3 홀드아웃에서 학습 날짜 보정 곡선 대 학습 날짜 시간대 평균(`baseline_mae` 의 0.95배 이하, 지속 모델은 `oracle_reference_mae` 참고값) · 등급 일치는 `cohen_kappa`/`weighted_kappa_linear ≥ 0.20` 도 요구(`rank_mapped_*` 는 보고만). 응답에 더해진 `pipeline`(설정·키·원본 표 상태·사람 작업·호출 예산·대상지별 주기/신선도 기준/채움률·구역 표 행 수·마지막 시도)과 `decision_quality` — `services/crowd/decision_quality.py` 가 커밋된 S4 요약 `crowd/data/decision_quality/<cluster>.json`(스키마 `decision_quality_summary/2`, ≤ 16KB, 결정 행 없음)을 읽는다: 파일 없음 `not_evaluated`(S4 전과 같은 상수) · 전부 검사 통과 `evaluated`(권역 카드 — 실행 성격·V3/V4 배지·n·CI) · 하나라도 틀림 `invalid_summary`(숫자 없이 이유만, 5xx 아님). 운영 API 는 재생을 돌리지 않는다 — 판정 규칙은 `services/seoul_collection_status.py`: 신선도 기준 `max(30, 2×주기+8)`분(10분 30 · 30분 68), 채움률 분모 = max(창 시작, 그 대상지 첫 버킷)부터 차례였던 버킷 수(`counted_since_at`). 배너는 대상지 하나라도 마지막 시도가 실패면 경고. '가동 중' 문구는 쓰지 않는다 |
+| ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음). 최상위 `rank_gate`(S4, **보고 전용** — 홀드아웃 ρ ≥ 0.30 · 상수보다 나음 · 36점/5일, `enforced:false`)는 화면에 '순위 관문(참고 — 적용 기준 아님)' 행으로만 보이고 적용 관문 `assess()` 는 그대로다 |
 | ″ | `GET /admin/engine-validation/seoul/alternatives?origin=` | **권역 대안 패널**(`SeoulAlternativesPanel`) — 홍대(`POI007`)·연남동(`POI073`)·합정역(`POI053`) 시연 권역의 실측 인파 비교("여기가 붐비니 저기로") |
 | ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **추천 수락 결과** — 재배치 = 수락 · 원본 ≠ 목적지 · 도착 확인. 도착 미확인·같은 장소 수락은 따로 센다. '예상 대기 차이(모델 추정)'는 재배치 건만. 내부 계정 제외, 표본 수를 함께 낸다(2026-10-31) |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
@@ -410,6 +415,21 @@ SessionBootstrap: 익명 세션 자동 발급
 | 반려 · 감사 로그 · 최근 실패 | `POST .../reject` · `GET /dev/audit-log` · `GET /dev/failures` | 심사 이력은 `role_audit_log` |
 
 ---
+
+### 5.5 서울 내부 지역 (개발자 전용 — 2026-11-01 S3)
+
+서울 테스트베드를 **developer 에게만** 두 번째 서비스 지역으로 보인다(그 밖의 역할은 경주만, 요청 0). 설계는 `SEOUL_TESTBED_PLAN.md` §6 'S3'.
+
+| 무엇 | 어디 | 비고 |
+|---|---|---|
+| 지역 판정 | `app/core/region.py` `resolve_request_region` | 헤더 `X-NextSpot-Region` 은 요청일 뿐 — `users.role` 이 developer 일 때만 받아들인다. 헤더가 없으면 I/O 없이 gyeongju. service_role 시설 읽기는 `apply_region`·`run_region_scoped`(빠진 곳은 `tests/structure/test_facility_region_scope.py` 가 잡는다). 지역 열이 없으면(42703) 경주는 거르지 않고 읽고 서울은 빈 값 |
+| 내부 지역 API | `GET /api/v1/internal/regions` · `…/{region}/infrastructures?type&min_lat&max_lat&min_lng&max_lng` · `…/{region}/zones` (`routers/internal_regions.py`) | developer 외 403, 모르는 지역 404, `Cache-Control: private, no-store`, 접근 감사 로그. 일부 구역만 관측된 시설은 단계 없이 관측 시각만 |
+| 지역을 따르는 기존 API | `/recommendations`·`/by-type`·`/{id}/explain`·`/accept`·`/reject`·`/{id}/outcome`·`/feedback`·`/courses/plan`·`/courses/recommend` | 캐시 전에 지역을 정한다. by-type·코스 캐시 키는 경주가 아닐 때만 `('region', r)` 를 더한다. 서울 outcome 은 체감 혼잡을 버리고 `crowd_answer=not_recorded_region` |
+| 서울에서 막힌 쓰기 | 제보(404) · 쿠폰 발급·목록 · 사장님 타임세일·자리 · 계정 인증(422) · dev 소유 승인(409/422) · admin 시설 수정 · 검색 적재 승인(같은 422) | DB 트리거도 자식 표 6곳에서 서울 시설 id 를 거절한다 |
+| 엔진 | `services/crowd/zone_evidence.py` → `congestion_evidence.py` · `spot/score.py` | 구역 실측 = `measured_rules`(§7.1). 경주는 이 경로를 한 번도 부르지 않는다(`ZONE_EVIDENCE_REGIONS={'seoul'}`) |
+| `/health` | `capabilities.region_isolation = 1` | region-guard 가 이 값으로 격리를 아는 API 인지 본다 |
+| 웹 | `lib/regionContext.tsx`(RegionProvider) · `regionState.ts` · `regionPacks.ts` · `regionHeaders.ts` · `components/RegionSwitcher.tsx` · `components/shell/RegionBadge.tsx` | `/internal/regions` 는 developer 일 때만(저장된 선택 확인 · 스위처 · 5분/포커스 재확인). api-client 는 내부 지역일 때만 헤더를 붙인다. 내부 지역 기기 캐시는 키 뒤 `__<지역>`, 계정 전환·권한 회수 때 지운다. 내부 지역에서는 분석 이벤트를 보내지 않는다. `/`·`/guide`·`/admin`·`/merchant`·`/dev` 는 항상 경주 |
+| 화면 | /main(지도 구역 원) · /waiting(가까운 구역 줄) · /course · /explore/recommend · /saved(북마크 지역 표시) · /mypage | 서울에서 숨김: 날씨·축제·주차·발견·외부 검색·예보 띠·공유·제보·체감 혼잡 질문·타임세일·자리 칩·쿠폰함 링크 |
 
 ## 6. 추천 파이프라인 — `POST /recommendations/by-type`
 
@@ -619,7 +639,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 ## 10. 데이터 모델 (24 테이블 중 주요 표)
 
 ```
-facilities ──┬── congestion_logs ────── (evidence_tier · source)
+facilities ──┬── congestion_logs ────── (evidence_tier · source)   ※ facilities.region — 브라우저는 gyeongju 행만(RESTRICTIVE, 20261101090000), 자식 표는 서울 id 쓰기 거절
              ├── facility_source_refs   (TourAPI/LOCALDATA/Kakao 출처 추적)
              ├── merchant_timesales     (사장님 쿠폰율 상향)
              ├── saved_facilities
@@ -657,6 +677,8 @@ system_settings
 | `promote_recommendation_model` | 모델 활성화 (service_role 전용, 단일 트랜잭션) |
 | `record_recommendation_outcome` / `project_outcome_congestion_log` | 방문 결과 → 혼잡 로그 투영(게스트 답은 `observed_answer_mode` 분류 트리거가 그림자로 남겨 투영하지 않음 — §7.1, `20261031130000`) |
 | `correlate_congestion_report_evidence` | 제보 교차검증 → 등급 승격 |
+| `region_isolation_status` / `region_guard_contain` | 지역 격리가 온전한지 카탈로그로 확인(1/0) / 격리 정책 복구 — service_role 전용, region-guard 가 부른다 |
+| `zone_population_baseline` | 구역 '평소 대비' 기준선(표시 전용, service_role) |
 | `apply_localdata_sync` | 인허가 데이터 동기화 (임시휴업 보존) |
 | `handle_new_user` / `get_auth_user_role` | 가입 트리거 · RLS 역할 판정 |
 
@@ -676,6 +698,8 @@ system_settings
 | `warmup.yml` (API Keep-Warm) | 10분 예약(best-effort — 실측 몇 시간 간격) | `/api/v1/warmup`(무인증 캐시 예열 — P3 배치 A 의 보행 목적지 사전 스냅 포함)·`/health` 호출 |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
 | `deploy-verify.yml` (API Deploy Verify) | 수동(main 푸시 트리거는 Render Auto-Deploy 'On Commit' 확인 뒤 — 'After CI Checks Pass' 면 서로 기다려 배포가 막힌다) | main 에서 apps/api 를 마지막으로 바꾼 커밋(시험·문서·`[skip render]` 제외)이 운영 `/health` 의 `deploy.commit`(Render `RENDER_GIT_COMMIT` 앞 12자리)이거나 그 조상인지 30초마다 25분 확인 — 아니면 실패. Render 는 빌드 실패·Build Filters 건너뜀 때 옛 배포를 조용히 계속 돌린다(10-12) |
+| `region-guard.yml` (Region Isolation Guard) | 30분 예약(main) + 수동 | 서울 격리 감시 — `region_isolation_status()`·anon 탐침·`/health` `capabilities.region_isolation`. 깨지면 `region_guard_contain()` 으로 정책 복구 + 서울 행 비활성화(`REGION_GUARD_AUTO_DEACTIVATE=false` 면 경보만), `app_events` 에 건수만 |
+| `ingest-seoul.yml` (TourAPI Ingest (Seoul)) | 수동만(기본 dry_run) | 서울 테스트베드 장소 적재 → `facility_zones` 매핑. 쓰기 전후 시험용 관광객 계정으로 누출 확인(누출이면 이번 실행 행을 끄고 지움) |
 
 **왜 감시 워크플로가 따로 있나** — 정기 수집은 pg_cron 이 `net.http_post` 로 **발사 후 잊는** 구조라
 API 가 401 을 주든 500 을 주든 `cron.job_run_details` 에는 succeeded 로 남는다. 그래서
@@ -701,6 +725,13 @@ Supabase 시크릿(`SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`)도 `BACKEND_HEAL
 `ingest_tourapi.py` · `ingest_localdata.py` · `ingest_kakao_places.py` · `ingest_tourism_insights.py`
 `train.py --dry-run` (후보 평가만, 등록 없음) · `recommendation_quality.py`
 `reconcile_kakao_coordinates.py` · `tag_cuisines.py` · `translate_overviews.py`
+
+`crowd_dispersion_replay.py` — 서울 S4 **분산 결정 재생**(오프라인 · DB·네트워크 없음). `sql` 은 읽기 전용 반출 SELECT 를 인쇄하고
+(사람이 SQL Editor 에서 실행 → CSV), `run` 은 그 CSV 를 운영 정규화 사슬(`parse_citydata` → `snapshot_row` → `reading_from_snapshot`)로
+다시 세워 결정마다 실제 엔진 경로(`build_candidate_evidence` → `calculate_spot_score` → `spot_ranking_sort_key`)로 대안을 고르고
+도착 시각 실측으로 채점한다(V2~V4). 앱 import 전에 Supabase·JWT 를 자리표시자로 강제하고 소켓을 막는다. 산출은 `<data-dir>/out/` —
+`<cluster>_replay_report.json` · `<cluster>_replay_summary.md` · `decision_quality/<cluster>.json`(검토 뒤 `crowd/data/decision_quality/` 로 커밋).
+원본은 저장소 밖 또는 `apps/api/.replay-data/`(git·docker 무시)에만 둔다. 실행 절차·기준 해시 고정 규칙은 `SEOUL_TESTBED_PLAN.md` §6 'S4'.
 
 ---
 

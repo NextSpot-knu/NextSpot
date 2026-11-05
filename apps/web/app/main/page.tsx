@@ -7,11 +7,17 @@ import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
-import { isPaintableMeasurement, pinDisplay, pinSvg } from '@/lib/map/markerSvg';
+import { isPaintableMeasurement, PIN_GRADE_COLORS, pinDisplay, pinSvg } from '@/lib/map/markerSvg';
 import { centerTargetFor, type BandInsets } from '@/lib/map/visibleBand';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, filterReachable, isBarFacility, type Spot } from '@/lib/recommender';
-import { REGION, isWithinRegion } from '@/lib/region';
+import { REGION } from '@/lib/region';
 import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
+import { useRegion } from '@/lib/regionContext';
+import { isWithinPack, regionCacheKey } from '@/lib/regionPacks';
+import { getInternalRegionInfrastructures, getInternalRegionZones, type InternalZoneView } from '@/lib/api-client';
+import { partialZoneObservation, zoneBandGrade, zoneBandKey, zoneEvidenceFromBreakdown, zoneEvidenceFromZoneView, type ZoneEvidence } from '@/lib/zoneEvidence';
+import { savedRegionTag } from '@/lib/savedRegion';
+import { RegionSwitcher } from '@/components/RegionSwitcher';
 import { trackEvent, usageCardProps } from '@/lib/usageEvents';
 import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, httpStatus, loadSharedCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
@@ -185,6 +191,8 @@ interface FacilityRecord {
   voiceSpoken?: string;
   /** 사용자가 직접 연 카드 — search·place 면 목록에 있어도 머리 배지가 '선택한 장소'. */
   pickKind?: 'pin' | 'search' | 'place';
+  /** 내부 검증 지역의 구역 혼잡 근거(lib/zoneEvidence) — 추천 breakdown 이나 지도 시설의 zone 에서. 경주에는 없다. */
+  zoneEvidence?: ZoneEvidence | null;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -291,10 +299,11 @@ interface SavedBookmark {
 const FACILITY_CACHE_KEY = 'nextspot_facilities_cache_v3';
 const FACILITY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-function loadFacilityCache(): Facility[] | null {
+// 지역마다 따로 둔다 — 경주는 FACILITY_CACHE_KEY 그대로, 내부 검증 지역은 `${키}__${지역}`(lib/regionPacks regionCacheKey).
+function loadFacilityCache(cacheKey: string = FACILITY_CACHE_KEY): Facility[] | null {
   if (typeof window === 'undefined') return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(FACILITY_CACHE_KEY) || 'null') as {
+    const parsed = JSON.parse(localStorage.getItem(cacheKey) || 'null') as {
       savedAt?: number;
       facilities?: Facility[];
     } | null;
@@ -314,9 +323,9 @@ function loadFacilityCache(): Facility[] | null {
   }
 }
 
-function saveFacilityCache(facilities: Facility[]): void {
+function saveFacilityCache(facilities: Facility[], cacheKey: string = FACILITY_CACHE_KEY): void {
   try {
-    localStorage.setItem(FACILITY_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), facilities }));
+    localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), facilities }));
   } catch {
     // 저장 공간 차단/부족은 최신 네트워크 경로에 영향을 주지 않는다.
   }
@@ -378,6 +387,19 @@ interface ParkingLot {
 // 음식 태그로 술집을 식별해 음식점 추천 후보에서만 제외한다(지도 마커로는 계속 표시 — 삭제 아님).
 // 판정은 lib/recommender.isBarFacility — camelCase(cuisineTags)도 읽는다(계획 B2 · I09: apiClient 를 거친
 // 시설은 cuisineTags 라 예전 판정은 늘 '술집 아님' 이었다).
+
+// 추천 breakdown 의 구역 근거를 시설 기록에 붙일 조각 — 구역 근거가 없으면(경주 전부) 빈 객체라 기록 모양이 오늘과 같다.
+function zoneEvidenceProp(breakdown: unknown): { zoneEvidence?: ZoneEvidence } {
+  const evidence = zoneEvidenceFromBreakdown(breakdown as Record<string, unknown> | null | undefined);
+  return evidence ? { zoneEvidence: evidence } : {};
+}
+
+// 구역 오버레이 색 — 구역 단계를 앱 공통 등급(lib/zoneEvidence.zoneBandGrade)으로 옮겨 **핀과 같은 색**(PIN_GRADE_COLORS)으로
+// 칠한다. 같은 관측을 핀은 '여유' 색, 원은 '보통' 색으로 칠하지 않게(DESIGN_PRINCIPLES 7). SDK 는 CSS 변수를 모른다.
+function zoneFill(levelBand: unknown): string | null {
+  const grade = zoneBandGrade(levelBand);
+  return grade ? PIN_GRADE_COLORS[grade].base : null;
+}
 
 // 첫 카드를 기다리는 최대 시간 — 이 안에 서버 답이 오면 그 1위를 바로 띄우고, 넘기면 즉시 계산한 카드를 띄운다
 // (계획 B2 · I34: 카드가 1~4초 뒤 다른 곳으로 바뀌던 것을 막는다).
@@ -555,7 +577,12 @@ export default function MainPage() {
   // mockHour(클라 전용 합성 혼잡 시뮬)와 별개다: 이 값은 백엔드 recommend 로 실려 도착 영업여부·
   // 도착시점 혼잡·채점을 그 시각 기준으로 계산하게 한다. 초기값 'now'(정적 export 안전).
   const [assumedPreset, setAssumedPreset] = useState<string>("now");
+  // 이 화면에서 가정 시각을 바꾸는 유일한 조작은 혼잡 예측 줄(ForecastTimeStrip)이다. 그 줄이 없는 지역(내부 검증 지역 —
+  // areaDemandForecast 꺼짐)에서는 /waiting·/course 에서 고른 저장된 프리셋을 따르지 않고 '지금' 으로 둔다 — 따르면
+  // 되돌릴 조작 없이 가정 시각 카드만 남고, 구역 근거(지금 ±30분)도 사라진다. 경주는 오늘과 같다.
+  const followsStoredPreset = useRegion().pack.features.areaDemandForecast;
   useEffect(() => {
+    if (!followsStoredPreset) return;
     setAssumedPreset(getStoredAssumedPreset());
     const sync = () => setAssumedPreset(getStoredAssumedPreset());
     window.addEventListener(ASSUMED_TIME_EVENT, sync);
@@ -564,7 +591,7 @@ export default function MainPage() {
       window.removeEventListener(ASSUMED_TIME_EVENT, sync);
       window.removeEventListener("storage", sync);
     };
-  }, []);
+  }, [followsStoredPreset]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [outOfRegionNotice, setOutOfRegionNotice] = useState(false);
   const [locationFallbackNotice, setLocationFallbackNotice] = useState(false);
@@ -644,6 +671,16 @@ export default function MainPage() {
 
   const router = useRouter();
   const { locale, t } = useI18n();
+  // 지금 지역(S3) — 경주는 GYEONGJU_PACK(lib/region.ts REGION 값 그대로)이라 요청·저장 키·문구·위젯이 오늘과 같다.
+  // 내부 검증 지역은 내부 계정 전용 경로에서 장소·구역을 읽고(Supabase 직접 읽기 없음), 경주 전용 위젯(날씨·축제·주차장·
+  // 발견·외부 검색·혼잡 예측 줄)을 감춘다. 지역이 바뀌면 이 화면은 통째로 다시 마운트된다(lib/regionContext).
+  const { pack, isPublic, regionName } = useRegion();
+  const regionFeatures = pack.features;
+  const facilityCacheKey = regionCacheKey(FACILITY_CACHE_KEY, pack.id);
+  // 지도 위치 기억(sessionStorage) — 지역마다 따로(경주는 오늘 키 그대로).
+  const mapCenterLatKey = regionCacheKey('nextspot_map_center_lat', pack.id);
+  const mapCenterLngKey = regionCacheKey('nextspot_map_center_lng', pack.id);
+  const mapLevelKey = regionCacheKey('nextspot_map_level', pack.id);
   // '혼잡' 등급 경계 — 운영자 설정(GET /system/public-settings). 못 받으면 0.75(기존 값).
   const busyAt = useBusyThreshold();
   const [currentClock, setCurrentClock] = useState<Date | null>(null);
@@ -763,7 +800,7 @@ export default function MainPage() {
     async function loadFacilities() {
       setIsLoadingFacilities(true);
       setFacilitiesLoadError(false);
-      const cached = loadFacilityCache();
+      const cached = loadFacilityCache(facilityCacheKey);
       if (cached?.length) {
         setFacilities(cached);
         setIsLoadingFacilities(false);
@@ -781,7 +818,9 @@ export default function MainPage() {
         //
         // 4초로 올린다. 재방문에는 위 캐시가 이미 그려져 있어 체감 지연은 첫 방문에만 생기고,
         // 대신 시설별 최신 혼잡을 서버가 결정적으로 조인한 정확한 값을 받는다.
-        const items = await apiClient.get("/api/v1/infrastructures", {
+        // 내부 검증 지역은 내부 계정 전용 경로(공개 /infrastructures 는 경주 행만 준다). 항목 모양은 같고 zone 이 더 있다.
+        const items = isPublic
+          ? await apiClient.get("/api/v1/infrastructures", {
           timeoutMs: 4000,
           params: {
             minLat: String(REGION.bounds.minLat),
@@ -789,7 +828,13 @@ export default function MainPage() {
             minLng: String(REGION.bounds.minLng),
             maxLng: String(REGION.bounds.maxLng),
           },
-        });
+        })
+          : (await getInternalRegionInfrastructures(pack.id, {
+              minLat: pack.bounds.minLat,
+              maxLat: pack.bounds.maxLat,
+              minLng: pack.bounds.minLng,
+              maxLng: pack.bounds.maxLng,
+            }, { timeoutMs: 10000 })).items;
         if (!Array.isArray(items)) throw new Error("unexpected infrastructures payload");
         const mapped = items.map((f: any) => {
           const level = f.congestion ? f.congestion.level : null; // 혼잡 로그 없는 시설은 null(데이터 없음)
@@ -824,10 +869,15 @@ export default function MainPage() {
             // 서버가 '지금' 이라고 판정한 관측만 추정을 이긴다. 필드가 없는 구 서버 응답은
             // undefined 로 남아 종전 동작(실측이 이긴다) 그대로다 — 값을 지어내지 않는다.
             congestionIsCurrent: f.congestion ? f.congestion.isCurrent ?? undefined : undefined,
+            // 내부 검증 지역의 구역 근거 — 경주 항목에는 zone 이 없어 이 키가 붙지 않는다(캐시 모양도 오늘과 같다).
+            ...(f.zone ? { zoneEvidence: zoneEvidenceFromZoneView(f.zone) } : {}),
+            // 여러 구역에 걸친 시설에서 한 구역이 읽히지 않으면 서버가 수준 · 단계를 비운다 — 단계를 말하지 않고
+            // '마지막 관측 {시각}' 만 남긴다(lib/zoneEvidence partialZoneObservation). 경주 항목에는 zone 이 없어 붙지 않는다.
+            ...(partialZoneObservation(f) ?? {}),
           };
         });
         setFacilities(mapped);
-        saveFacilityCache(mapped);
+        saveFacilityCache(mapped, facilityCacheKey);
         setIsLoadingFacilities(false);
         return;
       } catch (apiErr) {
@@ -838,8 +888,14 @@ export default function MainPage() {
       // 2순위 폴백: anon supabase 직접 조회 — 활성 시설만 id 순서 페이지로, 혼잡은 서버와 같은
       // 시설별 최신 RPC(lib/mapFacilityFallback.ts). 시설 조회 실패는 throw → 아래 catch 가 안내한다.
       // RPC 만 실패하면 지도는 그대로 그리고 혼잡만 '데이터 없음' 으로 둔다.
+      // 내부 검증 지역은 이 폴백이 없다(브라우저는 공개 지역 행만 읽힌다) — 캐시가 없을 때만 '다시 시도' 안내.
+      if (!pack.features.supabaseFallback) {
+        setFacilitiesLoadError(!cached?.length);
+        setIsLoadingFacilities(false);
+        return;
+      }
       try {
-        const { rows, latestBy } = await loadMapFacilitiesFromSupabase(supabase, REGION.bounds);
+        const { rows, latestBy } = await loadMapFacilitiesFromSupabase(supabase, REGION.bounds, pack);
 
         const mapped = rows.map((f: any) => {
           const latestLog = latestBy[f.id];
@@ -888,7 +944,7 @@ export default function MainPage() {
         });
 
         setFacilities(mapped);
-        saveFacilityCache(mapped);
+        saveFacilityCache(mapped, facilityCacheKey);
         setIsLoadingFacilities(false);
       } catch (err) {
         console.warn("Error loading facilities:", err);
@@ -898,6 +954,8 @@ export default function MainPage() {
     }
 
     loadFacilities();
+    // 지역(pack · isPublic · facilityCacheKey)이 바뀌면 이 화면은 통째로 다시 마운트된다(lib/regionContext) — 다시 부를 계기는 nonce 뿐.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facilitiesReloadNonce]);
 
   // D5: TourAPI 마지막 동기화 시각 — 페이지 레벨 소형 표시용. 값이 전혀 없으면 렌더하지 않는다
@@ -915,6 +973,8 @@ export default function MainPage() {
         // 백엔드 미기동/네트워크 실패 → anon supabase 로 TourAPI 적재분(contentid 존재)의
         // updated_at 최대 1건을 추정(estimate) 폴백으로 사용한다.
       }
+      // 내부 검증 지역은 Supabase 직접 읽기를 하지 않는다 — 표시하지 않음(숨김).
+      if (!pack.features.supabaseFallback) return;
       try {
         const { data, error } = await supabase
           .from('facilities')
@@ -930,12 +990,14 @@ export default function MainPage() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [pack.features.supabaseFallback]);
 
   // 추정 피드 — 시설 로드와 병렬로, 보이는 동안 5분마다 다시 받는다(서버 추정 캐시 5분·스냅샷 10분).
   // 실패·404(구 서버)·타임아웃은 조용히 넘긴다: 추정은 부가 정보라 지도를 막을 이유가 없고,
   // 직전 값은 남겨 두되 60분 만료는 그릴 때 다시 판정하므로 낡은 값이 '지금' 으로 팔리지 않는다.
   useEffect(() => {
+    // 추정 피드는 경주 공영주차·관광 통계로 만든 값 — 그 기능이 꺼진 지역(내부 검증 지역)에서는 묻지 않는다.
+    if (!regionFeatures.estimates) return;
     let active = true;
     let inflight: AbortController | null = null;
     const load = async () => {
@@ -963,7 +1025,7 @@ export default function MainPage() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, []);
+  }, [regionFeatures.estimates]);
 
   // Apply mock hour congestion scaling
   useEffect(() => {
@@ -1017,7 +1079,7 @@ export default function MainPage() {
   const savedIdsRef = useRef(savedIds);
   useEffect(() => { rejectedIdsRef.current = rejectedIds; }, [rejectedIds]);
   useEffect(() => { savedIdsRef.current = savedIds; }, [savedIds]);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...pack.center });
   // 위 좌표가 정말 내 위치인가 — 위치를 못 잡았거나 경주 밖이라 지역 중심으로 바꾼 값이면 false.
   // '대신 갈 곳 보기' 가 대안의 걷는 시간을 내 위치에서 잴지, 고른 장소에서 잴지를 이것으로 정한다(lib/recommendOrigin).
   const [userLocationKnown, setUserLocationKnown] = useState(false);
@@ -1121,10 +1183,10 @@ export default function MainPage() {
           let lng = position.coords.longitude;
 
           // 서비스 지역(지오펜스) 밖이면 지역 중심점으로 모킹 — 경계/중심은 lib/region.ts 단일 소스
-          if (!isWithinRegion(lat, lng)) {
-            lat = REGION.center.lat;
-            lng = REGION.center.lng;
-            console.log(`User is outside ${REGION.name}. Mocking location to region center:`, lat, lng);
+          if (!isWithinPack(pack, lat, lng)) {
+            lat = pack.center.lat;
+            lng = pack.center.lng;
+            console.log(`User is outside ${pack.name}. Mocking location to region center:`, lat, lng);
             // 도보 N분이 어디서 잰 값인지 모르면 '내 위치' 의 거리로 읽힌다 — 세션에 한 번만 알린다.
             let noticed = false;
             try {
@@ -1147,6 +1209,8 @@ export default function MainPage() {
         }
       );
     }
+    // 위치는 마운트 때 한 번만 묻는다 — 지역(pack)이 바뀌면 이 화면은 통째로 다시 마운트된다(lib/regionContext).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 경주 밖 안내 · 위치를 못 잡은 안내 — 위치 콜백은 마운트 때의 t(첫 렌더는 늘 ko)를 쥐고 있어 거기서 문장을 만들면
@@ -1155,17 +1219,18 @@ export default function MainPage() {
   useEffect(() => {
     const key = outOfRegionNotice ? 'map.outOfRegionStart' : locationFallbackNotice ? 'map.locationFallback' : null;
     if (!key) return;
-    showToast(t(key));
+    // 내부 검증 지역은 같은 안내를 지역 이름으로(region.* — 경주 문구에는 '경주'·'황리단길' 이 박혀 있다).
+    showToast(isPublic ? t(key) : t(key === 'map.outOfRegionStart' ? 'region.outOfRegionStart' : 'region.locationFallback', { region: regionName }));
     const timer = setTimeout(() => {
       setOutOfRegionNotice(false);
       setLocationFallbackNotice(false);
     }, 3000);
     return () => clearTimeout(timer);
-  }, [outOfRegionNotice, locationFallbackNotice, t]);
+  }, [outOfRegionNotice, locationFallbackNotice, t, isPublic, regionName]);
 
   // 주차장 탭은 장소 DB가 아니라 경주시 ITS의 공식 위치·실시간 잔여면을 직접 사용한다.
   useEffect(() => {
-    if (activeFilter !== '주차장') return;
+    if (activeFilter !== '주차장' || !regionFeatures.parking) return;
     let active = true;
     setParkingLoading(true);
     setParkingLoadError(false);
@@ -1211,14 +1276,15 @@ export default function MainPage() {
       if (active) setParkingLoading(false);
     });
     return () => { active = false; };
-  }, [activeFilter, userLocation.lat, userLocation.lng, parkingReloadNonce]);
+  }, [activeFilter, userLocation.lat, userLocation.lng, parkingReloadNonce, regionFeatures.parking]);
 
   // 🔥 히트맵용 공영주차 실측 — 경주시 ITS 실시간 잔여면(GET /area-demand/parking-lots, 공개 GET).
   // 시설 실측 로그는 드물어 열지도가 '점 몇 개'로만 보였는데, 공영주차 점유율은 도심 전역에
   // 흩어진 **실측** 좌표라 같은 정직성 기준을 지키면서 구역을 칠할 수 있다(주차장 탭이 이미 쓰는 자료).
   // 토글을 처음 켤 때 한 번만 받는다 — 꺼져 있으면 호출하지 않는다.
   useEffect(() => {
-    if (!showHeatmap || heatParkingAskedRef.current) return;
+    // 공영주차 실측은 경주시 ITS 자료 — 그 기능이 꺼진 지역(내부 검증 지역)의 열지도는 시설 실측만으로 그린다.
+    if (!showHeatmap || heatParkingAskedRef.current || !regionFeatures.parking) return;
     // 이 플래그는 '이미 받았다'가 아니라 **중복 호출을 막는 잠금**이다. 받지 못한 채로 잠가 두면
     // 첫 호출이 실패하거나 응답 전에 토글이 꺼졌을 때 주차 레이어가 세션 내내 되살아나지 못한다.
     heatParkingAskedRef.current = true;
@@ -1248,6 +1314,61 @@ export default function MainPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHeatmap]);
+
+  // 구역 혼잡 오버레이(map.zoneLayer) — 내부 검증 지역에서만. 구역마다 반투명 원(단계별 색)과 '구역 · 단계' 라벨.
+  // 구역 목록은 내부 계정 전용 GET /internal/regions/{id}/zones 로 받고, 보이는 동안 5분마다 다시 받는다. 경주는 묻지도 그리지도 않는다.
+  const [regionZones, setRegionZones] = useState<InternalZoneView[]>([]);
+  const zoneOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
+  useEffect(() => {
+    if (!regionFeatures.zoneLayer) return;
+    let alive = true;
+    const load = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void getInternalRegionZones(pack.id, { timeoutMs: 8000 })
+        .then((res) => { if (alive) setRegionZones(Array.isArray(res?.zones) ? res.zones : []); })
+        .catch(() => { /* 구역 정보 없음 — 오버레이 없이 지도만 */ });
+    };
+    load();
+    const timer = window.setInterval(load, 5 * 60 * 1000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [regionFeatures.zoneLayer, pack.id]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!mapLoaded || !map || !window.kakao?.maps || !regionFeatures.zoneLayer) return;
+    const kakao = window.kakao;
+    const overlays: kakao.maps.Overlay[] = [];
+    for (const zone of regionZones) {
+      const c = zone.centroid;
+      if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng) || !Number.isFinite(zone.radiusM)) continue;
+      const color = (zone.isCurrent && zoneFill(zone.levelBand)) || '#8A817C';
+      const position = new kakao.maps.LatLng(c.lat, c.lng);
+      const circle = new kakao.maps.Circle({
+        center: position,
+        radius: zone.radiusM,
+        strokeWeight: 1,
+        strokeColor: color,
+        strokeOpacity: 0.55,
+        strokeStyle: 'solid',
+        fillColor: color,
+        fillOpacity: zone.isCurrent ? 0.12 : 0.05,
+      });
+      circle.setMap(map);
+      overlays.push(circle);
+      const bandKey = zone.isCurrent ? zoneBandKey(zone.levelBand) : null;
+      const label = document.createElement('div');
+      label.className = 'pointer-events-none rounded-full border border-line bg-white/90 px-2 py-0.5 text-[10px] font-bold text-muk shadow-sm';
+      label.textContent = bandKey ? `${zone.zoneName} · ${t(bandKey)}` : zone.zoneName;
+      label.title = t('map.zoneLayer');
+      const overlay = new kakao.maps.CustomOverlay({ position, content: label, yAnchor: 0.5, zIndex: 1 });
+      overlay.setMap(map);
+      overlays.push(overlay);
+    }
+    zoneOverlaysRef.current = overlays;
+    return () => {
+      for (const overlay of overlays) overlay.setMap(null);
+      zoneOverlaysRef.current = [];
+    };
+  }, [mapLoaded, regionZones, regionFeatures.zoneLayer, t]);
 
   // Synchronize User Location Marker on Map
   useEffect(() => {
@@ -1321,7 +1442,8 @@ export default function MainPage() {
         : '음식점';
       try {
         const savedFilter = sessionStorage.getItem('nextspot_active_filter');
-        if (savedFilter) {
+        // 주차장 탭이 없는 지역(내부 검증 지역)에서는 저장된 '주차장' 을 되살리지 않는다.
+        if (savedFilter && (regionFeatures.parking || savedFilter !== '주차장')) {
           initialFilter = savedFilter;
           firstViewPendingRef.current = false;
         }
@@ -1330,7 +1452,7 @@ export default function MainPage() {
       }
       setActiveFilter(initialFilter);
     }
-  }, []);
+  }, [regionFeatures.parking]);
 
   // 온보딩(setup)에서 고른 음식 선호를 '음식 의도' 기본값으로 로드(음성 발화가 있으면 그쪽이 덮어씀).
   //
@@ -1870,6 +1992,8 @@ export default function MainPage() {
               discoveryThemeMatch: rec.breakdown.discoveryThemeMatch ?? null,
               spot: recToSpot(rec),
               reason: rec.reason || '',
+              // 내부 검증 지역의 구역 근거(breakdown.zone_*) — 경주 breakdown 에는 없어 키가 붙지 않는다.
+              ...zoneEvidenceProp(rec.breakdown),
             } as Facility;
           });
           // 응답이 도착하는 사이에 누른 '관심 없음'·'저장'을 반영한다(dismissedSinceRequest 주석).
@@ -2092,6 +2216,8 @@ export default function MainPage() {
                     scoringMode: r.scoringMode,
                     spot,
                     reason: r.reason || "", // 백엔드 템플릿 사유만
+                    // 내부 검증 지역의 구역 근거(breakdown.zone_*) — 경주 breakdown 에는 없어 키가 붙지 않는다.
+                    ...zoneEvidenceProp(r.breakdown),
                   };
                 });
             } catch (e) {
@@ -2196,7 +2322,7 @@ export default function MainPage() {
   const openInstead = (origin: {
     facilityId?: string | null; name?: string | null; type: string; latitude?: number | null; longitude?: number | null;
   }) => {
-    router.push(buildRecommendHref(origin, { from: 'pick', user: userLocationKnown ? userLocation : null }));
+    router.push(buildRecommendHref(origin, { from: 'pick', user: userLocationKnown ? userLocation : null, pack }));
   };
 
   // Action Button Handlers
@@ -2348,7 +2474,9 @@ export default function MainPage() {
             ? 'verified_model'
             : undefined,
         spot: spot,
-        reason: fac.reason || ""
+        reason: fac.reason || "",
+        // 내부 검증 지역에서 저장하면 지역 표시를 붙인다(/saved 가 지역별로 거른다 — lib/savedRegion). 경주는 아무것도 붙지 않는다.
+        ...savedRegionTag(pack),
       };
       // 로컬 캐시 즉시 반영 + Supabase 영속화(중복 id 는 내부에서 무시).
       void saveBookmark(bookmark as unknown as SavedRecord);
@@ -2825,8 +2953,8 @@ export default function MainPage() {
       window.kakao.maps.load(() => {
         if (!mapContainerRef.current) return; // 로드 대기 중 언마운트됨
 
-        let centerLat = REGION.center.lat as number;
-        let centerLng = REGION.center.lng as number;
+        let centerLat = pack.center.lat as number;
+        let centerLng = pack.center.lng as number;
         let level = 4;
         // 세션에서 지도 위치를 복원했는지 — 복원한 화면은 사용자가 보던 그대로가 맞으므로
         // 아래 '가시영역 중심 보정'을 건너뛴다(복원값은 이미 보정된 중심의 저장본이기도 하다).
@@ -2839,14 +2967,15 @@ export default function MainPage() {
         // 지도도 폴백 UI 도 없는 빈 화면이 그대로 남는다. 복원 실패는 기본 중심/줌으로 떨어진다.
         if (typeof window !== 'undefined') {
           try {
-            const savedLat = sessionStorage.getItem('nextspot_map_center_lat');
-            const savedLng = sessionStorage.getItem('nextspot_map_center_lng');
-            const savedLevel = sessionStorage.getItem('nextspot_map_level');
+            const savedLat = sessionStorage.getItem(mapCenterLatKey);
+            const savedLng = sessionStorage.getItem(mapCenterLngKey);
+            const savedLevel = sessionStorage.getItem(mapLevelKey);
 
             if (savedLat && savedLng) {
               const parsedLat = parseFloat(savedLat);
               const parsedLng = parseFloat(savedLng);
-              if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+              // 내부 검증 지역은 그 지역 경계 밖의 복원 위치를 버린다(경주는 오늘처럼 어디든 복원한다).
+              if (!isNaN(parsedLat) && !isNaN(parsedLng) && (isPublic || isWithinPack(pack, parsedLat, parsedLng))) {
                 centerLat = parsedLat;
                 centerLng = parsedLng;
                 restoredCenter = true;
@@ -2878,8 +3007,8 @@ export default function MainPage() {
         // 옛 화면을 그대로 재현하기 때문이다. 판별 반경 ±0.0005°(≈50m): 실제로 패닝한 지도는
         // 이보다 크게 벗어나고, 보정된 중심도 통상 줌에서 수백 m 이동이라 재보정되지 않는다.
         const restoredNearMyLocation =
-          Math.abs(centerLat - (REGION.center.lat as number)) < 0.0005
-          && Math.abs(centerLng - (REGION.center.lng as number)) < 0.0005;
+          Math.abs(centerLat - (pack.center.lat as number)) < 0.0005
+          && Math.abs(centerLng - (pack.center.lng as number)) < 0.0005;
         if (!restoredCenter || restoredNearMyLocation) centerOnFreeArea(centerLat, centerLng);
 
         // Save center and level on map idle
@@ -2892,9 +3021,9 @@ export default function MainPage() {
           // 위치 기억도 저장소가 막히면 throw 한다. 이 콜백은 지도 idle 마다 SDK 가 부르므로,
           // 예외가 새어 나가면 같은 이벤트에 걸린 다른 리스너까지 지도를 움직일 때마다 끊긴다.
           try {
-            sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
-            sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
-            sessionStorage.setItem('nextspot_map_level', lvl.toString());
+            sessionStorage.setItem(mapCenterLatKey, center.getLat().toString());
+            sessionStorage.setItem(mapCenterLngKey, center.getLng().toString());
+            sessionStorage.setItem(mapLevelKey, lvl.toString());
           } catch {
             /* 저장소 차단 — 이번 세션의 지도 위치는 기억하지 않는다 */
           }
@@ -3172,7 +3301,8 @@ export default function MainPage() {
     { id: '카페', key: 'cafe', icon: Coffee },
     { id: '관광지', key: 'attraction', icon: MapPin },
     { id: '문화시설', key: 'culture', icon: Building2 },
-    { id: '주차장', key: 'parking', icon: Car },
+    // 주차장 탭은 경주시 ITS 공영주차 자료 — 그 기능이 꺼진 지역(내부 검증 지역)에는 없다.
+    ...(regionFeatures.parking ? [{ id: '주차장', key: 'parking', icon: Car }] : []),
   ];
 
   // 카테고리 칩 전환 — 칩 탭 · ♿ 자동 전환 · 다른 칩 제안 카드가 같은 길을 탄다.
@@ -3554,7 +3684,8 @@ export default function MainPage() {
     const q = searchQuery.trim();
     // 한 글자 입력과 로컬에서 이미 찾은 질의는 외부 검색을 호출하지 않는다. 타이핑할 때마다
     // Kakao 쿼터를 소진하거나 429로 검색 전체가 잠기는 것을 막는다.
-    if (!searchActive || q.length < 2 || searchMatchCount > 0) {
+    // 외부 장소 검색(카카오·관광공사)과 적재 요청은 경주 전용이다 — 그 기능이 꺼진 지역(내부 검증 지역)은 지도 검색만.
+    if (!searchActive || q.length < 2 || searchMatchCount > 0 || !regionFeatures.externalSearch) {
       setLiveSearchItems([]);
       setLiveSearchLoading(false);
       setTourApiItems([]);
@@ -3619,7 +3750,7 @@ export default function MainPage() {
       setTourApiAsked(true);
     }, 350);
     return () => clearTimeout(timer);
-  }, [activeFilter, facilities, parkingLots, searchActive, searchMatchCount, searchQuery, userLocation.lat, userLocation.lng]);
+  }, [activeFilter, facilities, parkingLots, searchActive, searchMatchCount, searchQuery, userLocation.lat, userLocation.lng, regionFeatures.externalSearch]);
 
   // '다음 배치 추가 요청' — 관리자 승인 큐(admin_ingest_requests)에 pending 으로 넣는다.
   // 성공/실패를 그대로 말한다. 실패를 접수된 것처럼 보이게 하면 사용자는 오지 않을 장소를 기다린다.
@@ -3827,7 +3958,8 @@ export default function MainPage() {
   // 인데 카드는 지금의 '한산' 을 '+2시간 후 기준' 옆에 말했다.
   const timeShifted = cardHours > 0 || assumedPreset !== 'now';
   const compactCardExpanded = isCompactMap && !!selectedFacility && !recalcLabel && !cardPeek;
-  const showStrip = activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !compactCardExpanded;
+  // 혼잡 예측 줄(+N시간 · 요일 프리셋)은 경주 예측 모델·권역 수요 전망으로 만든다 — 그 기능이 꺼진 지역(내부 검증 지역)에는 없다.
+  const showStrip = regionFeatures.areaDemandForecast && activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !compactCardExpanded;
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
@@ -3844,9 +3976,17 @@ export default function MainPage() {
         ref={topClusterRef}
         className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-start justify-between gap-2 md:inset-x-auto md:right-5 md:top-5 md:items-center md:justify-end"
       >
-        <div className="flex max-w-[220px] flex-col items-start gap-1 md:max-w-none">
+        <div className="flex min-w-0 max-w-[220px] flex-col items-start gap-1 md:max-w-none">
           {/* 데스크톱에서는 언어·시계가 유리 툴바 판 위에 떠 있어 유리 위 유리가 된다 — 휴대폰에서만 유리(데스크톱은 툴바 안 칩처럼 흰 알약). */}
-          <LanguageSwitcher className="pointer-events-auto liquid-glass-phone" />
+          {/* 서비스 지역 — 내부 계정(developer)에게만 그린다. 그 밖의 계정에는 아무것도 그리지 않고 묻지도 않는다.
+              언어와 **같은 줄**에 둔다 — 세로로 쌓으면 이 묶음이 길어져 출처 알약이 검색창(고정 상단 여백) 위로 내려온다.
+              관광객은 스위처가 null 이라 이 줄은 언어 알약 하나 — 높이·폭이 종전과 같다. */}
+          {/* 줄은 제 칸(220px · 시계 옆 남은 폭) 안에 머문다 — 긴 로케일(en 등)에서 지역 이름이 길면 언어 알약은 그대로 두고
+              지역 스위처만 줄여 이름을 자른다(시계 알약 밑으로 들어가지 않게). 관광객은 언어 알약 하나라 종전과 같다. */}
+          <div className="flex max-w-full flex-nowrap items-center gap-1">
+            <LanguageSwitcher className="pointer-events-auto liquid-glass-phone shrink-0" />
+            <RegionSwitcher className="pointer-events-auto liquid-glass-phone" />
+          </div>
           {/* 간결한 지도 배치의 출처 — 넓은 화면은 툴바 둘째 줄 끝의 출처 칩 하나(P8). */}
           <SourceCredit compact className="lg:hidden liquid-glass" />
         </div>
@@ -3911,7 +4051,7 @@ export default function MainPage() {
               if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitSearchHit(searchQuery);
             }}
             enterKeyHint="search"
-            placeholder={t('map.searchPlaceholder')}
+            placeholder={isPublic ? t('map.searchPlaceholder') : t('region.searchPlaceholder', { region: regionName })}
             className="min-w-0 flex-1 self-stretch bg-transparent py-[18px] text-muk outline-none placeholder:text-muk-soft text-sm short:max-md:py-2 md:py-2.5"
           />
           {searchQuery ? (
@@ -3950,6 +4090,7 @@ export default function MainPage() {
 
         {/* 날씨 · 첫 방문(✨) 알약 한 줄 — 검색 중에는 감춘다(언마운트하지 않아 날씨를 다시 부르지 않는다). */}
         <div className={searchActive ? 'hidden' : 'flex items-center gap-2 short:max-md:shrink-0'}>
+          {regionFeatures.weather && (
           <WeatherChip
             indoorRequired={travelContext.requiredAttributes.includes('indoor')}
             onIndoorRequiredChange={(required) => {
@@ -3968,7 +4109,8 @@ export default function MainPage() {
               });
             }}
           />
-          {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && (
+          )}
+          {regionFeatures.discovery && !isLoadingFacilities && facilities.length > 0 && !activeDiscovery && (
             <button
               type="button"
               onClick={() => setShowDiscoveryThemes((open) => !open)}
@@ -4391,7 +4533,7 @@ export default function MainPage() {
               )}
 
               {/* 🏮 경주 축제 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다. */}
-              <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} className="max-w-[16rem]" />
+              {regionFeatures.festival && <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} className="max-w-[16rem]" />}
 
               {/* 인근 공중화장실. 외부 키/호출 실패 시 칩이 스스로 숨는다. */}
               <RestroomChip location={userLocation} />
@@ -4446,7 +4588,7 @@ export default function MainPage() {
                 <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-line bg-white text-muk'} ${cuisineChip !== chip.id && setupCuisineChipId === chip.id ? 'ring-2 ring-gold/70 ring-offset-1 ring-offset-hanji' : ''}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
             )}
-            <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} /><RestroomChip location={userLocation} /></div>
+            <div className="mt-4 flex flex-wrap gap-2">{regionFeatures.festival && <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} />}<RestroomChip location={userLocation} /></div>
           </motion.section>
         </PresenceLayer>
       )}
@@ -4676,6 +4818,7 @@ export default function MainPage() {
                   <div className="pointer-events-auto lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
                   <RecommendationCard
                     title={selectedFacility.name}
+                    zoneEvidence={selectedFacility.zoneEvidence ?? null}
                     reason={reason}
                     insteadReason={insteadReason}
                     spotComparisonReason={spotComparisonReason}
@@ -4910,7 +5053,7 @@ export default function MainPage() {
           {!isMockLocationMinimized && (
             <div className="px-3 pb-3 border-t border-line">
               <div className="grid grid-cols-1 gap-1.5 w-36 mt-2">
-                {REGION.presets.map((loc) => {
+                {pack.presets.map((loc) => {
                   const isCurrent = Math.abs(userLocation.lat - loc.lat) < 0.0001 && Math.abs(userLocation.lng - loc.lng) < 0.0001;
                   return (
                     <button

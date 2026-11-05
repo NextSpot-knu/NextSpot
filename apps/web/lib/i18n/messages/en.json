@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "Service area",
+    "switchHint": "Only internal test accounts see this. Switching moves the map, picks and courses to that area.",
+    "name": {
+      "gyeongju": "Gyeongju"
+    },
+    "badgeInternal": "Internal test area · {name}",
+    "emptyRegion": "No places yet",
+    "resetNotice": "This account can't view that area, so we're back in Gyeongju.",
+    "unavailable": "Couldn't load area info, so we're showing Gyeongju.",
+    "searchPlaceholder": "Search {region} places",
+    "locationFallback": "Couldn’t determine your location, so we’re guiding from central {region}.",
+    "outOfRegionStart": "You're outside {region}, so we're showing walks from the area's center",
+    "mapPreview": "{region} attraction",
+    "waitLegendUniform": "Walking times on the cards start from the area's center.",
+    "areaNow": "{zone} area now: {label}",
+    "areaAt": "{zone} area at {time}: {label} · forecast",
+    "loadingStep1": "Checking {region}'s live crowd levels…",
+    "emptyNotice": "That area has no places to show right now, so we're back in Gyeongju.",
+    "roleTraveler": "{region} traveler",
+    "impactCardTitle": "My {region} Travel Impact"
+  },
   "timeSim": {
     "label": "Assumed time",
     "now": "Now (live)",
@@ -387,6 +409,7 @@
     "noMatch": "No places match this cuisine yet"
   },
   "map": {
+    "zoneLayer": "Area crowds",
     "heatmap": "Heatmap",
     "forecast": "AI forecast",
     "barrierFree": "Wheelchair",
@@ -644,6 +667,15 @@
     "authCta": "Go to the map"
   },
   "card": {
+    "zoneSource": "Based on live population around {zone}",
+    "zoneForecastAt": "Forecast for arriving at {time}",
+    "zoneObservedAgo": "Observed {min} min ago",
+    "zoneUsual": {
+      "busier": "Busier than usual",
+      "usual": "About as usual",
+      "quieter": "Quieter than usual"
+    },
+    "reportDisabledRegion": "Crowd reports aren't open in this area",
     "reject": "Don't show again",
     "putOff": "Save this place\nSee the next pick",
     "accept": "Let's go (walking directions)",
@@ -1607,5 +1639,173 @@
     "learnHint": "Getting directions with “Let's go” on a recommendation updates this profile right away. “Don't show again” counts once you tell us why in My Lab.",
     "detailsToggle": "Details",
     "detailsBody": "Directions from a recommendation (accept) adjust all 8 taste axes by +10% right away. “Don't show again” (reject) adjusts them by −5% once you tell us in My Lab that it was about your taste."
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "Accounts created with Google or Kakao can't sign in on the iOS app yet. Please use an email account or continue as a guest.",
+      "resetOpensOnWeb": "The link in the email opens in your web browser. Set your new password there, then sign in to the app with it."
+    },
+    "consent": {
+      "title": "Consent to use location information",
+      "lead": "NextSpot uses your location to recommend less crowded places near you. Please read the details below and choose whether to agree.",
+      "purposeTitle": "Purpose",
+      "purposeBody": "To recommend quiet places near you, estimate walking times, and check whether you are in Gyeongju.",
+      "whenTitle": "When it is used",
+      "whenBody": "Your location is read once when you open Home, Alternatives, or Course. It is not read while the app is in the background.",
+      "retentionTitle": "Records and retention",
+      "retentionBody": "Location and distance values may remain in records while we process recommendation requests. Retention periods and handling are described in the privacy policy.",
+      "declineTitle": "If you don't agree",
+      "declineBody": "We won't use your location and will recommend places around Hwangnidan-gil instead. You can change this later in My Page settings.",
+      "ageConfirm": "I am 14 years of age or older",
+      "ageHint": "Users under 14 need a legal guardian's consent, so the app can't accept location consent from them. Please tap \"Don't agree\".",
+      "agree": "Agree",
+      "decline": "Don't agree",
+      "saveFailed": "We couldn't save your choice. Continuing without location."
+    },
+    "intro": {
+      "languageLabel": "Language",
+      "faq1Q": "Do I need to sign up?",
+      "faq1A": "No. You can start right away without signing in. If you sign up, your saved places and preferences carry over to other devices."
+    },
+    "course": {
+      "emptyBody": "Pick one more type, or widen your walking or trip time, and we'll build a course right away.",
+      "slotLateNight": "Opening hours are hard to confirm this late. Try again during the day for more restaurant and cafe options.",
+      "reorderHint": "Press and hold, then drag to reorder",
+      "moveEarlier": "Move {type} earlier",
+      "moveLater": "Move {type} later"
+    },
+    "home": {
+      "searchLocalTitle": "Places in NextSpot",
+      "locationPrimer": {
+        "title": "We'll find less crowded places near you",
+        "body": "If you allow location, we'll show quiet places you can walk to from where you are. If you don't, we'll recommend around Hwangnidan-gil.",
+        "continue": "Continue"
+      },
+      "locationBanner": {
+        "enable": "Turn on nearby recommendations",
+        "coarse": "Turn on precise location to find closer places"
+      },
+      "festivalAreaLabel": "🏮 {title} area",
+      "myLocation": {
+        "recenter": "Go to my location",
+        "blockedTitle": "Location is turned off",
+        "blockedBody": "To get less crowded places near you, open Settings and set NextSpot's location permission to 'Allow only while using the app'.",
+        "blockedBodyIos": "To get less crowded places near you, open Settings and set NextSpot's location access to 'While Using the App'.",
+        "coarseTitle": "Precise location is off",
+        "openSettings": "Open Settings"
+      },
+      "tripCard": {
+        "expand": "Expand trip card",
+        "collapse": "Collapse trip card"
+      }
+    },
+    "mypage": {
+      "openOnWeb": "Open on the web",
+      "privacyWebLink": "View the full notice on the web",
+      "deleteDataTitle": "Delete my data",
+      "deleteDataDesc": "Permanently deletes your saved places and recommendation and visit history from our server, and clears this device's data.",
+      "deleteData": "Permanently delete my data",
+      "deleteDataConfirm": "Permanently delete your data?",
+      "deleteDataConfirmDesc": "Your saved places and recommendation and visit history will be erased from our server and this cannot be undone. You'll start over as a new guest.",
+      "deleteDataAction": "Delete",
+      "deleteDataSuccess": "Your data has been deleted",
+      "deleteDataFailed": "Couldn't delete your data. Please try again in a moment."
+    },
+    "cardSheet": {
+      "handle": "Adjust recommendation card height",
+      "state": {
+        "minimized": "Preview",
+        "normal": "Default",
+        "expanded": "Expanded"
+      },
+      "emptyTitle": "No places to recommend right now",
+      "photoMenu": "Photo options",
+      "photoReport": "Report photo",
+      "photoReportTitle": "Report this photo?",
+      "photoReportBody": "Tell us if this photo is inappropriate or unrelated to the place. We will review it and take it down if needed.",
+      "photoReportSend": "Report",
+      "photoReported": "Reported. We will review it.",
+      "photoReportFailed": "Could not send the report right now. Please try again shortly.",
+      "photoHide": "Hide this photo",
+      "photoHidden": "Photo hidden."
+    },
+    "settings": {
+      "locationConsentTitle": "Location information consent",
+      "locationConsentDesc": "With your consent, Home, alternatives and courses recommend places near you first. Without it, recommendations are based around Hwangnidan-gil.",
+      "locationConsentGranted": "Consented",
+      "locationConsentDeclined": "Not consented",
+      "locationConsentNone": "Not chosen yet",
+      "locationConsentWithdraw": "Withdraw consent",
+      "locationConsentGive": "Give consent",
+      "locationConsentWithdrawConfirm": "Withdraw consent to use location information?",
+      "locationConsentWithdrawConfirmDesc": "After withdrawing, NextSpot won't read your location and will recommend places around Hwangnidan-gil. You can consent again at any time.",
+      "locationConsentWithdrawn": "Consent withdrawn. NextSpot no longer uses your location.",
+      "aiConsentTitle": "External AI interpretation",
+      "aiConsentDesc": "Choose whether text you type and search words that found nothing are sent to an external AI service (Upstage) to interpret them. If not allowed, typing boxes are turned off and only the options and basic search are used.",
+      "aiConsentGranted": "Allowed",
+      "aiConsentDeclined": "Not allowed",
+      "aiConsentNone": "Not chosen yet — we'll ask the first time you use it",
+      "aiConsentWithdraw": "Withdraw permission",
+      "aiConsentGive": "Choose",
+      "aiConsentWithdrawConfirm": "Withdraw permission for external AI interpretation?",
+      "aiConsentWithdrawConfirmDesc": "After withdrawing, nothing you type is sent to external AI. Typing boxes are turned off; the options and basic search still work.",
+      "aiConsentWithdrawn": "Permission withdrawn. Text you type is no longer sent to external AI."
+    },
+    "aiConsent": {
+      "promptTitle": "Interpret what you type with AI?",
+      "promptBody": "What you type (including search words that found nothing) is sent to an external AI service (Upstage) to interpret it. Your account and location are not sent with it. If you don't allow this, you can still use the options and basic search.",
+      "allow": "Allow",
+      "decline": "Don't allow",
+      "notice": "What you type is sent to an external AI service (Upstage) to interpret it.",
+      "declinedHint": "Typing is turned off because you haven't allowed sending text to external AI. You can still use the options.",
+      "openSettings": "Change in Settings"
+    },
+    "privacy": {
+      "collectBody": "We process what you enter or choose, such as taste settings, saved places, crowd reports and visit-check answers, reasons for skipping, and support messages, plus a user ID (guests included). If you sign up, we also process your email and nickname (with social sign-in, the email and name that service shares). You can use the app as a guest without signing in.",
+      "locationTitle": "Location",
+      "locationBody": "Only if you agree to the Location-Based Service Terms and allow location on your device, the app reads your current location once each time you open Home, alternatives, courses, restrooms or parking, and sends it to our server. It is used only to recommend quiet places nearby, estimate walking times and check whether you are in Gyeongju. It is never read in the background and your movements are not tracked. Today it remains in two places: for restroom and parking lookups the coordinates are in the request address and stay in the server access log, and recommendation records keep the distance to each candidate place with your user ID instead of coordinates, which can indicate where the request was made.",
+      "aiTitle": "External AI processing",
+      "aiBody": "Only if you allow it, text you type (changing conditions during a trip, explaining a skip in the Lab) and search words that found nothing are sent through our server to Upstage, an external AI service, to interpret them. Only the text is sent, not your account or location. Our server logs do not keep the original text, but in the Lab the reason chosen by the AI and a short summary may be saved with your skip record. You can withdraw any time in My Page → Settings.",
+      "storageBody": "Device settings such as language and your consent choices, plus a copy of your saved list, stay in the app's storage on this device. Your profile, tastes, saved places and recommendation and visit records are stored in Supabase and follow you to any device you sign in on.",
+      "usageBody": "To improve the app, we record which screens you open, the buttons you tap on recommendation cards, arrival checks and crowd reports under an anonymous number created on your device. These records contain no name, account, location or search words, are not sent to outside analytics companies, and are deleted after one year. Deleting your data also creates a new anonymous number.",
+      "thirdPartyBody": "We do not sell your information or share it for advertising. Tapping directions opens Kakao Map (app or web) with the destination. To find results, our server sends place search words to Kakao Local search and the Korea Tourism Organization's TourAPI. Maps are drawn with Google Maps on Android and Apple Maps on iOS.",
+      "processorsTitle": "Processors and transfers abroad",
+      "processorsBody": "We entrust processing to these companies to run the service: Supabase (database and sign-in, Singapore region), Render (API server, Singapore region), Vercel (hosting for web pages and public notices, United States and other regions), Upstage (external AI interpretation, only if you allow it), and Expo (building and distributing the app; no personal information is sent while you use the app). Transfers abroad happen over the network while you use the app, and retention follows 'Retention and deletion' below.",
+      "retentionTitle": "Retention and deletion",
+      "retentionBody": "Account, taste, saved, recommendation and visit records are deleted when you delete your account or data. Usage records are deleted automatically after one year, and the anti-abuse values attached to guest answers after 30 days. Server access logs (including coordinates and search words in request addresses) are deleted when the hosting provider's log retention period ends.",
+      "deletionTitle": "Deleting your data",
+      "deletionBody": "In My Page → Settings, use 'Delete account' (signed-up accounts) or 'Delete my data' (guests) to delete the data linked to you on our server right away. Personal data left on this device and the anonymous number are deleted too.",
+      "childrenTitle": "Children under 14",
+      "childrenBody": "We do not accept location consent from children under 14. A legal guardian can ask Support to view or delete a child's data.",
+      "locationTermsLink": "Read the full Location-Based Service Terms"
+    },
+    "locationTerms": {
+      "consentTitle": "Agree to the Location-Based Service Terms",
+      "consentLead": "NextSpot offers a location-based service that recommends less crowded places near you. Under Korean law (the Location Information Act), we provide it only if you agree to these terms. You can use every other feature without agreeing.",
+      "agreeCheck": "I agree to the Location-Based Service Terms",
+      "ageHint": "Children under 14 need a legal guardian's consent, so we can't accept location consent in the app. Please tap 'Continue without agreeing'.",
+      "viewFull": "Read full terms",
+      "agreeContinue": "Agree and continue",
+      "declineContinue": "Continue without agreeing",
+      "fullTitle": "Location-Based Service Terms",
+      "intro": "These terms set out the conditions and procedures for NextSpot's location-based service and your rights as a user.",
+      "serviceTitle": "Article 1. The service",
+      "serviceBody": "Location information is used to recommend less crowded places near you, estimate walking times, check whether you are in Gyeongju, and find nearby restrooms and parking.",
+      "collectTitle": "Article 2. How and when it is collected",
+      "collectBody": "Only if you agree to these terms and allow location in your device settings, the app reads your device's current location once each time you open Home, alternatives, courses, restrooms or parking while using the app. It does not read location in the background and does not track your movements.",
+      "useTitle": "Article 3. Use and retention",
+      "useBody": "Your location is sent to our server and used only to calculate recommendations. Today, coordinates in restroom and parking lookups remain in the server access log (for the hosting provider's log retention period), and the distance to each candidate place remains in recommendation records with your user ID (until you delete your account or data). See the Privacy Policy for details.",
+      "shareTitle": "Article 4. Sharing with third parties",
+      "shareBody": "We do not provide your location information to third parties. Tapping directions opens Kakao Map with the destination, and what happens there follows Kakao's terms.",
+      "withdrawTitle": "Article 5. Withdrawing consent",
+      "withdrawBody": "You can withdraw consent at any time in My Page → Settings. After that, the app no longer reads your location and recommends places around Hwangnidan-gil. Recommendation records already kept can be deleted with 'Delete my data' or 'Delete account'.",
+      "childTitle": "Article 6. Children under 14",
+      "childBody": "Children under 14 need a legal guardian's consent, so the app does not accept location consent from anyone under 14.",
+      "rightsTitle": "Article 7. Your rights and contact",
+      "rightsBody": "You may ask to confirm, view or correct how your location information has been used or provided. Please send requests through Support in My Page.",
+      "limitTitle": "Article 8. Accuracy",
+      "limitBody": "Location may be inaccurate depending on your device and network, and recommendations, distances and times are for reference only.",
+      "effective": "Effective: {date}"
+    }
   }
 }

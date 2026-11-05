@@ -155,7 +155,7 @@ class _Query:
     # --- 실행 ---
     @staticmethod
     def _match_one(row, col, op, val) -> bool:
-        cur = row.get(col)
+        cur = row.get(col, "gyeongju" if col == "region" else None)  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
         if op == "eq":
             return str(cur) == str(val)
         if op == "neq":

@@ -23,6 +23,7 @@
 
 import { apiClient } from "@/lib/api-client";
 import { REGION } from "@/lib/region";
+import { getActiveRegion, isPublicRegion } from "@/lib/regionRuntime";
 
 /** KST 정시(0~23) → 권역 수요(0~1). 표본이 없는 시각은 아예 키가 없다. */
 export type AreaDemandCurve = Record<number, number>;
@@ -250,7 +251,13 @@ export function forecastPointAt(nowMs: number, hoursAhead: number, shift = 0): F
 }
 
 /** 한 시각의 권역 전망(0~1) — GET 1회. 표본 부족(available=false)이면 null, 전송 실패는 throw. */
+/** 내부 검증 지역에서 권역 수요(경주 전용)를 물으려 할 때 — 보내지 않고 이 오류로 끝낸다(세션 캐시에 남지 않는다). */
+export const AREA_DEMAND_GYEONGJU_ONLY = "area_demand_gyeongju_only";
+
 export async function fetchAreaDemandPoint(lat: number, lng: number, at: Date): Promise<number | null> {
+  // 권역 수요는 경주 전용 위젯이다(내부 검증 지역에서는 숨긴다). 경주 화면에서 시작된 곡선 수집이 지역이 바뀐 뒤에도
+  // 이어지면 경주 좌표 요청이 내부 지역 헤더를 달고 나간다 — 지금 지역이 공개 지역이 아니면 보내지 않는다.
+  if (!isPublicRegion(getActiveRegion())) throw new Error(AREA_DEMAND_GYEONGJU_ONLY);
   const data: ForecastResponse = await apiClient.get("/api/v1/area-demand/forecast", {
     params: { lat: String(lat), lng: String(lng), arrivalAt: at.toISOString() },
     timeoutMs: 8000,

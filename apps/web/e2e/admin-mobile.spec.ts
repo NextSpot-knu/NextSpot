@@ -142,9 +142,45 @@ const ENGINE_SUMMARY = {
       human_step: ZONE_STEP,
     },
   },
+  // S4 재생 요약(커밋된 decision_quality/<cluster>.json) — 카드 문구가 가장 길어지는 조합: 예비 · 표본 부족 ·
+  // 구조상 달성 불가 · 근사 구간 · 작은 권역 · 한계 여럿. 390px 에서 카드 밖으로 밀리지 않는지 본다.
   decision_quality: {
-    state: 'not_evaluated', stage: 'S4', result: null,
-    criterion: "V3 — 추천지가 도착 시 1단계 이상 덜 붐빌 확률이 '가장 가까운 곳' 기준선보다 10%p 이상 높고, 일 블록 부트스트랩 95% 신뢰구간 하한 > 0",
+    state: 'evaluated', stage: 'S4',
+    criterion: "V3 — 붐비는 출발지에서 대안이 2곳 이상인 결정에서, 추천지가 도착 시 1단계 이상 덜 붐빌 확률이 '가장 가까운 곳' 기준선보다 10%p 이상 높고, 그 차의 판정 하한(일 블록 부트스트랩 95% 하한과 날짜 군집 t 95% 하한 중 작은 쪽) > 0",
+    result: {
+      schema_version: 'decision_quality_summary/3',
+      clusters: [{
+        schema_version: 'decision_quality_summary/3', cluster: 'hongdae', zones: ['홍대 관광특구', '연남동', '합정역'],
+        run_label: 'pilot', criteria_version: '0139e2f69f47', code_version: '8e27138',
+        period: { first_decision_at: '2026-09-20', last_decision_at: '2026-10-31', days: 42 },
+        inputs_sha256: 'f'.repeat(64), population: 'crowded_origin_choice_feasible', n_decisions: 812, days: 9, episodes: 18,
+        n_disagree: 24, headroom: 0.06, opportunity_rate: 0.42,
+        hit_rate: { engine: 0.36, nearest: 0.29, climatology_choice: 0.33, current_band_greedy: 0.35, random: 0.27, oracle: 0.35 },
+        hit_vs_now: { engine: 0.4, stay: 0.12 }, harm_rate: { engine: 0.08, nearest: 0.1 },
+        verdicts: {
+          V3: {
+            status: 'insufficient', criterion: '엔진 − 가장 가까운 곳 적중률 ≥ 0.10 그리고 차의 95% CI 하한 > 0', diff: 0.07,
+            ci_low: -0.021, ci_high: 0.123, ci_label: 'approximate (blocks < 20)', ci_low_t: -0.03, gate_low: -0.03,
+            n: 812, n_distinct: 271, days: 9, n_disagree: 24, n_disagree_distinct: 11,
+            headroom: 0.06, criterion_attainable: false,
+            reason: 'insufficient: crowded_days<10, episodes<20, n_disagree_distinct<30; unattainable_by_construction',
+          },
+          V4: { status: 'fail', recommendation: 'persistence', lead_bin: 30, mae_provider: 0.512, mae_persistence: 0.48, n: 2900, days: 38,
+            reason: 'mae_provider>=mae_persistence' },
+          V2: { status: 'report', share_crowd_gt_travel: 0.22 },
+        },
+        contrasts: {
+          engine_minus_climatology: { diff: 0.03, ci_low: -0.01, ci_high: 0.07 },
+          engine_minus_greedy: { diff: 0.01, ci_low: -0.02, ci_high: 0.04 },
+        },
+        thin_cluster: true, alternatives_per_origin: 2,
+        notes: ['대안이 2곳뿐이라 엔진은 먼 쪽을 고를 때만 가장 가까운 곳과 다르다 — 참고 결과다', '날짜 블록이 20개 미만이라 신뢰구간은 근사다'],
+        limits: [
+          "서울에는 NextSpot 사용자가 없다 — '한 사람이 옮겨도 혼잡은 변하지 않는다'는 가정 아래 고른 곳이 도착 때 덜 붐볐는지만 쟀다. 사람이 옮겨 붐빔이 줄었는지는 재지 않았다(경주 파일럿 P3-1).",
+          '엔진은 라우터와 같은 이동(구역 중심 간 직선 × 1.18 ÷ 66.67 m/분)을 보고, 정답은 그보다 보수적인 도착 시각(직선 × 1.4, 분 올림)에서 잰다 — 실제 경로·구역 안 위치는 반영하지 않는다.',
+        ],
+      }],
+    },
   },
 };
 
@@ -231,6 +267,18 @@ async function escapingElements(page: Page): Promise<string[]> {
   });
 }
 
+/** /account/me 만 다른 역할로 덮는다(나중에 건 route 가 먼저 잡힌다). */
+async function stubAccountRole(page: Page, role: 'admin' | 'developer'): Promise<void> {
+  await page.route('**/api/v1/account/me', (route) => json(route, 200, {
+    id: '00000000-0000-4000-8000-0000000000ad',
+    role,
+    is_anonymous: false,
+    nickname: '관제 담당자',
+    owned_facilities: [],
+    pending_verification: false,
+  }));
+}
+
 async function openAdmin(page: Page, path: string): Promise<void> {
   await page.goto(path);
   // 관제 게이트(권한 확인 중)를 지나 콘솔이 그려질 때까지.
@@ -261,6 +309,8 @@ test.beforeEach(async ({ page }) => {
 for (const path of ADMIN_ROUTES) {
   test(`390px — ${path} 본문이 화면 안에 머물고 표 칸이 읽힌다`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
+    // 실시간 데이터 리허설은 developer 전용이다(사용자 결정 1) — 레이아웃은 그 화면을 실제로 보는 developer 로 잰다.
+    if (path === '/admin/engine-validation') await stubAccountRole(page, 'developer');
     await openAdmin(page, path);
     if (SHOT_DIR) await page.screenshot({ path: `${SHOT_DIR}/390${path.replaceAll('/', '_')}.png` });
 
@@ -275,7 +325,12 @@ for (const path of ADMIN_ROUTES) {
       // 스텁한 수집 상태가 실제로 그려졌다 — 그려지지 않으면 위 검사는 빈 화면을 잰 것이다.
       await expect(page.getByRole('region', { name: '수집 상태' })).toBeVisible();
       await expect(page.getByText('정규화 표 미적용 — 20261031120000_crowd_zones.sql')).toBeVisible();
-      await expect(page.getByText(/S4 재생 평가 전 — 아직 없음/)).toBeVisible();
+      // 커밋된 S4 요약이 권역 카드로 그려진다 — 판정 배지와 한계 첫 줄(사용자 없음)이 함께 보인다.
+      const hongdae = page.getByTestId('decision-quality-hongdae');
+      await expect(hongdae).toBeVisible();
+      await expect(hongdae.getByText('V3 표본 부족')).toBeVisible();
+      await expect(hongdae.getByText(/^구조상 달성 불가 — /)).toBeVisible();
+      await expect(hongdae.getByText(/^한계: 서울에는 NextSpot 사용자가 없다/)).toBeVisible();
     }
 
     const narrowCells = await page.evaluate((min) =>
@@ -425,4 +480,17 @@ test('1280px — 관제 데모의 CSV 버튼은 ① 실시간 관제 제목과 �
   // 브리핑이 ① 줄보다 위(실제 대시보드와 같은 순서).
   const briefing = await page.getByText('오늘의 정책 브리핑').boundingBox();
   expect(briefing!.y).toBeLessThan(stepBox!.y);
+});
+
+test('admin 은 실시간 데이터 리허설(서울)을 URL 로 열어도 서울 데이터를 받지 않는다', async ({ page }) => {
+  let summaryCalls = 0;
+  page.on('request', (req) => {
+    if (req.url().includes('/admin/engine-validation/seoul/')) summaryCalls += 1;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAdmin(page, '/admin/engine-validation');
+  await expect(page.getByTestId('rehearsal-developer-only')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText('서울');
+  await expect(page.locator('main')).not.toContainText('홍대');
+  expect(summaryCalls, '서울 요약 API 를 부르지 않는다').toBe(0);
 });

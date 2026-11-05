@@ -2045,6 +2045,546 @@
     "title": "InquiryStatusUpdate",
     "type": "object"
    },
+   "InternalRegionInfrastructureItem": {
+    "description": "공개 지도 항목과 같은 칸 + 시설이 속한 구역의 혼잡(`zone`).",
+    "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "availability_evidence": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AvailabilityEvidence"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "barrier_free": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Barrier Free"
+     },
+     "capacity": {
+      "title": "Capacity",
+      "type": "integer"
+     },
+     "congestion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/InternalZoneCongestion"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "contentid": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contentid"
+     },
+     "contenttypeid": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contenttypeid"
+     },
+     "data_updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data Updated At"
+     },
+     "features": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Features"
+     },
+     "gallery_images": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Gallery Images"
+     },
+     "homepage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Homepage"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "image_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Image Url"
+     },
+     "is_active": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is Active"
+     },
+     "latitude": {
+      "title": "Latitude",
+      "type": "number"
+     },
+     "longitude": {
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "operating_hours": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Operating Hours"
+     },
+     "overview": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Overview"
+     },
+     "phone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phone"
+     },
+     "place_data_source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Place Data Source"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     },
+     "zone": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ZoneCrowdView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "type",
+     "latitude",
+     "longitude",
+     "capacity",
+     "operating_hours",
+     "features",
+     "congestion"
+    ],
+    "title": "InternalRegionInfrastructureItem",
+    "type": "object"
+   },
+   "InternalRegionInfrastructuresResponse": {
+    "properties": {
+     "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/InternalRegionInfrastructureItem"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "region": {
+      "title": "Region",
+      "type": "string"
+     }
+    },
+    "required": [
+     "region",
+     "generated_at",
+     "items"
+    ],
+    "title": "InternalRegionInfrastructuresResponse",
+    "type": "object"
+   },
+   "InternalRegionView": {
+    "properties": {
+     "address_token": {
+      "title": "Address Token",
+      "type": "string"
+     },
+     "bounds": {
+      "$ref": "#/components/schemas/RegionBounds"
+     },
+     "center": {
+      "$ref": "#/components/schemas/LatLng"
+     },
+     "facility_count": {
+      "title": "Facility Count",
+      "type": "integer"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "latest_observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest Observed At"
+     },
+     "mapped_facility_count": {
+      "title": "Mapped Facility Count",
+      "type": "integer"
+     },
+     "names": {
+      "$ref": "#/components/schemas/RegionNames"
+     },
+     "presets": {
+      "items": {
+       "$ref": "#/components/schemas/RegionPreset"
+      },
+      "title": "Presets",
+      "type": "array"
+     },
+     "zone_count": {
+      "title": "Zone Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "id",
+     "names",
+     "center",
+     "bounds",
+     "presets",
+     "address_token",
+     "facility_count",
+     "mapped_facility_count",
+     "zone_count",
+     "latest_observed_at"
+    ],
+    "title": "InternalRegionView",
+    "type": "object"
+   },
+   "InternalRegionsResponse": {
+    "properties": {
+     "regions": {
+      "items": {
+       "$ref": "#/components/schemas/InternalRegionView"
+      },
+      "title": "Regions",
+      "type": "array"
+     }
+    },
+    "required": [
+     "regions"
+    ],
+    "title": "InternalRegionsResponse",
+    "type": "object"
+   },
+   "InternalZoneCongestion": {
+    "description": "구역 관측으로 만든 혼잡 칸 — 공개 CongestionInfo 와 같은 칸 + 근거 등급(zone_measured).\n\n``level`` 은 None 일 수 있다 — 매핑된 구역 일부에 관측이 없는 시설(엔진 근거와 같은 규칙). 이때 화면은 단계 없이\n``timestamp`` 로 '마지막 관측' 만 그린다.",
+    "properties": {
+     "current_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Count"
+     },
+     "evidence_tier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Evidence Tier"
+     },
+     "is_current": {
+      "default": true,
+      "title": "Is Current",
+      "type": "boolean"
+     },
+     "is_stale": {
+      "default": false,
+      "title": "Is Stale",
+      "type": "boolean"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "timestamp": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Timestamp"
+     }
+    },
+    "required": [
+     "level",
+     "current_count",
+     "timestamp"
+    ],
+    "title": "InternalZoneCongestion",
+    "type": "object"
+   },
+   "InternalZoneView": {
+    "properties": {
+     "centroid": {
+      "$ref": "#/components/schemas/LatLng"
+     },
+     "cluster": {
+      "title": "Cluster",
+      "type": "string"
+     },
+     "forecast": {
+      "items": {
+       "$ref": "#/components/schemas/ZoneForecastPoint"
+      },
+      "title": "Forecast",
+      "type": "array"
+     },
+     "is_current": {
+      "title": "Is Current",
+      "type": "boolean"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level"
+     },
+     "level_band": {
+      "anyOf": [
+       {
+        "enum": [
+         "relaxed",
+         "normal",
+         "slightly_busy",
+         "busy"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level Band"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "radius_m": {
+      "title": "Radius M",
+      "type": "number"
+     },
+     "usual_comparison": {
+      "anyOf": [
+       {
+        "enum": [
+         "busier",
+         "usual",
+         "quieter"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usual Comparison"
+     },
+     "zone_id": {
+      "title": "Zone Id",
+      "type": "string"
+     },
+     "zone_name": {
+      "title": "Zone Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "zone_id",
+     "zone_name",
+     "cluster",
+     "level",
+     "level_band",
+     "observed_at",
+     "is_current",
+     "usual_comparison",
+     "forecast",
+     "centroid",
+     "radius_m"
+    ],
+    "title": "InternalZoneView",
+    "type": "object"
+   },
+   "InternalZonesResponse": {
+    "properties": {
+     "region": {
+      "title": "Region",
+      "type": "string"
+     },
+     "zones": {
+      "items": {
+       "$ref": "#/components/schemas/InternalZoneView"
+      },
+      "title": "Zones",
+      "type": "array"
+     }
+    },
+    "required": [
+     "region",
+     "zones"
+    ],
+    "title": "InternalZonesResponse",
+    "type": "object"
+   },
    "IssueCouponRequest": {
     "properties": {
      "facility_id": {
@@ -2171,6 +2711,24 @@
      "source"
     ],
     "title": "KeywordSearchResponse",
+    "type": "object"
+   },
+   "LatLng": {
+    "properties": {
+     "lat": {
+      "title": "Lat",
+      "type": "number"
+     },
+     "lng": {
+      "title": "Lng",
+      "type": "number"
+     }
+    },
+    "required": [
+     "lat",
+     "lng"
+    ],
+    "title": "LatLng",
     "type": "object"
    },
    "MergeGuestRequest": {
@@ -3510,6 +4068,90 @@
     "title": "RecommendationOutcomeRequest",
     "type": "object"
    },
+   "RegionBounds": {
+    "properties": {
+     "max_lat": {
+      "title": "Max Lat",
+      "type": "number"
+     },
+     "max_lng": {
+      "title": "Max Lng",
+      "type": "number"
+     },
+     "min_lat": {
+      "title": "Min Lat",
+      "type": "number"
+     },
+     "min_lng": {
+      "title": "Min Lng",
+      "type": "number"
+     }
+    },
+    "required": [
+     "min_lat",
+     "max_lat",
+     "min_lng",
+     "max_lng"
+    ],
+    "title": "RegionBounds",
+    "type": "object"
+   },
+   "RegionNames": {
+    "properties": {
+     "en": {
+      "title": "En",
+      "type": "string"
+     },
+     "ja": {
+      "title": "Ja",
+      "type": "string"
+     },
+     "ko": {
+      "title": "Ko",
+      "type": "string"
+     },
+     "zh": {
+      "title": "Zh",
+      "type": "string"
+     }
+    },
+    "required": [
+     "ko",
+     "en",
+     "ja",
+     "zh"
+    ],
+    "title": "RegionNames",
+    "type": "object"
+   },
+   "RegionPreset": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "lat": {
+      "title": "Lat",
+      "type": "number"
+     },
+     "lng": {
+      "title": "Lng",
+      "type": "number"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "lat",
+     "lng"
+    ],
+    "title": "RegionPreset",
+    "type": "object"
+   },
    "RejectDecision": {
     "properties": {
      "reason": {
@@ -4702,6 +5344,138 @@
      "llm_status"
     ],
     "title": "VoiceTurnResponse",
+    "type": "object"
+   },
+   "ZoneCrowdView": {
+    "properties": {
+     "cluster": {
+      "title": "Cluster",
+      "type": "string"
+     },
+     "forecast": {
+      "items": {
+       "$ref": "#/components/schemas/ZoneForecastPoint"
+      },
+      "title": "Forecast",
+      "type": "array"
+     },
+     "is_current": {
+      "title": "Is Current",
+      "type": "boolean"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level"
+     },
+     "level_band": {
+      "anyOf": [
+       {
+        "enum": [
+         "relaxed",
+         "normal",
+         "slightly_busy",
+         "busy"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level Band"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "usual_comparison": {
+      "anyOf": [
+       {
+        "enum": [
+         "busier",
+         "usual",
+         "quieter"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usual Comparison"
+     },
+     "zone_id": {
+      "title": "Zone Id",
+      "type": "string"
+     },
+     "zone_name": {
+      "title": "Zone Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "zone_id",
+     "zone_name",
+     "cluster",
+     "level",
+     "level_band",
+     "observed_at",
+     "is_current",
+     "usual_comparison",
+     "forecast"
+    ],
+    "title": "ZoneCrowdView",
+    "type": "object"
+   },
+   "ZoneForecastPoint": {
+    "properties": {
+     "level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level"
+     },
+     "level_band": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level Band"
+     },
+     "target_at": {
+      "title": "Target At",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target_at",
+     "level",
+     "level_band"
+    ],
+    "title": "ZoneForecastPoint",
     "type": "object"
    }
   },
@@ -7655,6 +8429,206 @@
     "summary": "My Inquiries",
     "tags": [
      "inquiries"
+    ]
+   }
+  },
+  "/api/v1/internal/regions": {
+   "get": {
+    "operationId": "list_internal_regions_api_v1_internal_regions_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InternalRegionsResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Internal Regions",
+    "tags": [
+     "internal-regions"
+    ]
+   }
+  },
+  "/api/v1/internal/regions/{region}/infrastructures": {
+   "get": {
+    "operationId": "get_internal_region_infrastructures_api_v1_internal_regions__region__infrastructures_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "region",
+      "required": true,
+      "schema": {
+       "title": "Region",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "type",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Type"
+      }
+     },
+     {
+      "in": "query",
+      "name": "min_lat",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Min Lat"
+      }
+     },
+     {
+      "in": "query",
+      "name": "max_lat",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Max Lat"
+      }
+     },
+     {
+      "in": "query",
+      "name": "min_lng",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Min Lng"
+      }
+     },
+     {
+      "in": "query",
+      "name": "max_lng",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Max Lng"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InternalRegionInfrastructuresResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Internal Region Infrastructures",
+    "tags": [
+     "internal-regions"
+    ]
+   }
+  },
+  "/api/v1/internal/regions/{region}/zones": {
+   "get": {
+    "operationId": "get_internal_region_zones_api_v1_internal_regions__region__zones_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "region",
+      "required": true,
+      "schema": {
+       "title": "Region",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/InternalZonesResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Internal Region Zones",
+    "tags": [
+     "internal-regions"
     ]
    }
   },

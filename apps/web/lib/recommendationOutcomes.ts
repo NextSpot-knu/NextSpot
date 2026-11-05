@@ -1,4 +1,5 @@
 import { apiClient, httpStatus } from '@/lib/api-client';
+import { getActiveRegion, isPublicRegion, PUBLIC_REGION_ID } from '@/lib/regionRuntime';
 
 const QUEUE_KEY = 'nextspot_recommendation_outcome_queue';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,6 +14,16 @@ interface QueuedOutcome {
   rating?: OutcomeRating;
   observedCongestion?: ObservedCongestion;
   queuedAt: number;
+  /**
+   * 기록한 때의 지역 — 공개 지역(경주)이면 없다(이 필드 전에 쌓인 항목도 경주). 전송은 지금 보는 지역이 아니라 이 지역의
+   * 헤더로 한다: 서버는 그 지역 안에서만 추천 행을 찾으므로(404), 그 사이 지역을 바꿨거나 지역을 정하기 전
+   * (첫 로드의 SessionBootstrap 은 RegionProvider 밖)에 보내면 기록이 버려졌다.
+   */
+  region?: string;
+}
+
+function itemRegion(item: QueuedOutcome): string {
+  return typeof item.region === 'string' && item.region.trim() ? item.region.trim() : PUBLIC_REGION_ID;
 }
 
 let flushing: Promise<void> | null = null;
@@ -99,10 +110,19 @@ function operationKey(item: QueuedOutcome): string {
 export function queueRecommendationOutcome(
   recommendationId: string | undefined,
   stage: OutcomeStage,
-  fields: { rating?: OutcomeRating; observedCongestion?: ObservedCongestion } = {},
+  fields: { rating?: OutcomeRating; observedCongestion?: ObservedCongestion; region?: string } = {},
 ): void {
   if (!recommendationId || !UUID_RE.test(recommendationId)) return;
-  const next: QueuedOutcome = { recommendationId, stage, ...fields, queuedAt: Date.now() };
+  // 지역은 호출부가 준 값(여정이 저장한 지역), 없으면 지금 지역. 공개 지역이면 적지 않는다(경주 큐 모양은 오늘과 같다).
+  const { region: givenRegion, ...rest } = fields;
+  const region = givenRegion ?? getActiveRegion();
+  const next: QueuedOutcome = {
+    recommendationId,
+    stage,
+    ...rest,
+    queuedAt: Date.now(),
+    ...(isPublicRegion(region) ? {} : { region }),
+  };
   const queue = readQueue();
   const existing = queue.findIndex((item) => operationKey(item) === operationKey(next));
   if (existing >= 0) {
@@ -132,7 +152,7 @@ export function flushRecommendationOutcomes(): Promise<void> {
           stage: item.stage,
           rating: item.rating,
           observedCongestion: item.observedCongestion,
-        });
+        }, { region: itemRegion(item) });
         if (item.stage === 'rated' && item.observedCongestion) {
           announceCrowdAnswer({ recommendationId: item.recommendationId, crowdAnswer: readCrowdAnswer(response) });
         }

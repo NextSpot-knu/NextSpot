@@ -9,6 +9,8 @@ import type { Locale } from "./i18n/config";
 import { ensureAnonymousSession } from "./anonymousSession";
 import { uniqueSyntheticRecommendationIds } from "./recommendationIds";
 import { ttlPromiseCache } from "./ttlPromiseCache";
+import { getActiveRegion, isPublicRegion, setActiveRegion } from "./regionRuntime";
+import { regionRequestHeaders } from "./regionHeaders";
 import {
   asksForStroller,
   keepStrollerFriendly,
@@ -146,6 +148,8 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * 일치한다. 전부 발사 후 망각·순차(동시성 1)·실패 무시 — 어떤 경우에도 UI 에 영향 없다.
  */
 export function prefetchDemoHotPaths(): void {
+  // 경주 화면 전용 — 내부 지역에서는 경주 보드·코스를 데울 이유가 없다(표식도 남기지 않아 경주로 돌아오면 데운다).
+  if (!isPublicRegion(getActiveRegion())) return;
   // 세션당 1회만 — 매 /main 진입마다 무거운 엔진 호출 5개(유형 4 + 코스 1)를 다시 쏘면
   // 무료 플랜 단일 인스턴스가 큐잉으로 밀린다(14:36 과부하 실측). 프리셋이 바뀌면
   // 각 화면의 정상 경로가 어차피 새로 계산한다.
@@ -166,14 +170,23 @@ export function prefetchDemoHotPaths(): void {
       }
       const assumedAt = assumedAtIsoForPreset(getStoredAssumedPreset());
       const loc = { lat: REGION.center.lat, lng: REGION.center.lng };
+      // 사슬은 길다(순차 5건 · 건당 최대 45~60초). 계정 확인이 늦은 첫 로드에서 그 사이 내부 지역으로 바뀌면 남은 요청이
+      // 경주 좌표를 내부 지역 헤더에 실어 보낸다 — 매 요청 전에 다시 보고, 바뀌었으면 멈춘다(표식도 지워 경주로 돌아오면 데운다).
+      const regionChanged = () => {
+        if (isPublicRegion(getActiveRegion())) return false;
+        try { window.sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 — 무시 */ }
+        return true;
+      };
       // /waiting 보드 미러 — BOARD_TYPES · PER_TYPE_LIMIT(8) · 45s 타임아웃 · 등급 채우기 끔(보드와 같은 캐시 키).
       for (const type of ["restaurant", "cafe", "attraction", "culture"]) {
+        if (regionChanged()) return;
         try {
           await recommendByType(type, loc, [], 8, undefined, undefined, undefined, 45000, assumedAt, false);
         } catch { /* 프리페치 실패 무시 — 실제 탭 진입 시 정상 경로가 처리 */ }
       }
       // /course 기본 요청 미러(핀·시퀀스 없음) — 콜드 첫 생성(~40s)을 심사위원 클릭 전에 치른다.
       if (userId) {
+        if (regionChanged()) return;
         const body: Record<string, unknown> = {
           userId,
           userLat: loc.lat,
@@ -209,6 +222,12 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   /** true 면 네트워크/엣지 실패에도 재시도하지 않는다(기본은 재시도 — request() 재시도 주석 참고). */
   noRetry?: boolean;
+  /**
+   * 이 요청이 속한 지역 — 주면 지금 보고 있는 지역 대신 이 값으로 지역 헤더를 싣는다(공개 지역이면 헤더 없음).
+   * 저장해 두었다가 나중에 보내는 기록(방문 결과 큐)이 **기록한 때의 지역**으로 가게 한다 — 그 사이 지역을 바꿨거나
+   * 지역을 정하기 전(첫 로드의 SessionBootstrap)에 보내도 서버가 같은 추천 행을 찾는다.
+   */
+  region?: string;
 }
 
 async function request(path: string, options: RequestOptions = {}) {
@@ -228,6 +247,10 @@ async function request(path: string, options: RequestOptions = {}) {
     // 주석은 반대로 "프로덕션은 게이트웨이 경유" 라고 단언해 서로 어긋나 있었다.
     headers.set("Authorization", `Bearer ${token}`);
     headers.set("X-Supabase-Authorization", `Bearer ${token}`);
+  }
+  // 내부 지역을 보고 있을 때만 지역 헤더를 싣는다(lib/regionHeaders — 경주는 빈 객체라 요청이 오늘과 같다).
+  for (const [name, value] of Object.entries(regionRequestHeaders(options.region ?? getActiveRegion()))) {
+    headers.set(name, value);
   }
 
   // query parameter 처리
@@ -281,7 +304,7 @@ async function request(path: string, options: RequestOptions = {}) {
 
     let networkErr: unknown;
     try {
-      const { params: _params, timeoutMs: _timeoutMs, signal: _signal, noRetry: _noRetry, ...fetchOptions } = options;
+      const { params: _params, timeoutMs: _timeoutMs, signal: _signal, noRetry: _noRetry, region: _region, ...fetchOptions } = options;
       response = await fetch(url, {
         ...fetchOptions,
         headers,
@@ -368,6 +391,195 @@ export const apiClient = {
   getFreshness: (): Promise<FreshnessResponse> =>
     request("/api/v1/freshness", { method: "GET" }),
 };
+
+/**
+ * api-client 가 싣는 지역을 바꾼다. 지역 상태는 lib/regionRuntime 한 칸이라 RegionProvider 의 setActiveRegion 과 같다 —
+ * 프로바이더 밖(테스트·도구)에서 api-client 만 import 한 쪽을 위한 이름이다.
+ */
+export function setApiRegion(id: string | null | undefined): void {
+  setActiveRegion(id);
+}
+
+// ── 내부 검증 지역(S3) — GET /api/v1/internal/regions* ───────────────────────────────────────────────
+// 내부 계정(developer)만 부른다(서버 require_internal_region_viewer: 401·403). 응답은 keysToCamel 을 거친 모양이다 —
+// 아래 타입은 isolation_design §4 의 FROZEN JSON 을 필드 하나하나 camelCase 로 옮긴 것이다. 내부 지역의 이름·좌표는
+// 이 응답으로만 들어온다(번들에 두지 않는다).
+
+export interface InternalRegionNames {
+  ko: string;
+  en: string;
+  ja: string;
+  zh: string;
+}
+
+export interface InternalRegionLatLng {
+  lat: number;
+  lng: number;
+}
+
+export interface InternalRegionBounds {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+export interface InternalRegionPresetView {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** GET /internal/regions 의 지역 한 개(InternalRegionView). */
+export interface InternalRegionView {
+  id: string;
+  names: InternalRegionNames;
+  center: InternalRegionLatLng;
+  bounds: InternalRegionBounds;
+  presets: InternalRegionPresetView[];
+  addressToken: string;
+  facilityCount: number;
+  mappedFacilityCount: number;
+  zoneCount: number;
+  latestObservedAt: string | null;
+}
+
+export interface InternalRegionsResponse {
+  regions: InternalRegionView[];
+}
+
+/** 서버가 제공처 문구(여유/보통/약간 붐빔/붐빔)를 정규화한 구역 혼잡 단계. */
+export type ZoneLevelBand = "relaxed" | "normal" | "slightly_busy" | "busy";
+/** 같은 요일·시각 평소 대비 — 화면 보조 문장에만 쓴다(순위는 절대 단계로 매긴다). */
+export type ZoneUsualComparison = "busier" | "usual" | "quieter";
+
+export interface ZoneForecastPoint {
+  targetAt: string;
+  level: number | null;
+  levelBand: string | null;
+}
+
+/** 구역 하나의 혼잡(ZoneCrowdView). */
+export interface ZoneCrowdView {
+  zoneId: string;
+  zoneName: string;
+  cluster: string;
+  level: number | null;
+  levelBand: ZoneLevelBand | null;
+  observedAt: string | null;
+  isCurrent: boolean;
+  usualComparison: ZoneUsualComparison | null;
+  forecast: ZoneForecastPoint[];
+}
+
+/** GET /internal/regions/{region}/zones 의 구역(InternalZoneView = ZoneCrowdView + 중심·반경). */
+export interface InternalZoneView extends ZoneCrowdView {
+  centroid: InternalRegionLatLng;
+  radiusM: number;
+}
+
+export interface InternalRegionZonesResponse {
+  region: string;
+  zones: InternalZoneView[];
+}
+
+/** 공개 /infrastructures 의 CongestionInfo 와 같은 모양. 내부 지역은 구역 실측으로 채운다(source 'seoul_citydata'). */
+export interface InternalRegionCongestion {
+  /**
+   * 구역 실측 수준. 여러 구역에 걸친 시설에서 한 구역이라도 읽힌 값이 없으면 null 이다(서버가 조용한 쪽 구역 하나로
+   * '한산' 을 말하지 않게 비운다) — 화면은 '자료 없음'(마지막 관측 시각만)으로 그린다.
+   */
+  level: number | null;
+  currentCount: number | null;
+  timestamp: string | null;
+  source?: string | null;
+  isStale?: boolean;
+  isCurrent?: boolean;
+  evidenceTier?: string | null;
+}
+
+export interface InternalRegionAvailabilityEvidence {
+  status: string;
+  evidenceTier: string;
+  corroboratingCount: number;
+  reportedAt: string;
+  expiresAt: string;
+}
+
+/** InfrastructureItem 의 모든 필드 그대로 + zone. */
+export interface InternalRegionInfrastructureItem {
+  id: string;
+  name: string;
+  type: string;
+  latitude: number;
+  longitude: number;
+  capacity: number;
+  operatingHours: Record<string, unknown> | null;
+  features: Record<string, unknown> | null;
+  congestion: InternalRegionCongestion | null;
+  imageUrl?: string | null;
+  contentid?: string | null;
+  contenttypeid?: number | null;
+  galleryImages?: string[] | null;
+  address?: string | null;
+  phone?: string | null;
+  homepage?: string | null;
+  overview?: string | null;
+  barrierFree?: boolean | null;
+  isActive?: boolean | null;
+  placeDataSource?: string | null;
+  dataUpdatedAt?: string | null;
+  availabilityEvidence?: InternalRegionAvailabilityEvidence | null;
+  zone: ZoneCrowdView | null;
+}
+
+export interface InternalRegionInfrastructuresResponse {
+  region: string;
+  generatedAt: string;
+  items: InternalRegionInfrastructureItem[];
+}
+
+export interface InternalRegionInfrastructureParams {
+  type?: string;
+  minLat?: number;
+  maxLat?: number;
+  minLng?: number;
+  maxLng?: number;
+}
+
+type InternalRequestOptions = Pick<RequestOptions, "signal" | "timeoutMs">;
+
+/** 내부 계정이 볼 수 있는 지역 목록. 권한이 없으면 AuthError(401) · HttpError(403). */
+export async function getInternalRegions(options: InternalRequestOptions = {}): Promise<InternalRegionsResponse> {
+  return request("/api/v1/internal/regions", { ...options, method: "GET" });
+}
+
+/** 내부 지역의 활성 장소(공개 /infrastructures 와 같은 항목 + zone). */
+export async function getInternalRegionInfrastructures(
+  region: string,
+  params: InternalRegionInfrastructureParams = {},
+  options: InternalRequestOptions = {},
+): Promise<InternalRegionInfrastructuresResponse> {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    query[key] = String(value);
+  }
+  return request(`/api/v1/internal/regions/${encodeURIComponent(region)}/infrastructures`, {
+    ...options,
+    method: "GET",
+    params: Object.keys(query).length ? query : undefined,
+  });
+}
+
+/** 내부 지역의 구역 혼잡(구역 오버레이·대기 보드의 '지금 이 일대'). */
+export async function getInternalRegionZones(
+  region: string,
+  options: InternalRequestOptions = {},
+): Promise<InternalRegionZonesResponse> {
+  return request(`/api/v1/internal/regions/${encodeURIComponent(region)}/zones`, { ...options, method: "GET" });
+}
 
 /**
  * 여행 조건(context)을 싣는 POST — 유모차 조건('stroller')의 배포 시차 가드를 한 곳에서 건다(lib/strollerSupport).

@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "서비스 지역",
+    "switchHint": "내부 검증 계정에만 보여요. 바꾸면 지도·추천·코스가 그 지역 기준으로 바뀌어요.",
+    "name": {
+      "gyeongju": "경주"
+    },
+    "badgeInternal": "내부 검증 지역 · {name}",
+    "emptyRegion": "아직 장소가 없어요",
+    "resetNotice": "이 계정으로는 그 지역을 볼 수 없어 경주로 돌아왔어요.",
+    "unavailable": "지역 정보를 불러오지 못해 경주로 보여 드려요.",
+    "searchPlaceholder": "{region} 장소·메뉴·분위기 검색",
+    "locationFallback": "위치를 확인할 수 없어 {region} 중심을 기준으로 안내해요.",
+    "outOfRegionStart": "지금은 {region} 밖에 계셔서 지역 중심에서 출발하는 기준으로 보여드려요",
+    "mapPreview": "{region} 관광지",
+    "waitLegendUniform": "카드의 걷는 시간은 지역 중심에서 출발한 기준이에요.",
+    "areaNow": "지금 {zone} 일대 {label}",
+    "areaAt": "{time} 기준 {zone} 일대 {label} · 예측",
+    "loadingStep1": "지금 {region} 실시간 혼잡도 확인 중…",
+    "emptyNotice": "고른 지역에 지금 볼 수 있는 장소가 없어 경주로 돌아왔어요.",
+    "roleTraveler": "{region} 여행자",
+    "impactCardTitle": "나의 {region} 여행 임팩트"
+  },
   "timeSim": {
     "label": "가정 시간",
     "now": "지금(실시간)",
@@ -381,6 +403,7 @@
     "noMatch": "이 분류에 맞는 곳을 찾지 못했어요"
   },
   "map": {
+    "zoneLayer": "구역 혼잡",
     "heatmap": "히트맵",
     "forecast": "AI 예측",
     "barrierFree": "휠체어",
@@ -638,6 +661,15 @@
     "authCta": "지도로 가기"
   },
   "card": {
+    "zoneSource": "{zone} 일대 실시간 인구 기준",
+    "zoneForecastAt": "{time} 도착 기준 예측",
+    "zoneObservedAgo": "{min}분 전 관측",
+    "zoneUsual": {
+      "busier": "평소보다 붐벼요",
+      "usual": "평소와 비슷해요",
+      "quieter": "평소보다 한산해요"
+    },
+    "reportDisabledRegion": "이 지역은 혼잡 제보를 받지 않아요",
     "reject": "다시 안볼래요",
     "putOff": "일단 킵하고\n다음 후보 볼래요",
     "accept": "바로 갈래요 (도보 길안내)",
@@ -1607,5 +1639,173 @@
     "learnHint": "추천 카드에서 '바로 갈래요'로 길안내를 받으면 바로 반영되고, '다시 안볼래요'는 나의 실험실에서 이유를 알려 주시면 반영돼요.",
     "detailsToggle": "자세히",
     "detailsBody": "추천 카드에서 길안내를 받으면(수락) 바로 +10%, '다시 안볼래요'(거절)는 나의 실험실에서 취향 때문이라고 알려 주시면 −5%만큼 8가지 취향 축이 조정돼요."
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "구글·카카오로 가입한 계정은 아직 iOS 앱에서 로그인할 수 없어요. 이메일 계정이나 게스트로 이용해 주세요.",
+      "resetOpensOnWeb": "메일의 링크는 웹 브라우저에서 열려요. 새 비밀번호는 웹에서 정한 뒤, 앱에서 그 비밀번호로 로그인해 주세요."
+    },
+    "consent": {
+      "title": "위치정보 이용 동의",
+      "lead": "NextSpot은 지금 있는 곳 근처에서 덜 붐비는 곳을 추천하려고 위치정보를 이용해요. 아래 내용을 읽고 동의 여부를 골라 주세요.",
+      "purposeTitle": "이용 목적",
+      "purposeBody": "지금 있는 곳 근처의 한산한 장소 추천, 걸어서 가는 시간 계산, 경주 안에 있는지 확인에 써요.",
+      "whenTitle": "이용 시점",
+      "whenBody": "홈·대안 추천·코스 화면을 열 때 한 번씩 읽어요. 앱을 쓰지 않을 때(백그라운드)는 위치를 읽지 않아요.",
+      "retentionTitle": "기록과 보관",
+      "retentionBody": "추천 요청을 처리하면서 위치와 거리 값이 기록에 남을 수 있어요. 보관 기간과 처리 방법은 개인정보 처리방침에서 안내해요.",
+      "declineTitle": "동의하지 않으면",
+      "declineBody": "위치를 쓰지 않고 황리단길 중심으로 추천해요. 나중에 마이페이지 설정에서 바꿀 수 있어요.",
+      "ageConfirm": "만 14세 이상이에요",
+      "ageHint": "만 14세 미만은 법정대리인의 동의가 필요해 앱에서 위치정보 이용 동의를 받을 수 없어요. '동의 안 함'을 눌러 주세요.",
+      "agree": "동의",
+      "decline": "동의 안 함",
+      "saveFailed": "선택을 저장하지 못했어요. 위치 없이 계속해요."
+    },
+    "intro": {
+      "languageLabel": "언어",
+      "faq1Q": "가입해야 쓸 수 있나요?",
+      "faq1A": "아니요. 로그인 없이 바로 쓸 수 있어요. 가입하면 다른 기기에서도 저장한 곳과 취향이 이어져요."
+    },
+    "course": {
+      "emptyBody": "종류를 하나 더 고르거나 도보 시간·여행 시간을 넓히면 바로 코스를 만들어 드려요.",
+      "slotLateNight": "늦은 시간이라 영업 확인이 어려워요. 낮 시간대에 다시 찾으면 식당·카페 선택지가 넓어져요.",
+      "reorderHint": "길게 눌러 끌면 순서를 바꿀 수 있어요",
+      "moveEarlier": "{type} 앞으로 옮기기",
+      "moveLater": "{type} 뒤로 옮기기"
+    },
+    "home": {
+      "searchLocalTitle": "NextSpot 장소 검색 결과",
+      "locationPrimer": {
+        "title": "내 주변에서 덜 붐비는 곳을 찾을게요",
+        "body": "위치를 허용하면 지금 있는 곳에서 걸어갈 수 있는 한산한 장소를 먼저 보여 드려요. 허용하지 않아도 황리단길 중심으로 추천해요.",
+        "continue": "계속"
+      },
+      "locationBanner": {
+        "enable": "내 주변 추천 켜기",
+        "coarse": "정확한 위치를 켜면 더 가까운 곳을 찾아요"
+      },
+      "festivalAreaLabel": "🏮 {title} 일원",
+      "myLocation": {
+        "recenter": "내 위치로 이동",
+        "blockedTitle": "위치 사용이 꺼져 있어요",
+        "blockedBody": "내 주변의 덜 붐비는 곳을 추천받으려면 설정 앱에서 NextSpot 위치 권한을 '앱 사용 중에만 허용'으로 바꿔 주세요.",
+        "blockedBodyIos": "내 주변의 덜 붐비는 곳을 추천받으려면 설정 앱에서 NextSpot 위치 접근을 '앱을 사용하는 동안'으로 바꿔 주세요.",
+        "coarseTitle": "정확한 위치가 꺼져 있어요",
+        "openSettings": "설정 열기"
+      },
+      "tripCard": {
+        "expand": "여정 카드 펼치기",
+        "collapse": "여정 카드 접기"
+      }
+    },
+    "mypage": {
+      "openOnWeb": "웹에서 열기",
+      "privacyWebLink": "웹에서 전체 안내 보기",
+      "deleteDataTitle": "내 데이터 삭제",
+      "deleteDataDesc": "저장 장소와 추천·방문 기록을 서버에서도 영구 삭제하고, 이 기기의 데이터도 지워요.",
+      "deleteData": "내 데이터 영구 삭제",
+      "deleteDataConfirm": "내 데이터를 영구 삭제할까요?",
+      "deleteDataConfirmDesc": "저장 장소와 추천·방문 기록이 서버에서도 지워지고 되돌릴 수 없어요. 지운 뒤에는 새 게스트로 시작해요.",
+      "deleteDataAction": "삭제",
+      "deleteDataSuccess": "내 데이터를 삭제했어요",
+      "deleteDataFailed": "삭제하지 못했어요. 잠시 후 다시 시도해 주세요"
+    },
+    "cardSheet": {
+      "handle": "추천 카드 높이 조절",
+      "state": {
+        "minimized": "미리보기",
+        "normal": "기본",
+        "expanded": "펼침"
+      },
+      "emptyTitle": "지금은 추천할 곳이 없어요",
+      "photoMenu": "사진 메뉴",
+      "photoReport": "사진 신고",
+      "photoReportTitle": "이 사진을 신고할까요?",
+      "photoReportBody": "부적절하거나 가게와 관계없는 사진이면 알려 주세요. 확인 후 내릴게요.",
+      "photoReportSend": "신고하기",
+      "photoReported": "신고했어요. 확인 후 조치할게요.",
+      "photoReportFailed": "지금은 신고를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.",
+      "photoHide": "이 사진 숨기기",
+      "photoHidden": "이 사진을 숨겼어요."
+    },
+    "settings": {
+      "locationConsentTitle": "위치정보 이용 동의",
+      "locationConsentDesc": "동의하면 홈·대안 추천·코스에서 지금 있는 곳 근처를 먼저 추천해요. 동의하지 않으면 황리단길 중심으로 추천해요.",
+      "locationConsentGranted": "동의함",
+      "locationConsentDeclined": "동의하지 않음",
+      "locationConsentNone": "아직 고르지 않았어요",
+      "locationConsentWithdraw": "동의 철회",
+      "locationConsentGive": "동의하기",
+      "locationConsentWithdrawConfirm": "위치정보 이용 동의를 철회할까요?",
+      "locationConsentWithdrawConfirmDesc": "철회하면 위치를 읽지 않고 황리단길 중심으로 추천해요. 언제든 다시 동의할 수 있어요.",
+      "locationConsentWithdrawn": "동의를 철회했어요. 이제 위치를 쓰지 않아요.",
+      "aiConsentTitle": "외부 AI 해석",
+      "aiConsentDesc": "직접 입력한 문장과 결과가 없는 검색어를 외부 AI 서비스(Upstage)로 보내 해석할지 정해요. 허용하지 않으면 직접 입력 칸이 꺼지고, 선택지와 기본 검색만 써요.",
+      "aiConsentGranted": "허용함",
+      "aiConsentDeclined": "허용 안 함",
+      "aiConsentNone": "아직 고르지 않았어요 — 처음 쓸 때 물어봐요",
+      "aiConsentWithdraw": "허용 철회",
+      "aiConsentGive": "허용 여부 고르기",
+      "aiConsentWithdrawConfirm": "외부 AI 해석 허용을 철회할까요?",
+      "aiConsentWithdrawConfirmDesc": "철회하면 입력한 문장을 외부 AI로 보내지 않아요. 직접 입력 칸은 꺼지고, 선택지와 기본 검색은 그대로 쓸 수 있어요.",
+      "aiConsentWithdrawn": "허용을 철회했어요. 이제 입력한 문장을 외부 AI로 보내지 않아요."
+    },
+    "aiConsent": {
+      "promptTitle": "입력한 문장을 AI로 해석할까요?",
+      "promptBody": "입력한 문장(결과가 없을 때의 검색어 포함)은 해석을 위해 외부 AI 서비스(Upstage)로 보내요. 계정·위치 정보는 함께 보내지 않아요. 허용하지 않아도 선택지와 기본 검색은 그대로 쓸 수 있어요.",
+      "allow": "허용",
+      "decline": "허용 안 함",
+      "notice": "입력한 문장은 해석을 위해 외부 AI 서비스(Upstage)로 보내요.",
+      "declinedHint": "외부 AI 전송을 허용하지 않아 직접 입력은 꺼져 있어요. 선택지는 그대로 쓸 수 있어요.",
+      "openSettings": "설정에서 바꾸기"
+    },
+    "privacy": {
+      "collectBody": "취향 설정, 저장한 장소, 혼잡 제보·방문 확인 답, 거절 이유, 문의 내용처럼 직접 입력하거나 고른 정보와 이용자 번호(게스트 포함)를 처리해요. 가입하면 이메일과 닉네임(소셜 로그인이면 그 서비스가 넘겨주는 이메일·이름)도 처리해요. 로그인 없이 게스트로 쓸 수 있어요.",
+      "locationTitle": "위치정보",
+      "locationBody": "위치기반서비스 이용약관에 동의하고 기기에서 위치 사용을 허용한 경우에만, 홈·대안 추천·코스·화장실·주차장 화면을 열 때 현재 위치를 한 번씩 읽어 서버로 보내요. 근처의 한산한 곳 추천, 걸어서 가는 시간 계산, 경주 안인지 확인에만 써요. 백그라운드에서 읽거나 이동 경로를 계속 추적하지 않아요. 지금은 두 곳에 남아요: 화장실·주차장 조회는 좌표가 요청 주소에 담겨 서버 접속 기록에 남고, 추천 기록에는 좌표 대신 후보 장소까지의 거리가 이용자 번호와 함께 남아 요청한 곳을 짐작할 수 있어요.",
+      "aiTitle": "외부 AI 처리",
+      "aiBody": "허용한 경우에만, 직접 입력한 문장(여행 중 상황 변경, 실험실의 직접 설명하기)과 결과가 없는 검색어를 뜻을 해석하기 위해 서버를 거쳐 Upstage(외부 AI 서비스)로 보내요. 문장만 보내고 계정·위치는 함께 보내지 않아요. 서버 기록에는 문장 원문을 남기지 않지만, 실험실에서는 AI가 고른 이유와 짧은 요약이 거절 기록에 저장될 수 있어요. 마이페이지 → 설정에서 언제든 철회할 수 있어요.",
+      "storageBody": "언어·동의 기록 같은 기기 설정과 저장 목록 사본은 이 기기의 앱 저장소에 두어요. 계정 프로필, 취향, 저장 장소, 추천·방문 기록은 Supabase에 저장되어 로그인한 기기에서 이어져요.",
+      "usageBody": "앱을 더 낫게 만들기 위해 연 화면, 추천 카드에서 누른 버튼, 도착 확인과 혼잡 제보를 기기에서 만든 익명 번호로 기록해요. 이름·계정·위치·검색어는 담지 않고, 외부 분석 업체에 보내지 않으며, 1년 뒤 지워요. 데이터를 삭제하면 익명 번호도 새로 만들어요.",
+      "thirdPartyBody": "수집한 정보를 판매하거나 광고 목적으로 제공하지 않아요. 길안내를 누르면 목적지를 담아 카카오맵(앱 또는 웹)이 열려요. 장소 검색어는 결과를 찾기 위해 서버가 카카오 로컬 검색과 한국관광공사 TourAPI에 보내요. 지도는 Android에서 Google 지도, iOS에서 Apple 지도로 그려요.",
+      "processorsTitle": "처리 위탁과 국외 이전",
+      "processorsBody": "서비스 운영을 위해 다음 업체에 처리를 맡겨요. Supabase(데이터베이스·로그인, 싱가포르 리전), Render(API 서버, 싱가포르 리전), Vercel(웹 페이지와 공개 안내 호스팅, 미국 등), Upstage(외부 AI 해석 — 허용한 경우에만), Expo(앱 빌드·배포 — 앱을 쓰는 동안에는 개인정보를 보내지 않아요). 국외 업체로의 이전은 앱을 쓸 때 네트워크로 이루어지고, 보관 기간은 아래 '보관 기간과 파기'를 따라요.",
+      "retentionTitle": "보관 기간과 파기",
+      "retentionBody": "계정·취향·저장·추천·방문 기록은 계정이나 데이터를 삭제할 때 함께 지워요. 이용 기록은 1년, 게스트 답의 부정 이용 방지 값은 30일 뒤 자동으로 지워요. 서버 접속 기록(요청 주소에 담긴 좌표·검색어 포함)은 호스팅 업체의 로그 보관 기간이 지나면 지워져요.",
+      "deletionTitle": "데이터 삭제",
+      "deletionBody": "마이페이지 → 설정에서 가입 계정은 '계정 삭제', 게스트는 '내 데이터 삭제'로 서버에서 내 계정과 연결된 데이터를 바로 지울 수 있어요. 이 기기에 남은 개인 데이터와 익명 번호도 함께 지워요.",
+      "childrenTitle": "만 14세 미만",
+      "childrenBody": "만 14세 미만에게서는 위치정보 이용 동의를 받지 않아요. 법정대리인은 고객지원으로 아이의 데이터 열람·삭제를 요청할 수 있어요.",
+      "locationTermsLink": "위치기반서비스 이용약관 전문 보기"
+    },
+    "locationTerms": {
+      "consentTitle": "위치기반서비스 이용약관 동의",
+      "consentLead": "NextSpot은 지금 있는 곳 근처의 덜 붐비는 곳을 추천하는 위치기반서비스를 제공해요. 한국 법(위치정보법)에 따라 약관에 동의한 경우에만 이 서비스를 제공해요. 동의하지 않아도 다른 기능은 그대로 쓸 수 있어요.",
+      "agreeCheck": "위치기반서비스 이용약관에 동의해요",
+      "ageHint": "만 14세 미만은 법정대리인의 동의가 필요해 앱에서 위치정보 이용 동의를 받을 수 없어요. '동의하지 않고 계속'을 눌러 주세요.",
+      "viewFull": "전문 보기",
+      "agreeContinue": "동의하고 계속",
+      "declineContinue": "동의하지 않고 계속",
+      "fullTitle": "위치기반서비스 이용약관",
+      "intro": "이 약관은 NextSpot이 제공하는 위치기반서비스의 이용 조건과 절차, 이용자의 권리를 정해요.",
+      "serviceTitle": "제1조 서비스 내용",
+      "serviceBody": "현재 위치 근처의 덜 붐비는 장소 추천, 걸어서 가는 시간 계산, 경주 안에 있는지 확인, 가까운 화장실·주차장 찾기에 위치정보를 이용해요.",
+      "collectTitle": "제2조 수집 방법과 시점",
+      "collectBody": "이 약관에 동의하고 기기 설정에서 위치 사용을 허용한 경우에만, 앱을 쓰는 동안 홈·대안 추천·코스·화장실·주차장 화면을 열 때 기기의 현재 위치를 한 번씩 읽어요. 앱을 쓰지 않을 때(백그라운드)는 읽지 않고, 이동 경로를 계속 추적하지 않아요.",
+      "useTitle": "제3조 이용과 보관",
+      "useBody": "읽은 위치는 서버로 보내 추천 계산에만 써요. 지금은 화장실·주차장 조회 때 요청 주소에 담긴 좌표가 서버 접속 기록에(호스팅 업체의 로그 보관 기간 동안), 추천 기록에 후보 장소까지의 거리가 이용자 번호와 함께(계정·데이터 삭제 때까지) 남아요. 자세한 내용은 개인정보 처리방침에서 안내해요.",
+      "shareTitle": "제4조 제3자 제공",
+      "shareBody": "이용자의 위치정보를 제3자에게 제공하지 않아요. 길안내를 누르면 목적지를 담아 카카오맵을 열고, 그 뒤의 처리는 카카오의 약관을 따라요.",
+      "withdrawTitle": "제5조 동의 철회",
+      "withdrawBody": "마이페이지 → 설정에서 언제든 동의를 철회할 수 있어요. 철회하면 위치를 더 읽지 않고 황리단길 중심으로 추천해요. 이미 남은 추천 기록은 '내 데이터 삭제' 또는 '계정 삭제'로 지울 수 있어요.",
+      "childTitle": "제6조 만 14세 미만",
+      "childBody": "만 14세 미만은 법정대리인의 동의가 필요해, 앱에서는 만 14세 미만에게서 위치정보 이용 동의를 받지 않아요.",
+      "rightsTitle": "제7조 이용자의 권리와 문의",
+      "rightsBody": "이용자는 위치정보 이용·제공 사실의 확인, 열람, 정정을 요구할 수 있어요. 마이페이지의 고객지원으로 요청해 주세요.",
+      "limitTitle": "제8조 정확도",
+      "limitBody": "위치는 기기와 통신 환경에 따라 오차가 있을 수 있고, 추천·거리·시간은 참고용이에요.",
+      "effective": "시행일: {date}"
+    }
   }
 }

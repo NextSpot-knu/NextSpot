@@ -5,6 +5,7 @@
 그 회귀를 잡을 수 없다.
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
@@ -15,7 +16,13 @@ import pytest
 from app.core.config import settings
 from app.routers import engine_validation_admin as router_module
 from app.services import seoul_citydata_service as seoul
-from tests.conftest import admin_headers
+from app.services.crowd import decision_quality
+from tests.conftest import role_headers
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
 
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
 _ROW_CAP = 1000
@@ -160,13 +167,13 @@ def test_requires_admin():
 
 
 def test_days_is_bounded():
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=29", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=29", headers=developer_headers())
     assert response.status_code == 422
 
 
 def test_missing_table_is_not_migrated_state_not_500(monkeypatch):
     _install(monkeypatch, _Table(error=Exception("{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert body["state"] == "not_migrated"
@@ -176,7 +183,7 @@ def test_missing_table_is_not_migrated_state_not_500(monkeypatch):
 
 def test_missing_column_is_not_mistaken_for_missing_table(monkeypatch):
     _install(monkeypatch, _Table(error=Exception("{'code': '42703', 'message': 'column seoul_citydata_snapshots.level_est does not exist'}")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 503
     assert response.json() == {"detail": "engine_validation_unavailable"}
 
@@ -229,7 +236,7 @@ def test_full_window_pages_past_postgrest_cap(monkeypatch):
 def test_endpoint_returns_contract(monkeypatch):
     rows = [_row(i, start=datetime.now(timezone.utc) - timedelta(hours=10)) for i in range(50)]
     _install(monkeypatch, _Table(rows=rows))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=7", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary?days=7", headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert set(body) >= {
@@ -248,7 +255,7 @@ def test_endpoint_returns_contract(monkeypatch):
 
 def test_unexpected_failure_is_503(monkeypatch):
     _install(monkeypatch, _Table(error=RuntimeError("connection reset")))
-    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=admin_headers())
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
     assert response.status_code == 503
     assert response.json() == {"detail": "engine_validation_unavailable"}
 
@@ -481,12 +488,91 @@ def test_zone_table_failure_does_not_break_the_summary(monkeypatch):
     assert body["pipeline"]["zones"]["table_state"] == "unavailable"
 
 
-def test_decision_quality_is_explicitly_not_evaluated(monkeypatch):
-    # S4 재생 평가 전 — 숫자처럼 보이는 자리를 만들지 않는다.
+def test_decision_quality_is_explicitly_not_evaluated(monkeypatch, tmp_path):
+    # S4 재생 평가 전 — 숫자처럼 보이는 자리를 만들지 않는다. 요약 폴더를 빈 임시 폴더로 바꿔 둔다 — 저장소에
+    # 요약(<cluster>.json)이 커밋된 뒤에도 '파일이 없으면 예전 상수 그대로' 를 잠그기 위해서다.
+    monkeypatch.setattr(decision_quality, "SUMMARY_DIR", tmp_path)
     _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, NOW - timedelta(minutes=3))]))
     quality = router_module.build_summary(14, now=NOW)["decision_quality"]
     assert quality["state"] == "not_evaluated" and quality["stage"] == "S4"
     assert quality["result"] is None
+    assert quality == router_module.DECISION_QUALITY
+
+
+def _summary_file(cluster: str = "hongdae", **over) -> dict:
+    """decision_quality_summary/3 한 건(손으로 만든 최소 유효본 — 재생 산출물 대조는 test_crowd_decision_quality)."""
+    summary = {
+        "schema_version": "decision_quality_summary/3", "cluster": cluster,
+        "zones": ["홍대 관광특구", "연남동", "합정역"], "run_label": "pilot", "criteria_version": "0139e2f69f47",
+        "code_version": "abc1234", "period": {"first_decision_at": "2026-09-20", "last_decision_at": "2026-10-31", "days": 42},
+        "inputs_sha256": "0" * 64, "population": "crowded_origin_choice_feasible", "n_decisions": 812, "days": 38, "episodes": 91,
+        "n_disagree": 140, "headroom": 0.31, "opportunity_rate": 0.42,
+        "hit_rate": {"engine": 0.36, "nearest": 0.29, "climatology_choice": 0.33, "current_band_greedy": 0.35,
+                     "random": 0.27, "oracle": 0.42},
+        "hit_vs_now": {"engine": 0.4, "stay": 0.12}, "harm_rate": {"engine": 0.08, "nearest": 0.1},
+        "verdicts": {
+            "V3": {"status": "fail", "criterion": "엔진 − 가장 가까운 곳 적중률 ≥ 0.10 그리고 차의 95% CI 하한 > 0",
+                   "diff": 0.07, "ci_low": 0.02, "ci_high": 0.12, "ci_label": "percentile_day_block",
+                   "ci_low_t": 0.015, "gate_low": 0.015, "n": 812, "n_distinct": 271, "days": 38, "n_disagree": 140,
+                   "n_disagree_distinct": 52, "headroom": 0.31,
+                   "criterion_attainable": True, "reason": "diff<0.10"},
+            "V4": {"status": "pass", "recommendation": "provider_forecast", "lead_bin": 30, "mae_provider": 0.41,
+                   "mae_persistence": 0.48, "n": 3000, "days": 38, "reason": None},
+            "V2": {"status": "report", "share_crowd_gt_travel": 0.22},
+        },
+        "contrasts": {"engine_minus_climatology": {"diff": 0.03, "ci_low": -0.01, "ci_high": 0.07},
+                      "engine_minus_greedy": {"diff": 0.01, "ci_low": -0.02, "ci_high": 0.04}},
+        "thin_cluster": True, "alternatives_per_origin": 2, "notes": ["대안이 2곳뿐이라 참고 결과다"],
+        "limits": ["서울에는 NextSpot 사용자가 없다 — 고른 곳이 도착 때 덜 붐볐는지만 쟀다."],
+    }
+    summary.update(over)
+    return summary
+
+
+def test_decision_quality_reads_committed_summaries_sorted(monkeypatch, tmp_path):
+    monkeypatch.setattr(decision_quality, "SUMMARY_DIR", tmp_path)
+    (tmp_path / "jongno.json").write_text(json.dumps(_summary_file("jongno"), ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "hongdae.json").write_text(json.dumps(_summary_file(), ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "README.md").write_text("요약 파일만 둔다", encoding="utf-8")
+    _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, NOW - timedelta(minutes=3))]))
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
+    assert response.status_code == 200
+    quality = response.json()["decision_quality"]
+    assert quality["state"] == "evaluated" and quality["stage"] == "S4"
+    assert quality["criterion"] == router_module.DECISION_QUALITY["criterion"]
+    assert quality["result"]["schema_version"] == "decision_quality_summary/3"
+    assert [c["cluster"] for c in quality["result"]["clusters"]] == ["hongdae", "jongno"]
+
+
+def test_decision_quality_also_rides_on_the_not_migrated_envelope(monkeypatch, tmp_path):
+    monkeypatch.setattr(decision_quality, "SUMMARY_DIR", tmp_path)
+    (tmp_path / "hongdae.json").write_text(json.dumps(_summary_file(), ensure_ascii=False), encoding="utf-8")
+    _install(monkeypatch, _Table(error=Exception("{'code': 'PGRST205', 'message': 'Could not find the table'}")))
+    body = router_module.build_summary(14, now=NOW)
+    assert body["state"] == "not_migrated" and body["decision_quality"]["state"] == "evaluated"
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "needle"),
+    [
+        ("hongdae.json", "{not json", "JSON 형식 오류"),
+        ("hongdae.json", json.dumps(_summary_file(headroom=1.2)), "headroom"),
+        ("hongdae.json", json.dumps(_summary_file(schema_version="decision_quality_summary/1")), "schema_version"),
+        ("jongno.json", json.dumps(_summary_file()), "파일 이름"),
+    ],
+)
+def test_invalid_summary_is_reported_not_500(monkeypatch, tmp_path, name, text, needle):
+    monkeypatch.setattr(decision_quality, "SUMMARY_DIR", tmp_path)
+    (tmp_path / name).write_text(text, encoding="utf-8")
+    _install(monkeypatch, _Table(rows=[_site_row(HONGDAE, NOW - timedelta(minutes=3))]))
+    response = _client().get("/api/v1/admin/engine-validation/seoul/summary", headers=developer_headers())
+    assert response.status_code == 200
+    body = response.json()
+    quality = body["decision_quality"]
+    assert quality["state"] == "invalid_summary" and quality["result"] is None
+    assert quality["reason"].startswith(f"{name}: ") and needle in quality["reason"]
+    # 요약 파일 하나가 틀려도 수집 상태 화면은 그대로 나온다.
+    assert body["pipeline"]["targets"]
 
 
 def test_places_carry_their_cadence_and_bucket_gap(monkeypatch):

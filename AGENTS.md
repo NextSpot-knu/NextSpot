@@ -37,6 +37,7 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 - `scripts/` — 저장소 도구(node). `apps/api/scripts/` — 적재·학습처럼 `app`을 import하는 파이썬 스크립트.
 - `.github/workflows/` — `ci`(게이트) · `ingest`(매일 KST 04:00 TourAPI 적재) ·
   `train-recommendation-model`(매주 월 03:00 KST 후보 학습) · `area-demand-alert`(수집 신선도 경보) · `warmup`(API Keep-Warm) · `deploy-verify`(main 의 API 변경이 운영 `/health` 에 떴는지) ·
+  `region-guard`(30분, 서울 지역 격리 감시·자동 비활성화) · `ingest-seoul`(수동, 서울 테스트베드 장소 적재 — 개발자 전용 지역) ·
   `collect-area-demand`·`uptime`(수동 복구용).
 - 배포: web = Vercel(main push 자동, 루트 `vercel.json`이 워크스페이스 빌드 — 대시보드 Root Directory 설정 없음),
   api = Render Blueprint(`render.yaml`, `/health`), DB·Auth·Storage = Supabase, 10분 주차 실측 수집 = Supabase pg_cron.
@@ -72,6 +73,10 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
   새 테이블·함수는 `build_reset.mjs`의 PRELUDE DROP 목록에도 추가.
 - `congestion_logs`는 테이블 SELECT가 회수되고 공개 컬럼 7개만 `GRANT SELECT(col)`이다(`20260905090000`). 여기에 컬럼을 더하면
   **브라우저(anon·authenticated)에서 기본 비공개** — 화면이 읽어야 하는 컬럼이면 마이그레이션에 GRANT를 함께 넣는다.
+- **지역 격리**(2026-11-01 S3): 서울은 `users.role='developer'` 전용 내부 지역이다. `facilities` 는 브라우저(anon·authenticated)에서
+  `region='gyeongju'` 행만 읽힌다(RESTRICTIVE `facilities_public_region_only`). `apps/api/app`·`apps/api/scripts` 의 service_role
+  시설 읽기·쓰기·임베드는 `app/core/region`(`apply_region`·`run_region_scoped`) 또는 `.eq('region', …)` 로 지역을 걸거나, 이유를 달아
+  허용 목록에 넣는다 — `tests/structure/test_facility_region_scope.py` 가 잡는다. 서울 시설 id 는 자식 표에 쓸 수 없다(DB 트리거).
 - SPOT 가중치(0.40/0.40/0.20)는 `score.py` ↔ `shared-types` 패리티 테스트로 강제. `score.py`는 회귀면이 넓은 신중 구역.
 - **권한**: 사람은 Supabase 로그인 + `users.role`(tourist/merchant/admin/developer)로 서버(`app/core/authz.py`)가
   매 요청 판정한다. 프런트의 `lib/account.tsx` 판정은 UI 게이팅일 뿐이다. 기계 호출(pg_cron·GitHub Actions)만 서비스 토큰
@@ -109,7 +114,7 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 |---|---|
 | API 엔드포인트 추가 | `app/routers/<x>.py`에 `APIRouter(prefix="/api/v1/...")`(예외: `predict`는 `main.py`에서 prefix 지정) → **`app/main.py`의 `include_router` 목록에 등록** → 가드: 역할이면 `authz.require_role`, 로그인만이면 `supabase.get_current_user`, **게스트(익명)를 막아야 하면 `authz.get_registered_user`**(JWT `is_anonymous` → 403, DB 안 읽음 — 역할·가게도 필요하면 `authz.get_current_profile` 의 `is_anonymous`), 기계 호출이면 `require_machine_or_role` → `tests/routers/test_<x>.py`(`tests/conftest.py`의 헬퍼 함수 `make_test_jwt`·`admin_headers`, `test_routers.py`의 `FakeSupabase`) → `docs/SYSTEM_MAP.md` §5 표 한 줄 |
 | UI 문자열 추가·변경 | `lib/i18n/messages/{ko,en,ja,zh}.json` 4개 동시, 키는 `<화면>.<요소>` camelCase(예: `mypage.menuImpact`). `lib/i18n/parity.test.ts`가 en/ja/zh 누락을, `scripts/check-i18n-keys.mjs`가 코드↔ko 누락을 잡는다(둘 다 죽은 키는 못 잡는다 — 지울 때 4 JSON에서 같이) → `DEMO_SCENARIO`·`JUDGE_QA` 문구 대조 |
-| DB 컬럼·테이블 추가 | `supabase/migrations/<타임스탬프>_<snake>.sql` — 타임스탬프는 **현재 마지막 파일보다 큰 값**(마지막이 미래 날짜면 그 날짜의 다음 시각, 예: `20260905100000`), 멱등(`IF NOT EXISTS`) → 새 테이블·함수만 `build_reset.mjs` PRELUDE DROP(컬럼은 불필요) → `node scripts/build_reset.mjs` → `tests/migrations/test_<x>_migration.py` → RLS·GRANT 검토(`facilities`는 anon 전체 읽기, `congestion_logs`는 컬럼 GRANT) → **화면까지 보이려면** API 응답 모델(`routers/infrastructures.py`의 `InfrastructureItem` 등)·웹의 명시 select 목록(`app/main/page.tsx`의 Supabase 직접 읽기)·`lib/api-client.ts` 타입도 같이 → HANDOVER "마이그레이션 확인" 쿼리에 행 추가 → 원격 적용은 SQL Editor 사람 작업 + `NOTIFY pgrst, 'reload schema'`(HANDOVER 기록) |
+| DB 컬럼·테이블 추가 | `supabase/migrations/<타임스탬프>_<snake>.sql` — 타임스탬프는 **현재 마지막 파일보다 큰 값**(마지막이 미래 날짜면 그 날짜의 다음 시각, 예: `20260905100000`), 멱등(`IF NOT EXISTS`) → 새 테이블·함수만 `build_reset.mjs` PRELUDE DROP(컬럼은 불필요) → `node scripts/build_reset.mjs` → `tests/migrations/test_<x>_migration.py` → RLS·GRANT 검토(`facilities`는 브라우저에서 `region='gyeongju'` 행만 — RESTRICTIVE 정책, `congestion_logs`는 컬럼 GRANT) → **화면까지 보이려면** API 응답 모델(`routers/infrastructures.py`의 `InfrastructureItem` 등)·웹의 명시 select 목록(`app/main/page.tsx`의 Supabase 직접 읽기)·`lib/api-client.ts` 타입도 같이 → HANDOVER "마이그레이션 확인" 쿼리에 행 추가 → 원격 적용은 SQL Editor 사람 작업 + `NOTIFY pgrst, 'reload schema'`(HANDOVER 기록) |
 | 프런트 화면 추가 | `app/<route>/page.tsx`(`'use client'`, 정적 export — 서버 코드 불가) → 진입 링크: 마이페이지 하위 화면은 `app/mypage/page.tsx`의 메뉴 배열(`labelKey`·`path`), 하단 탭은 `components/shell/BottomNav.tsx`(5탭 고정 — 늘리지 않는다), 관제는 `components/AdminSidebar.tsx`(관제 공용 셸이라 `components/admin/` 밖에 있다) → i18n 4로케일 → `npm run build`로 프리렌더 확인 → 여정에 들어가면 `e2e/`에 케이스 |
 | 외부 API·LLM 연동 추가 | `app/services/<x>_service.py`(키 없으면 무해 폴백, 타임아웃 명시) → `app/core/config.py`에 env(기본값 빈 문자열) → 이름을 `.env.example`·`render.yaml`·`docs/DEPLOY_AND_ENV.md`에 등록 |
 | 새 배치 스크립트 | `apps/api/scripts/<x>.py`(sys.path 부트스트랩 후 `app.*` import — ruff E402 허용) → `tests/scripts/test_<x>.py` → 워크플로가 부르면 `.github/workflows/`와 DEPLOY §4 갱신 |
@@ -130,7 +135,7 @@ node scripts/check-docs.mjs             # 문서 트리 규칙 (3초)
 - `main` = 프로덕션(Vercel·Render 자동 배포 + cron 발화 조건). 각자 브랜치에서 작업 → 게이트 통과 →
   fast-forward `git push origin <내-브랜치>:main`.
 - 커밋 메시지: `type(scope): 한 줄`(한국어). type은 `feat fix perf refactor test docs chore ci`, scope는
-  `web api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
+  `web mobile api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
   본문에는 "무엇"보다 **"왜"**를 쓴다. 작성자는 사람 본인의 git identity, AI는 `Co-Authored-By` 트레일러.
 - main에 올리기 전: 게이트 전부 green → HANDOVER 세션 항목 추가 + "배포 상태"에 main 갱신 날짜·커밋 범위 기록 → 푸시.
   Vercel·Render에 실제로 떴는지는 사람이 확인하고 확인 날짜를 적는다. 진행분은 즉시 커밋·푸시로 유실 방지.

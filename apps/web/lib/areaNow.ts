@@ -40,3 +40,54 @@ export function areaNowLevel(
   }
   return levels.length >= AREA_NOW_MIN_PLACES ? medianLevel(levels) : null;
 }
+
+// ── 내부 검증 지역: '지금 이 일대' 는 구역 실측(S3) ─────────────────────────────────────────────────
+//
+// 내부 지역에는 추정 피드가 없다(경주 공영주차·관광 통계로 만든 피드라서). 대신 서버가 구역(일대)마다 실시간 인구 단계를
+// 준다(GET /internal/regions/{id}/zones). 그 지역의 '지금 이 일대' 는 기준점(지역 중심)에서 **가장 가까운 지금 구역** 의
+// 단계다 — 가운데값을 새로 만들지 않는다(구역 단계는 이미 일대의 값이다). 경주 화면은 이 함수를 부르지 않는다.
+
+/** 구역 하나(GET /internal/regions/{id}/zones 의 InternalZoneView 중 이 판정이 읽는 필드). */
+export interface AreaNowZone {
+  zoneName: string;
+  levelBand: string | null;
+  isCurrent: boolean;
+  centroid: { lat: number; lng: number };
+  forecast?: readonly { targetAt: string; levelBand: string | null }[];
+}
+
+/** 가정 시각을 구역 예보로 말할 때 허용하는 차이 — 서버의 예보 맞춤 창(ZONE_FORECAST_MATCH_WINDOW)과 같은 30분. */
+export const AREA_ZONE_FORECAST_WINDOW_MS = 30 * 60 * 1000;
+
+/** 기준점에서 가장 가까운 '지금' 구역(단계가 있는 것만). 없으면 null. 순수 함수. */
+export function nearestCurrentZone<Z extends AreaNowZone>(zones: readonly Z[], point: { lat: number; lng: number }): Z | null {
+  let best: Z | null = null;
+  let bestM = Infinity;
+  for (const zone of zones) {
+    if (!zone || zone.isCurrent !== true || !zone.levelBand || !zone.zoneName) continue;
+    const c = zone.centroid;
+    if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+    const m = haversineMeters(point.lat, point.lng, c.lat, c.lng);
+    if (m < bestM) {
+      best = zone;
+      bestM = m;
+    }
+  }
+  return best;
+}
+
+/** 구역 예보 중 atMs 에 가장 가까운(±30분 안) 단계. 없으면 null — 지금 단계로 대신 말하지 않는다. 순수 함수. */
+export function zoneBandAt(zone: AreaNowZone, atMs: number): string | null {
+  let best: string | null = null;
+  let bestGap = Infinity;
+  for (const point of zone.forecast ?? []) {
+    const target = Date.parse(point.targetAt);
+    if (!Number.isFinite(target) || !point.levelBand) continue;
+    const gap = Math.abs(target - atMs);
+    if (gap <= AREA_ZONE_FORECAST_WINDOW_MS && gap < bestGap) {
+      best = point.levelBand;
+      bestGap = gap;
+    }
+  }
+  return best;
+}

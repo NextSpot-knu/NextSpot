@@ -1,4 +1,26 @@
 {
+  "region": {
+    "switchTitle": "服务地区",
+    "switchHint": "仅内部验证账号可见。切换后，地图、推荐和路线都会以该地区为准。",
+    "name": {
+      "gyeongju": "庆州"
+    },
+    "badgeInternal": "内部验证地区 · {name}",
+    "emptyRegion": "暂无地点",
+    "resetNotice": "此账号无法查看该地区，已切回庆州。",
+    "unavailable": "未能载入地区信息，正在显示庆州。",
+    "searchPlaceholder": "搜索{region}的地点、菜单或氛围",
+    "locationFallback": "无法确定你的位置，将以{region}中心为基准为你导航。",
+    "outOfRegionStart": "您目前不在{region}，已按从该地区中心出发为您推荐",
+    "mapPreview": "{region}景点",
+    "waitLegendUniform": "卡片上的步行时间以该地区中心为起点。",
+    "areaNow": "{zone}一带此刻：{label}",
+    "areaAt": "{time}时，{zone}一带：{label} · 预测",
+    "loadingStep1": "正在查看{region}的实时拥挤程度…",
+    "emptyNotice": "所选地区目前没有可显示的地点，已切回庆州。",
+    "roleTraveler": "{region}旅行者",
+    "impactCardTitle": "我的{region}旅行影响力"
+  },
   "timeSim": {
     "label": "假定时间",
     "now": "现在(实时)",
@@ -387,6 +409,7 @@
     "noMatch": "暂无符合该分类的地方"
   },
   "map": {
+    "zoneLayer": "区域拥挤",
     "heatmap": "热力图",
     "forecast": "AI预测",
     "barrierFree": "轮椅",
@@ -644,6 +667,15 @@
     "authCta": "前往地图"
   },
   "card": {
+    "zoneSource": "基于{zone}一带的实时人口",
+    "zoneForecastAt": "按{time}到达预测",
+    "zoneObservedAgo": "{min}分钟前观测",
+    "zoneUsual": {
+      "busier": "比平时拥挤",
+      "usual": "与平时差不多",
+      "quieter": "比平时空闲"
+    },
+    "reportDisabledRegion": "该地区暂不接受拥挤上报",
     "reject": "不再显示",
     "putOff": "先收藏\n再看下一个推荐",
     "accept": "现在就去（步行导航）",
@@ -1607,5 +1639,173 @@
     "learnHint": "在推荐卡片上点“现在就去”使用导航会立即更新这份档案；“不再显示”要在你于我的实验室说明原因后才会更新。",
     "detailsToggle": "详情",
     "detailsBody": "从推荐卡片使用导航（接受）会立即按+10%调整8个口味维度；“不再显示”（拒绝）要在你于我的实验室说明是口味原因后才按−5%调整。"
+  },
+  "app": {
+    "auth": {
+      "iosSocialNote": "使用 Google 或 Kakao 注册的账号暂时无法在 iOS 应用中登录。请使用邮箱账号或以访客身份使用。",
+      "resetOpensOnWeb": "邮件中的链接会在网页浏览器中打开。请在网页上设置新密码，然后用该密码登录应用。"
+    },
+    "consent": {
+      "title": "同意使用位置信息",
+      "lead": "NextSpot 使用位置信息为您推荐附近人少的地方。请阅读以下内容并选择是否同意。",
+      "purposeTitle": "使用目的",
+      "purposeBody": "用于推荐您附近人少的地方、计算步行时间，以及确认您是否在庆州。",
+      "whenTitle": "使用时机",
+      "whenBody": "仅在打开首页、替代推荐或路线页面时读取一次。应用在后台时不会读取位置。",
+      "retentionTitle": "记录与保存",
+      "retentionBody": "处理推荐请求时，位置和距离数值可能会保留在记录中。保存期限和处理方式请参阅隐私政策。",
+      "declineTitle": "如果不同意",
+      "declineBody": "我们不会使用您的位置，将以皇理团路为中心进行推荐。之后可在“我的”设置中更改。",
+      "ageConfirm": "我已满 14 周岁",
+      "ageHint": "未满 14 周岁需要法定监护人同意，因此应用无法接受其位置信息使用同意。请点按“不同意”。",
+      "agree": "同意",
+      "decline": "不同意",
+      "saveFailed": "无法保存您的选择。将在不使用位置的情况下继续。"
+    },
+    "intro": {
+      "languageLabel": "语言",
+      "faq1Q": "需要注册才能使用吗？",
+      "faq1A": "不需要。无需登录即可直接使用。注册后，收藏的地点和偏好可以在其他设备上继续使用。"
+    },
+    "course": {
+      "emptyBody": "再多选一种类型，或放宽步行时间、行程时间，就能马上为你生成路线。",
+      "slotLateNight": "时间较晚，难以确认营业情况。白天再来查看，餐厅和咖啡馆的选择会更多。",
+      "reorderHint": "长按并拖动即可调整顺序",
+      "moveEarlier": "将{type}前移",
+      "moveLater": "将{type}后移"
+    },
+    "home": {
+      "searchLocalTitle": "NextSpot 地点搜索结果",
+      "locationPrimer": {
+        "title": "为你寻找附近人少的地方",
+        "body": "允许定位后，我们会优先显示你当前位置步行可到的空闲地点。不允许也会以皇理团路为中心推荐。",
+        "continue": "继续"
+      },
+      "locationBanner": {
+        "enable": "开启附近推荐",
+        "coarse": "开启精确定位可找到更近的地点"
+      },
+      "festivalAreaLabel": "🏮 {title} 一带",
+      "myLocation": {
+        "recenter": "移到我的位置",
+        "blockedTitle": "位置权限已关闭",
+        "blockedBody": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置权限改为“仅在使用应用期间允许”。",
+        "blockedBodyIos": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置访问权限改为“使用App期间”。",
+        "coarseTitle": "精确位置已关闭",
+        "openSettings": "打开设置"
+      },
+      "tripCard": {
+        "expand": "展开行程卡片",
+        "collapse": "收起行程卡片"
+      }
+    },
+    "mypage": {
+      "openOnWeb": "在网页中打开",
+      "privacyWebLink": "在网页中查看全文",
+      "deleteDataTitle": "删除我的数据",
+      "deleteDataDesc": "将从服务器永久删除已收藏的地点以及推荐和到访记录，并清除本设备上的数据。",
+      "deleteData": "永久删除我的数据",
+      "deleteDataConfirm": "要永久删除您的数据吗？",
+      "deleteDataConfirmDesc": "已收藏的地点以及推荐和到访记录将从服务器上一并删除，且无法恢复。删除后将以新的游客身份重新开始。",
+      "deleteDataAction": "删除",
+      "deleteDataSuccess": "已删除您的数据",
+      "deleteDataFailed": "删除失败，请稍后再试。"
+    },
+    "cardSheet": {
+      "handle": "调整推荐卡片高度",
+      "state": {
+        "minimized": "预览",
+        "normal": "标准",
+        "expanded": "展开"
+      },
+      "emptyTitle": "目前没有可推荐的地点",
+      "photoMenu": "照片选项",
+      "photoReport": "举报照片",
+      "photoReportTitle": "要举报这张照片吗？",
+      "photoReportBody": "如果这张照片不适当或与店铺无关，请告诉我们。我们会核实并下架。",
+      "photoReportSend": "举报",
+      "photoReported": "已举报，我们会核实处理。",
+      "photoReportFailed": "暂时无法提交举报，请稍后再试。",
+      "photoHide": "隐藏这张照片",
+      "photoHidden": "已隐藏这张照片。"
+    },
+    "settings": {
+      "locationConsentTitle": "位置信息使用同意",
+      "locationConsentDesc": "同意后，首页、替代推荐和路线会优先推荐您附近的地方。不同意时以皇理团路为中心推荐。",
+      "locationConsentGranted": "已同意",
+      "locationConsentDeclined": "未同意",
+      "locationConsentNone": "尚未选择",
+      "locationConsentWithdraw": "撤回同意",
+      "locationConsentGive": "前往同意",
+      "locationConsentWithdrawConfirm": "要撤回位置信息使用同意吗？",
+      "locationConsentWithdrawConfirmDesc": "撤回后将不再读取您的位置，并以皇理团路为中心推荐。您可以随时重新同意。",
+      "locationConsentWithdrawn": "已撤回同意，将不再使用您的位置。",
+      "aiConsentTitle": "外部 AI 解读",
+      "aiConsentDesc": "选择是否将您直接输入的内容和没有结果的搜索词发送到外部 AI 服务（Upstage）进行解读。若不允许，将关闭直接输入框，只使用选项和基本搜索。",
+      "aiConsentGranted": "已允许",
+      "aiConsentDeclined": "不允许",
+      "aiConsentNone": "尚未选择 — 首次使用时会询问",
+      "aiConsentWithdraw": "撤回允许",
+      "aiConsentGive": "选择是否允许",
+      "aiConsentWithdrawConfirm": "要撤回外部 AI 解读的允许吗？",
+      "aiConsentWithdrawConfirmDesc": "撤回后，不会再将您输入的内容发送到外部 AI。直接输入框将关闭，选项和基本搜索仍可使用。",
+      "aiConsentWithdrawn": "已撤回允许。今后不会再将您输入的内容发送到外部 AI。"
+    },
+    "aiConsent": {
+      "promptTitle": "要用 AI 解读您输入的内容吗？",
+      "promptBody": "您输入的内容（包括没有结果的搜索词）会发送到外部 AI 服务（Upstage）进行解读。不会同时发送账号和位置信息。即使不允许，也可以照常使用选项和基本搜索。",
+      "allow": "允许",
+      "decline": "不允许",
+      "notice": "您输入的内容会发送到外部 AI 服务（Upstage）进行解读。",
+      "declinedHint": "由于您未允许发送到外部 AI，直接输入已关闭。仍可使用选项。",
+      "openSettings": "在设置中更改"
+    },
+    "privacy": {
+      "collectBody": "我们处理您输入或选择的信息（如偏好设置、收藏的地点、拥挤反馈与到访确认回答、拒绝理由、咨询内容）以及用户编号（包括访客）。注册后还会处理邮箱和昵称（社交登录时为该服务提供的邮箱和姓名）。无需登录即可以访客身份使用。",
+      "locationTitle": "位置信息",
+      "locationBody": "仅在您同意《位置服务使用条款》并在设备上允许使用位置时，每次打开首页、替代推荐、路线、卫生间、停车场页面时读取一次当前位置并发送到服务器。仅用于推荐附近人少的地方、计算步行时间以及确认是否在庆州。不会在后台读取，也不会持续追踪您的移动轨迹。目前会保留在两处：查询卫生间和停车场时，坐标包含在请求地址中并留在服务器访问日志里；推荐记录中不保存坐标，而是与用户编号一起保存到各候选地点的距离，可据此推断请求时的位置。",
+      "aiTitle": "外部 AI 处理",
+      "aiBody": "仅在您允许时，您直接输入的内容（旅途中更改条件、实验室中的“直接说明”）以及没有结果的搜索词，会经由我们的服务器发送到外部 AI 服务 Upstage 进行解读。只发送文字，不发送账号和位置。服务器日志不保留原文，但在实验室中，AI 选择的理由和简短摘要可能会与拒绝记录一起保存。可随时在“我的 → 设置”中撤回。",
+      "storageBody": "语言、同意记录等设备设置以及收藏列表的副本保存在本设备的应用存储中。账号资料、偏好、收藏地点、推荐与到访记录保存在 Supabase，登录的设备之间可同步。",
+      "usageBody": "为改进应用，我们以设备上生成的匿名编号记录您打开的页面、在推荐卡片上点击的按钮、到达确认和拥挤反馈。记录不包含姓名、账号、位置或搜索词，不发送给外部分析公司，一年后删除。删除数据时也会重新生成匿名编号。",
+      "thirdPartyBody": "我们不会出售您的信息，也不会将其用于广告。点击导航时会带着目的地打开 Kakao 地图（应用或网页）。为查找结果，服务器会将地点搜索词发送给 Kakao 本地搜索和韩国观光公社 TourAPI。地图在 Android 上使用 Google 地图，在 iOS 上使用 Apple 地图显示。",
+      "processorsTitle": "委托处理与跨境传输",
+      "processorsBody": "为运营服务，我们委托以下公司处理：Supabase（数据库与登录，新加坡区域）、Render（API 服务器，新加坡区域）、Vercel（网页与公开说明托管，美国等）、Upstage（外部 AI 解读，仅在您允许时）、Expo（应用构建与分发，使用应用期间不会发送个人信息）。跨境传输在您使用应用时通过网络进行，保存期限遵循下方“保存期限与销毁”。",
+      "retentionTitle": "保存期限与销毁",
+      "retentionBody": "删除账号或数据时，账号、偏好、收藏、推荐和到访记录会一并删除。使用记录一年后、访客回答附带的防滥用值 30 天后自动删除。服务器访问日志（包括请求地址中的坐标和搜索词）在托管服务商的日志保存期限结束后删除。",
+      "deletionTitle": "删除数据",
+      "deletionBody": "在“我的 → 设置”中，注册账号可使用“删除账号”，访客可使用“删除我的数据”，立即删除服务器上与您关联的数据。本设备上的个人数据和匿名编号也会一并删除。",
+      "childrenTitle": "未满 14 周岁",
+      "childrenBody": "我们不接受未满 14 周岁者的位置信息使用同意。法定代理人可通过客服申请查看或删除孩子的数据。",
+      "locationTermsLink": "查看《位置服务使用条款》全文"
+    },
+    "locationTerms": {
+      "consentTitle": "同意《位置服务使用条款》",
+      "consentLead": "NextSpot 提供位置服务，为您推荐附近人少的地方。根据韩国法律（《位置信息法》），仅在您同意条款后提供该服务。不同意也可以照常使用其他功能。",
+      "agreeCheck": "我同意《位置服务使用条款》",
+      "ageHint": "未满 14 周岁者需要法定代理人同意，因此无法在应用中接受位置信息使用同意。请点击“不同意并继续”。",
+      "viewFull": "查看全文",
+      "agreeContinue": "同意并继续",
+      "declineContinue": "不同意并继续",
+      "fullTitle": "位置服务使用条款",
+      "intro": "本条款规定 NextSpot 位置服务的使用条件、程序以及用户的权利。",
+      "serviceTitle": "第1条 服务内容",
+      "serviceBody": "位置信息用于推荐当前位置附近人少的地点、计算步行时间、确认是否在庆州以及查找附近的卫生间和停车场。",
+      "collectTitle": "第2条 收集方式与时间",
+      "collectBody": "仅在您同意本条款并在设备设置中允许使用位置时，使用应用期间每次打开首页、替代推荐、路线、卫生间、停车场页面时读取一次设备当前位置。不在后台读取，也不会持续追踪移动轨迹。",
+      "useTitle": "第3条 使用与保存",
+      "useBody": "读取的位置会发送到服务器，仅用于计算推荐。目前，查询卫生间和停车场时请求地址中的坐标会留在服务器访问日志中（在托管服务商的日志保存期限内），推荐记录中会与用户编号一起保存到各候选地点的距离（直到删除账号或数据）。详情请参阅隐私政策。",
+      "shareTitle": "第4条 向第三方提供",
+      "shareBody": "我们不会向第三方提供您的位置信息。点击导航时会带着目的地打开 Kakao 地图，之后的处理遵循 Kakao 的条款。",
+      "withdrawTitle": "第5条 撤回同意",
+      "withdrawBody": "可随时在“我的 → 设置”中撤回同意。撤回后不再读取位置，并以皇理团路为中心推荐。已保存的推荐记录可通过“删除我的数据”或“删除账号”删除。",
+      "childTitle": "第6条 未满 14 周岁",
+      "childBody": "未满 14 周岁者需要法定代理人同意，因此应用不接受未满 14 周岁者的位置信息使用同意。",
+      "rightsTitle": "第7条 用户权利与咨询",
+      "rightsBody": "您可以要求确认、查阅或更正位置信息的使用与提供情况。请通过“我的”中的客服提出。",
+      "limitTitle": "第8条 准确性",
+      "limitBody": "位置可能因设备和网络环境存在误差，推荐、距离和时间仅供参考。",
+      "effective": "生效日期：{date}"
+    }
   }
 }

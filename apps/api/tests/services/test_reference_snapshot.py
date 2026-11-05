@@ -66,7 +66,8 @@ class _Query:
 
     def _filter(self, column, predicate):
         def _apply(row):
-            value = row.get(column)
+            # 지역 격리(S3) 이전에 만든 픽스처 행에는 region 칸이 없다 — 컬럼 기본값('gyeongju')과 같게 읽는다.
+            value = row.get(column, "gyeongju" if column == "region" else None)
             return value is not None and predicate(value)
         self.filters.append(_apply)
         return self

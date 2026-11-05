@@ -34,6 +34,8 @@ import { countUnseenReplies } from './inquiries/seen';
 import { clearUserScopedData } from '@/lib/userData';
 const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false });
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { RegionSwitcher } from '@/components/RegionSwitcher';
+import { useRegion } from '@/lib/regionContext';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { AccountSection } from '@/components/AccountSection';
 // 최상단 나의 여행 임팩트 카드 — 실제 기록이 있을 때만 그린다. 탭하면 임팩트 상세로.
@@ -164,8 +166,29 @@ function ConsoleEntries() {
   if (!canEnterMerchantConsole(account) && !canEnterAdminConsole(account)) return <ConsolePreviewEntry />;
   return (
     <div className="flex flex-col gap-3">
+      <RegionSwitchEntry />
       <MerchantConsoleEntry />
       <AdminConsoleEntry />
+    </div>
+  );
+}
+
+/**
+ * 서비스 지역 카드(S3) — 내부 계정(developer)에게만, 서버가 내부 지역을 하나 이상 허락했을 때만 보인다.
+ * 그 밖의 계정(관광객·게스트·사장님·관리자)에게는 아무것도 그리지 않고 아무것도 묻지 않는다(canSwitch 가 false).
+ */
+function RegionSwitchEntry() {
+  const t = useT();
+  const { canSwitch, availableRegions, requestRegions } = useRegion();
+  useEffect(() => {
+    if (canSwitch) requestRegions();
+  }, [canSwitch, requestRegions]);
+  if (!canSwitch || availableRegions.length === 0) return null;
+  return (
+    <div className="rounded-3xl border border-line bg-white/80 p-5">
+      <p className="font-bold text-muk">{t('region.switchTitle')}</p>
+      <p className="mt-0.5 text-xs text-muk-soft">{t('region.switchHint')}</p>
+      <RegionSwitcher className="mt-3 min-h-11" />
     </div>
   );
 }
@@ -188,6 +211,8 @@ export default function MyPage() {
   const router = useRouter();
   const t = useT();
   const { account, status: accountStatus } = useAccount();
+  // 지역(S3) — 내부 검증 지역을 보는 동안 프로필 알약은 경주가 아니라 그 지역 이름으로 말한다(경주는 오늘 문구 그대로).
+  const { isPublic: regionIsPublic, regionName } = useRegion();
   // 역할 변경 카드: 숨김 / 신청 / 심사중. status 를 같이 넘겨야 첫 조회 전에 카드가 깜빡이지 않는다.
   const roleRequestEntry = roleRequestEntryState(account, accountStatus);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -517,7 +542,7 @@ export default function MyPage() {
                   )}
 
                   <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
-                    {t('mypage.roleTraveler')}
+                    {regionIsPublic ? t('mypage.roleTraveler') : t('region.roleTraveler', { region: regionName })}
                   </div>
 
                   <button

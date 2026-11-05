@@ -20,6 +20,7 @@ from app.core.config import settings as app_settings
 from app.core.authz import ROLE_ADMIN, forbid_judge_admin, get_current_profile, require_role
 from app.core.executors import run_admin_io
 from app.core.internal_accounts import filter_internal_roles, internal_ids_from_rows, is_internal_user
+from app.core.region import INTERNAL_REGIONS, PUBLIC_REGION, apply_region, run_region_scoped
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
 from app.services import reference_snapshot
@@ -29,6 +30,22 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_role(ROLE_ADMIN))])
 
 FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
+
+# 지역 격리 DB 가드(마이그레이션 20261101090000)의 거절 표식. 관제는 공개 지역(경주)만 다룬다(S3) —
+# 서울 좌표로 만들거나(23514 CHECK) 서울 시설에 기록하려 하면(P0001 트리거) 입력 문제라 422 로 돌려준다.
+_REGION_REJECTIONS = (
+    "facility_region_not_public",
+    "facility_region_immutable",
+    "facilities_seoul_coords_need_seoul_region",
+    "facilities_seoul_region_needs_seoul_coords",
+    "facilities_region_known",
+)
+_REGION_REJECTED_DETAIL = "공개 지역(경주) 밖의 시설·좌표는 관제에서 다룰 수 없습니다."
+
+
+def _region_rejected(exc: Exception) -> bool:
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return any(marker in text for marker in _REGION_REJECTIONS)
 INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 와 동일
 
 # 관리자 수동 혼잡 개입(Override)의 source — **전용 값**이다(20260906120000 에서 CHECK 확장).
@@ -265,6 +282,8 @@ async def create_facility(req: FacilityCreate):
     except HTTPException:
         raise
     except Exception as e:
+        if _region_rejected(e):
+            raise HTTPException(status_code=422, detail=_REGION_REJECTED_DETAIL) from None
         logger.error("admin_facility_create_failed", error=str(e))
         raise HTTPException(status_code=500, detail="시설 등록에 실패했습니다.")
 
@@ -274,29 +293,40 @@ async def update_facility(facility_id: str, req: FacilityUpdate):
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=422, detail="수정할 필드가 없습니다.")
+    def _write(with_region: bool) -> list[dict]:
+        # 공개 지역(경주) 시설만 고친다 — 서울(개발자 전용) 시설은 없는 시설과 같은 404(쿼리 안에서 거른다).
+        query = supabase_admin.table("facilities").update(fields).eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.execute().data or []
+
     try:
-        res = await run_admin_io(
-            supabase_admin.table("facilities").update(fields).eq("id", facility_id).execute
-        )
-        if not res.data:
+        rows = await run_admin_io(run_region_scoped, _write, region=PUBLIC_REGION)
+        if not rows:
             raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
         reference_snapshot.mark_dirty("facilities")
         logger.info("admin_facility_updated", facility_id=facility_id, fields=list(fields))
-        return res.data[0]
+        return rows[0]
     except HTTPException:
         raise
     except Exception as e:
+        if _region_rejected(e):
+            raise HTTPException(status_code=422, detail=_REGION_REJECTED_DETAIL) from None
         logger.error("admin_facility_update_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="시설 수정에 실패했습니다.")
 
 
 @router.delete("/facilities/{facility_id}", dependencies=[Depends(forbid_judge_admin(_JUDGE_DELETE_DETAIL))])
 async def delete_facility(facility_id: str):
+    def _delete(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").delete().eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)  # 서울 시설은 관제에서 지울 수 없다(404)
+        return query.execute().data or []
+
     try:
-        res = await run_admin_io(
-            supabase_admin.table("facilities").delete().eq("id", facility_id).execute
-        )
-        if not res.data:
+        rows = await run_admin_io(run_region_scoped, _delete, region=PUBLIC_REGION)
+        if not rows:
             raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
         reference_snapshot.mark_dirty("facilities")
         logger.info("admin_facility_deleted", facility_id=facility_id)
@@ -334,17 +364,22 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
     """
     # 1. 시설 존재 검증 + capacity 조회 (없는 facility_id 로의 FK 위반/유령 로그 방지)
     #    PK 단건 조회라 limit(1) 은 의도된 상한이다(페이지네이션 대상 아님).
+    #    공개 지역(경주) 시설만 — 서울 시설은 404(쿼리 안에서 거른다. congestion_logs 트리거도 막는다).
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select("id, capacity").eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
     try:
-        fac_res = await run_admin_io(
-            supabase_admin.table("facilities").select("id, capacity").eq("id", facility_id).limit(1).execute
-        )
+        fac_rows = await run_admin_io(run_region_scoped, _read, region=PUBLIC_REGION)
     except Exception as e:
         logger.error("admin_congestion_lookup_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
-    if not fac_res.data:
+    if not fac_rows:
         raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
 
-    capacity = fac_res.data[0].get("capacity") or 0
+    capacity = fac_rows[0].get("capacity") or 0
     row = {
         "facility_id": facility_id,
         "congestion_level": req.level,
@@ -374,6 +409,8 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
     except HTTPException:
         raise
     except Exception as e:
+        if _region_rejected(e):
+            raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.") from None
         logger.error("admin_congestion_override_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
 
@@ -717,12 +754,25 @@ def _trust_snapshot(row: dict) -> dict:
     }
 
 
+# 경주가 아닌 추천 행의 지역 표시 — recommendations 라우터가 **경주가 아닌 추천에만** 스냅샷에 적는다(경주 행에는 없다).
+# 관제는 경주 숫자만 본다: 개발자가 서울 테스트베드에서 받은 추천·방문 결과를 model-trust 에 섞지 않는다(S3).
+_REC_REGION_PATH = "recommendation_snapshot->>region"
+
+
+def _is_internal_region_snapshot(row: dict) -> bool:
+    snapshot = row.get("recommendation_snapshot")
+    return isinstance(snapshot, dict) and snapshot.get("region") is not None
+
+
 def _fetch_trust_recommendations(since: str) -> tuple[list[dict], bool]:
     """model-trust 의 추천 창 — 얇은 JSON 경로 조회, 거부되면 예전 통째 조회로 한 번 물러선다.
 
     JSON 경로 select 는 운영 PostgREST 에서 처음 쓰는 모양이라, 만에 하나 거부(400)돼도 관제 화면이
     500 으로 깨지지 않게 한다. 물러선 조회는 메모리를 더 쓰지만 게이트(app.core.memory_guard)가 동시
     실행을 묶고 있다. 두 번째도 실패하면 예외를 그대로 올린다(라우터가 500 으로 바꾼다).
+
+    경주가 아닌 추천(스냅샷의 지역 표시)은 쿼리 안에서 뺀다 — 상한(10,000행)을 서울 행이 먹지 않게.
+    물러선 조회는 JSON 경로 필터도 쓰지 않고 받은 뒤 같은 기준으로 뺀다.
     """
     def _filters(q):
         return (
@@ -732,14 +782,116 @@ def _fetch_trust_recommendations(since: str) -> tuple[list[dict], bool]:
             .order("id", desc=True)
         )
 
+    def _public_only(q):
+        return _filters(q.is_(_REC_REGION_PATH, "null"))
+
     try:
-        return _fetch_capped("recommendations", _TRUST_REC_SELECT, _filters, _TRUST_REC_CAP, endpoint="model-trust")
+        return _fetch_capped(
+            "recommendations", _TRUST_REC_SELECT, _public_only, _TRUST_REC_CAP, endpoint="model-trust"
+        )
     except Exception as exc:  # noqa: BLE001 — 어떤 거부든 한 번은 통째 조회로 물러선다
         logger.warning("admin_trust_slim_select_failed", error=str(exc))
-        return _fetch_capped(
+        rows, truncated = _fetch_capped(
             "recommendations", "id,recommendation_snapshot,created_at", _filters, _TRUST_REC_CAP,
             endpoint="model-trust",
         )
+        return [row for row in rows if not _is_internal_region_snapshot(row)], truncated
+
+
+# 방문 결과의 지표 칸. 경주 숫자에서 서울 방문 결과를 빼는 기본 경로는 추천 임베드(!inner)의 지역 표시 필터다.
+_TRUST_OUTCOME_COLUMNS = "recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating"
+_TRUST_OUTCOME_EMBED_ALIAS = "recommendation"
+_TRUST_OUTCOME_PUBLIC_SELECT = f"{_TRUST_OUTCOME_COLUMNS},{_TRUST_OUTCOME_EMBED_ALIAS}:recommendations!inner(id)"
+_OUTCOME_REC_REGION_PATH = f"{_TRUST_OUTCOME_EMBED_ALIAS}.{_REC_REGION_PATH}"
+# 물러선 경로의 서울 추천 id 조회 창 — 지표 기간보다 이만큼 앞에서 시작한다(방문 결과는 추천 직후에 생기지만,
+# 기간 경계 직전의 추천이 기간 안에 방문 결과를 남길 수 있다).
+_TRUST_INTERNAL_ID_SLACK = timedelta(days=2)
+
+
+def _fetch_trust_outcomes(since: str) -> tuple[list[dict], bool]:
+    """model-trust 의 방문 결과 창 — 경주 추천의 방문 결과만.
+
+    방문 결과 행에는 지역이 없다. 추천 임베드(``recommendations!inner(id)``)에 스냅샷 지역 표시 필터를 걸어 **쿼리
+    안에서** 서울 방문 결과를 뺀다 — 별도 id 조회·상한·실패 시 빈 집합 같은 틈이 없다. 임베드 필터가 거부되면(운영
+    PostgREST 가 모르는 모양) 한 번 물러선다: 필터 없이 받고, 지표 기간에 묶인 서울 추천 id 로 뺀다.
+    """
+
+    def _filters(q):
+        return (
+            q.gte("created_at", since)
+            .order("created_at", desc=True)
+            .order("recommendation_id", desc=True)  # PK — created_at 동률에서의 tiebreak
+        )
+
+    try:
+        rows, truncated = _fetch_capped(
+            "recommendation_outcomes",
+            _TRUST_OUTCOME_PUBLIC_SELECT,
+            lambda q: _filters(q.is_(_OUTCOME_REC_REGION_PATH, "null")),
+            _TRUST_OUTCOME_CAP,
+            endpoint="model-trust",
+        )
+        # 임베드 칸은 필터용이다 — 행 모양은 예전과 같게 둔다.
+        return [{k: v for k, v in row.items() if k != _TRUST_OUTCOME_EMBED_ALIAS} for row in rows], truncated
+    except Exception as exc:  # noqa: BLE001 — 어떤 거부든 한 번은 예전 방식으로 물러선다
+        logger.warning("admin_trust_outcome_region_embed_failed", error=str(exc))
+    excluded = _fetch_internal_region_recommendation_ids(since)
+    if excluded is None:
+        # 서울 추천을 가려낼 수 없다 — 방문 결과를 세면 서울이 경주 퍼널에 섞인다(열린 쪽 실패). 방문 결과 지표를
+        # 비우고 절단으로 알린다(화면 경고 metrics_truncated — 수치가 창 전체의 값이 아니다).
+        logger.error("admin_trust_outcomes_withheld_region_unknown")
+        return [], True
+    rows, truncated = _fetch_capped(
+        "recommendation_outcomes", _TRUST_OUTCOME_COLUMNS, _filters, _TRUST_OUTCOME_CAP, endpoint="model-trust",
+    )
+    if excluded:
+        rows = [row for row in rows if str(row.get("recommendation_id")) not in excluded]
+    return rows, truncated
+
+
+def _fetch_internal_region_recommendation_ids(since: str) -> frozenset[str] | None:
+    """경주가 아닌 추천 행 id(지표 기간 + 여유 안) — 물러선 경로에서 방문 결과를 경주 숫자에서 빼는 데 쓴다.
+
+    기간(created_at)에 묶고 created_at 순으로 읽는다 — 표 전체를 훑지 않는다. 집합이 완전하지 않으면(조회 실패·
+    상한 도달) None 이다 — 호출부는 방문 결과를 세지 않는다(닫힌 쪽). 관제 화면을 500 으로 깨뜨리지도 않는다.
+    """
+    try:
+        window_start = (datetime.fromisoformat(since) - _TRUST_INTERNAL_ID_SLACK).isoformat()
+    except (TypeError, ValueError):
+        window_start = since
+    ids: set[str] = set()
+    try:
+        for region in sorted(INTERNAL_REGIONS):
+            rows, truncated = _fetch_capped(
+                "recommendations",
+                "id",
+                lambda q, region=region: q.eq(_REC_REGION_PATH, region)
+                .gte("created_at", window_start)
+                .order("created_at", desc=True)
+                .order("id", desc=True),
+                _TRUST_OUTCOME_CAP,
+                endpoint="model-trust",
+            )
+            if truncated:
+                logger.warning("admin_trust_internal_region_ids_truncated", region=region, cap=_TRUST_OUTCOME_CAP)
+                return None
+            ids.update(str(row["id"]) for row in rows if row.get("id"))
+    except Exception as exc:  # noqa: BLE001 — 관제 화면은 깨뜨리지 않는다(호출부가 방문 결과를 비운다)
+        logger.warning("admin_trust_internal_region_ids_failed", error=str(exc))
+        return None
+    return frozenset(ids)
+
+
+def _fetch_public_facility_rows() -> list[dict]:
+    """model-trust 의 시설 전량 — 공개 지역(경주)만, 지역은 쿼리 안에서(region 컬럼 전이면 경주 폴백)."""
+
+    def _read(with_region: bool) -> list[dict]:
+        def _filters(query):  # range 페이지 경계 고정
+            return (apply_region(query, PUBLIC_REGION) if with_region else query).order("id")
+
+        return fetch_all_rows(supabase_admin, "facilities", "id,name,type,is_active", _POSTGREST_PAGE_SIZE, _filters)
+
+    return run_region_scoped(_read, region=PUBLIC_REGION)
 
 
 @router.get("/model-trust")
@@ -766,16 +918,8 @@ async def get_model_trust(days: int = 30):
                 .eq("status", "active").limit(1).execute
             ),
             run_admin_io(_fetch_trust_recommendations, since),
-            run_admin_io(
-                _fetch_capped,
-                "recommendation_outcomes",
-                "recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating",
-                lambda q: q.gte("created_at", since)
-                .order("created_at", desc=True)
-                .order("recommendation_id", desc=True),  # PK — created_at 동률에서의 tiebreak
-                _TRUST_OUTCOME_CAP,
-                endpoint="model-trust",
-            ),
+            # 경주 추천의 방문 결과만 — 서울 방문 결과는 조회 안에서 빠진다(_fetch_trust_outcomes).
+            run_admin_io(_fetch_trust_outcomes, since),
             run_admin_io(
                 _fetch_capped,
                 "congestion_logs",
@@ -791,12 +935,8 @@ async def get_model_trust(days: int = 30):
                 # 목록이라, 조회에서 빠진 시설은 공백으로도 잡히지 않고 active_facilities·
                 # 커버리지 분모까지 함께 틀어진다. 예전의 .limit(5000) 은 시설 수(활성 1,669곳,
                 # 2026-09-20 실측)보다 컸으니 무해해 보였지만, 정작 자른 것은 PostgREST 의 1000행 캡이었다.
-                fetch_all_rows,
-                supabase_admin,
-                "facilities",
-                "id,name,type,is_active",
-                _POSTGREST_PAGE_SIZE,
-                lambda q: q.order("id"),  # range 페이지 경계 고정
+                # 관제는 공개 지역(경주)만 — 서울(개발자 전용) 시설이 공백 목록·분모에 섞이지 않게(S3).
+                _fetch_public_facility_rows,
             ),
         )
     except Exception as exc:

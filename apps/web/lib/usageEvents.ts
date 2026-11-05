@@ -5,6 +5,7 @@
 // 추적 거부(Do Not Track)는 세지 않는다. 기록은 화면 흐름을 막지 않는다 — 모았다가 한 번에 보내고, 실패하면
 // 조용히 버리며 그 탭에서는 더 보내지 않는다(표가 아직 없거나 권한이 없을 때 매 동작마다 실패하지 않게).
 import { createPublicClient } from '@/lib/supabase';
+import { getActiveRegion, isPublicRegion } from '@/lib/regionRuntime';
 
 /** DB CHECK(supabase/migrations/20261023090000_usage_events.sql)와 같은 목록 — 하나를 더하면 둘 다 고친다. */
 export const USAGE_EVENTS = [
@@ -42,6 +43,8 @@ let stopped = false;
 
 function shouldRecord(): boolean {
   if (stopped || typeof window === 'undefined') return false;
+  // 내부 검증 지역을 보는 동안은 세지 않는다 — 운영 이용 기록(경주)에 내부 테스트가 섞이지 않게(lib/regionRuntime).
+  if (!isPublicRegion(getActiveRegion())) return false;
   if (navigator.webdriver || navigator.doNotTrack === '1') return false;
   return window.location.hostname === PRODUCTION_HOST;
 }

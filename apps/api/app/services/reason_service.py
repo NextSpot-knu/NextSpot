@@ -71,6 +71,51 @@ def _industry_pattern_sentence(ctx: dict, level) -> str | None:
     return f"이 시간대는 {subject} 보통 붐비는 때예요." if subject else "보통 붐비는 시간대예요."
 
 
+# ── 구역 혼잡 근거(서울 S3) — 시설이 속한 권역의 관측 단계로 말한다 ─────────────────────
+# 구역 근거 후보만 이 문장을 쓴다(ctx 의 congestion_evidence_tier == 'zone_measured'). 다른 템플릿은 그대로다.
+_ZONE_EVIDENCE_TIER = "zone_measured"
+# 단계 이름은 앱 공통 혼잡 등급(한산·여유·보통·혼잡 — 웹 ko congestion.*)이다. 공급원 4단계 문구(여유·보통·약간 붐빔·붐빔)를
+# 그대로 쓰면 같은 관측을 카드 칩(단계 중앙값 → 등급)은 '여유', 이 문장은 '보통' 으로 말한다(DESIGN_PRINCIPLES 7).
+_ZONE_BAND_LABEL = {
+    "relaxed": "한산",
+    "normal": "여유",
+    "slightly_busy": "보통",
+    "busy": "혼잡",
+}
+# 이 단계면 '붐벼 대기가 길 수 있다' 고 말한다 — 측정 문장과 같이 '혼잡' 등급(busy)만이다(순위 강등도 'busy' 만이다).
+_ZONE_BUSY_BANDS = frozenset({"busy"})
+# '평소 이 시간' 과의 비교 — 화면 문구 전용(점수·순위에는 쓰지 않는다).
+_ZONE_USUAL_SENTENCE = {
+    "busier": "평소 이 시간보다 붐비는 편이에요.",
+    "usual": "평소 이 시간과 비슷한 수준이에요.",
+    "quieter": "평소 이 시간보다 한산한 편이에요.",
+}
+
+
+def _build_zone_template(ctx: dict) -> str | None:
+    """구역 근거 사유. 단계를 모르면 None(호출부가 혼잡 없는 종전 문장으로 내려간다)."""
+    band = ctx.get("zone_band")
+    label = _ZONE_BAND_LABEL.get(band or "")
+    zone_name = ctx.get("zone_name")
+    if label is None or not zone_name:
+        return None
+    name = _facility_name(ctx)
+    parts = []
+    travel = ctx.get("travel_time")
+    if isinstance(travel, (int, float)):
+        parts.append(f"도보 {walk_minutes(travel)}분")
+    parts.append(f"{zone_name} 권역 {label}")
+    if band in _ZONE_BUSY_BANDS and ctx.get("zone_band_basis") == "now":
+        # 도착 단계가 없고 '지금' 관측 단계만 있다 — 도착 시각의 혼잡은 주장하지 않는다(엔진이 내지 않은 값).
+        sentence = f"{name}: " + ", ".join(parts) + " 수준이라 지금 붐비는 편이에요."
+    elif band in _ZONE_BUSY_BANDS:
+        sentence = f"{name}: " + ", ".join(parts) + " 수준으로 도착할 즈음 붐벼 대기가 길 수 있어요."
+    else:
+        sentence = f"{name} 추천: " + ", ".join(parts) + " 수준입니다."
+    usual = _ZONE_USUAL_SENTENCE.get(ctx.get("zone_usual_comparison") or "")
+    return f"{sentence} {usual}" if usual else sentence
+
+
 def _build_template(ctx: dict) -> str:
     """주어진 수치만으로 만드는 결정적 사유 문장.
 
@@ -82,7 +127,13 @@ def _build_template(ctx: dict) -> str:
         학습한 모델의 예측도 아니다 — '%' 와 'AI' 를 쓰지 않고, 붐비는 시간대일 때만 "이 시간대는 카페가 보통
         붐비는 때예요." 를 덧붙인다(그 외에는 혼잡을 말하지 않는다). '지금은 붐벼' 처럼 이 가게를 말하지 않는다.
       - "none": 혼잡 근거 없음 → 혼잡 문구 생략(0% 를 실측처럼 팔지 않는다)
+      - 구역 근거(congestion_evidence_tier="zone_measured", 서울 S3): '{권역} 권역 {단계}' 로 말하고 '%' 를 쓰지
+        않는다(공급원 4단계를 퍼센트로 바꾸면 없는 정밀도를 주장한다). '평소 이 시간' 비교 문장을 덧붙일 수 있다.
     """
+    if ctx.get("congestion_evidence_tier") == _ZONE_EVIDENCE_TIER:
+        zone_sentence = _build_zone_template(ctx)
+        if zone_sentence is not None:
+            return zone_sentence
     name = _facility_name(ctx)
     wait = ctx.get("predicted_wait")
     travel = ctx.get("travel_time")

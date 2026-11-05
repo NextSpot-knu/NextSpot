@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import supabase_client
 from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
 from app.services.event_boost import get_event_congestion_boost
@@ -95,7 +96,10 @@ async def _fetch_facilities_id_type() -> list[dict]:
     is_active=false(폐업·표출중단 감지, 2차 기획 1위)는 예측 대상에서 제외 —
     infrastructures.fetch_active_facilities 재사용(컬럼 미배포 시 필터 없이 폴백).
     """
-    return await fetch_active_facilities(supabase_client, "id, type, latitude, longitude")
+    # 예측 배치는 공개 지역(경주)만 — 경주 모델이 서울 시설을 예측하지 않는다.
+    return await fetch_active_facilities(
+        supabase_client, "id, type, latitude, longitude", region=PUBLIC_REGION
+    )
 
 
 @router.post("/batch", response_model=BatchPredictResponse)
@@ -300,9 +304,14 @@ async def predict_golden_hour(
     """
     # 1) 시설 존재 확인 + 타입 조회(단건 .limit(1) — admin.py 의 단건 조회 패턴과 동일).
     try:
-        res = await asyncio.to_thread(
-            supabase_client.table("facilities").select("id, type").eq("id", facility_id).limit(1).execute
-        )
+        # 공개 지역(경주) 시설만 — 다른 지역 id 는 '없는 시설' 과 같은 404 다.
+        def _read_facility(with_region: bool):
+            query = supabase_client.table("facilities").select("id, type").eq("id", facility_id)
+            if with_region:
+                query = apply_region(query, PUBLIC_REGION)
+            return query.limit(1).execute()
+
+        res = await arun_region_scoped(_read_facility, region=PUBLIC_REGION)
     except Exception as e:
         # 예외 원문은 서버 로그로만 — DB 오류 문자열을 클라이언트에 노출하지 않는다.
         logger.error("golden_hour_facility_fetch_error", facility_id=facility_id, error=str(e))

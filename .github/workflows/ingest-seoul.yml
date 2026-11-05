@@ -1,0 +1,118 @@
+# NextSpot — 서울 TourAPI 적재(수동 전용) — SEOUL_TESTBED_PLAN §6 S3 · ingest_mapping_design §1·§4.
+# 서울은 개발자 전용 지역이다. 이 워크플로는 **스케줄이 없다** — 사람이 Actions → TourAPI Ingest (Seoul) →
+# Run workflow 로만 돌린다(일정은 운영 격리 확인(HANDOVER 사람 작업) 뒤에 따로 정한다).
+#
+# 순서: 미리보기(dry_run=true, 기본) → 요약 검토 → dry_run=false(적재 + 시설↔구역 매핑).
+#   · 스크립트가 먼저 격리를 확인한다(region 컬럼 · region_isolation_status()=1 · /health capabilities ·
+#     anon/점검용 관광객 계정으로 경주 아닌 행이 안 보이는지). 하나라도 실패하면 쓰기 없이 exit 3.
+#   · 쓴 뒤 같은 확인과 공개 API 네 곳을 다시 본다. 새면 서울 행을 끄고(먼저) 이번 실행 행을 지운 뒤 exit 4.
+#   · region-guard.yml 이 서울 행을 내린 뒤에는(트립) 격리를 되살린 다음 reactivate=true 로 돌려 다시 켠다.
+# 로그는 집계 숫자만 남는다(공개 저장소 — 시설 이름·id·좌표를 찍지 않는다).
+# TourAPI 일 한도는 경주 일배치(약 300~360콜)와 나눠 쓴다 — details_budget 은 상세 조회 **호출 수** 상한이다.
+#
+# 필요한 GitHub Secrets: TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+#   REGION_PROBE_TOURIST_EMAIL, REGION_PROBE_TOURIST_PASSWORD(점검용 관광객 계정 — 없으면 실제 적재는 거부된다)
+# Repository Variable: BACKEND_HEALTH_URL(운영 /health 전체 주소 — deploy-verify.yml · region-guard.yml 과 같은 값)
+# Kakao 키는 쓰지 않는다. 경주 일배치(ingest.yml)와는 다른 동시성 그룹이다(서로 기다리지 않는다).
+# 종료 코드: 0 성공 · 75 TourAPI 목록 일시 오류(쓰기 전 — 나중에 다시 돌린다) · 1 실패 · 3 사전 점검 실패 · 4 누수 감지(되돌림)
+name: TourAPI Ingest (Seoul)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '미리보기(쓰기 없음). false 면 적재하고 시설↔구역 매핑까지 한다'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      details_budget:
+        description: '상세 조회 TourAPI 호출 상한(행당 4콜)'
+        required: false
+        default: '400'
+        type: string
+      clusters:
+        description: 'jongno,hongdae,validation 중 쉼표 목록 또는 all'
+        required: false
+        default: 'all'
+        type: string
+      map_zones:
+        description: '적재 뒤 facility_zones 매핑(다각형 동기화 포함) — 미리보기에서는 돌지 않는다'
+        required: false
+        default: true
+        type: boolean
+      reactivate:
+        description: 'region-guard 트립 뒤 복구 — 숨기지 않은 서울 행을 다시 켠다(격리를 되살린 뒤에만)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tourapi-ingest-seoul
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: ingest (TourAPI → facilities, Seoul)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/api/requirements*.txt
+
+      - run: pip install -r requirements.txt
+
+      # 입력은 env 로만 넘긴다(run 문자열에 ${{ inputs.* }} 를 직접 넣지 않는다 — 스크립트 주입 방지).
+      - name: Ingest Seoul TourAPI POIs
+        id: ingest
+        timeout-minutes: 20
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          DETAILS_BUDGET: ${{ inputs.details_budget }}
+          CLUSTERS: ${{ inputs.clusters }}
+          REACTIVATE: ${{ inputs.reactivate }}
+          TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REGION_PROBE_TOURIST_EMAIL: ${{ secrets.REGION_PROBE_TOURIST_EMAIL }}
+          REGION_PROBE_TOURIST_PASSWORD: ${{ secrets.REGION_PROBE_TOURIST_PASSWORD }}
+          BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
+          # 적재는 인증·관리자 토큰을 쓰지 않는다 — Settings(부팅) 검증 통과용 플레이스홀더(ingest.yml 과 같다).
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token
+        run: |
+          case "$DETAILS_BUDGET" in ''|*[!0-9]*) echo "details_budget 은 숫자여야 합니다"; exit 2 ;; esac
+          case "$CLUSTERS" in ''|*[!a-z,]*) echo "clusters 는 소문자·쉼표만"; exit 2 ;; esac
+          set -- --details-budget "$DETAILS_BUDGET" --clusters "$CLUSTERS"
+          if [ "$DRY_RUN" = "false" ]; then set -- "$@" --apply; else set -- "$@" --dry-run; fi
+          if [ "$REACTIVATE" = "true" ]; then set -- "$@" --reactivate; fi
+          code=0
+          python scripts/ingest_tourapi_seoul.py "$@" || code=$?
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          echo "- 서울 적재 종료 코드: ${code} (dry_run=${DRY_RUN})" >> "$GITHUB_STEP_SUMMARY"
+          exit "${code}"
+
+      - name: Map facilities to zones
+        if: ${{ inputs.dry_run == 'false' && inputs.map_zones }}
+        timeout-minutes: 5
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token
+        run: python scripts/map_facility_zones.py --apply --sync-geometry

@@ -45,7 +45,7 @@ class _Query:
         return self
 
     def eq(self, col, value):
-        self._rows = [r for r in self._rows if r.get(col) == value]
+        self._rows = [r for r in self._rows if r.get(col, "gyeongju" if col == "region" else None) == value]  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
         return self
 
     def gt(self, col, value):

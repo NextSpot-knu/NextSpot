@@ -11,6 +11,9 @@ import InstallPrompt from "@/components/shell/InstallPrompt";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 // 계정 권한(역할·소유 가게) 단일 출처 — 콘솔 진입점 게이팅에 쓴다(lib/account.tsx).
 import { AccountProvider } from "@/lib/account";
+// 서비스 지역(경주 · 내부 검증 지역) — 계정 역할을 읽으므로 AccountProvider 안쪽(lib/regionContext.tsx).
+import { RegionProvider } from "@/lib/regionContext";
+import RegionBadge from "@/components/shell/RegionBadge";
 import MotionProvider from "@/components/shell/MotionProvider";
 import ThemeProvider from "@/components/shell/ThemeProvider";
 import { DARK_MODE_ENABLED } from "@/lib/theme";
@@ -84,6 +87,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <I18nProvider>
             <AccountProvider>
+            {/* 경주에서는 자식을 늘 같은 key 로 그려 다시 마운트하지 않는다. 내부 지역 표시는 내부 지역에서만 뜬다. */}
+            <RegionProvider>
+            <RegionBadge />
             <MotionProvider>
             {/* 점검 모드면 아래 전부를 점검 안내로 대체한다(관광객 경로 한정 — 관리자·상인
                 콘솔은 점검을 푸는 쪽이라 제외). 문구가 i18n 이라 I18nProvider 안쪽에 둔다. */}
@@ -99,6 +105,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </GuideProvider>
             </PublicSettingsProvider>
             </MotionProvider>
+            </RegionProvider>
             </AccountProvider>
           </I18nProvider>
           <ThemeToaster />
