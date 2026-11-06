@@ -20,7 +20,14 @@ export function SwipeDots({ count }: { count: number }) {
       setActive(Math.min(count - 1, Math.max(0, Math.round(scroller.scrollLeft / step))));
     };
     scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
+    // 붙자마자 한 번 잰다 — 카드 수가 바뀌어 다시 붙거나(섹터 재조회) 브라우저가 스크롤 위치를 복원한 채 돌아오면
+    // 넘기는 줄은 세 번째 카드인데 점은 첫 번째를 가리키고 있었다. 창 폭이 바뀌면 카드 폭(step)도 바뀌므로 다시 잰다.
+    onScroll();
+    window.addEventListener('resize', onScroll);
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
   }, [count]);
 
   return (
