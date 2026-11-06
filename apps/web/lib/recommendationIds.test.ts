@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { uniqueSyntheticRecommendationIds } from './recommendationIds';
+import { isServerRecommendationId, uniqueSyntheticRecommendationIds } from './recommendationIds';
 
 const rec = (recommendationId: string, facilityId?: string) => ({
   recommendationId,
@@ -29,5 +29,13 @@ assert.equal(input[0].recommendationId, 'mock-rec-id');
 
 // 빈 배열.
 assert.deepEqual(uniqueSyntheticRecommendationIds([]), []);
+
+// 서버에 보낼 수 있는 추천 id — 실제 UUID 만. 합성 id·빈 값은 시설 id 만 보내는 수락으로 남는다(P1-1).
+assert.equal(isServerRecommendationId('0b7c7f0e-2f4d-4a57-9d59-0c7a7b1f0d11'), true);
+assert.equal(isServerRecommendationId('mock-rec-id:f1'), false);
+assert.equal(isServerRecommendationId(''), false);
+assert.equal(isServerRecommendationId('   '), false);
+assert.equal(isServerRecommendationId(undefined), false);
+assert.equal(isServerRecommendationId(null), false);
 
 console.log('recommendationIds tests passed');

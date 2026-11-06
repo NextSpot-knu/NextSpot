@@ -34,6 +34,8 @@ const SIGN_IN_ERROR_KEY: Record<SignInFailReason, string> = {
   email_not_confirmed: 'login.confirmSent',
   // "문제가 발생했어요" — 자격증명 문구와 확실히 구분되는 일반 장애 안내.
   server: 'common.error',
+  // 사람 확인(Turnstile)을 통과하지 못했다 — 비밀번호를 다시 치게 하지 않는다(lib/authCaptcha).
+  captcha: 'login.captchaFailed',
   // 분류되지 않은 4xx 는 기존 동작(자격증명 안내)을 유지한다 — 대부분 실제로 그 경우다.
   unknown: 'login.loginError',
 };
@@ -159,6 +161,8 @@ function LoginForm() {
             setMode('login');
           } else if (reason === 'weak_password') {
             toast.error(t('login.signupWeakPassword'));
+          } else if (reason === 'captcha') {
+            toast.error(t('login.captchaFailed'));
           } else {
             toast.error(t('login.signupError'));
           }

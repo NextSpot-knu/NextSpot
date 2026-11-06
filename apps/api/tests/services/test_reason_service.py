@@ -72,6 +72,60 @@ def test_build_template_predicted_congested_still_honest():
     assert "붐벼" in text
 
 
+def test_build_template_model_basis_keeps_the_ai_forecast_label():
+    # 학습된 모델의 예측은 출처를 밝혀 그대로 '예상 혼잡도 N% (AI 예측)' 이다.
+    ctx = {**_CTX, "congestion_source": "predicted", "congestion_prediction_basis": "model"}
+    assert _build_template(ctx) == (
+        "카페능 추천: 도보 5분, 예상 대기 10분, 예상 혼잡도 30% (AI 예측) 수준으로 여유가 있습니다."
+    )
+
+
+def test_industry_baseline_never_shows_a_percentage_or_ai():
+    # 업종 시간대 곡선(industry_baseline.py)은 이 가게를 잰 값도 학습한 예측도 아니다 — '85% (AI 예측)' 금지.
+    busy = {
+        **_CONGESTED_CTX, "candidate_congestion": 0.85, "predicted_wait": None,
+        "congestion_source": "predicted", "congestion_prediction_basis": "industry_baseline",
+        "facility_type": "restaurant",
+    }
+    text = _build_template(busy)
+    assert text == "북적식당 추천: 도보 7분 수준입니다. 이 시간대는 음식점이 보통 붐비는 때예요."
+    assert "%" not in text and "AI" not in text
+    # 이 가게가 '지금' 붐빈다고 말하지 않는다(그건 관측이 있어야 하는 말이다).
+    assert "지금" not in text
+
+
+def test_industry_baseline_below_busy_band_says_nothing_about_crowds():
+    calm = {
+        **_CTX, "candidate_congestion": 0.4, "congestion_source": "predicted",
+        "congestion_prediction_basis": "industry_baseline", "facility_type": "cafe",
+    }
+    assert _build_template(calm) == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다."
+
+
+def test_industry_baseline_without_other_facts_or_type():
+    ctx = {
+        "recommended_facility_name": "어딘가", "candidate_congestion": 0.9,
+        "congestion_source": "predicted", "congestion_prediction_basis": "industry_baseline",
+    }
+    assert _build_template(ctx) == "어딘가을(를) 추천합니다. 보통 붐비는 시간대예요."
+
+
+@pytest.mark.asyncio
+async def test_industry_baseline_sentence_survives_the_honesty_gate(monkeypatch):
+    # 곡선 문장에는 숫자가 없으므로 LLM 이 숫자를 지어내면 정직성 검증이 템플릿으로 되돌린다.
+    ctx = {
+        **_CTX, "facility_id": "f-curve", "candidate_congestion": 0.8, "congestion_source": "predicted",
+        "congestion_prediction_basis": "industry_baseline", "facility_type": "cafe",
+    }
+    template = _build_template(ctx)
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        reason_service.llm_client, "chat_text", AsyncMock(return_value="카페능은 도보 5분, 혼잡도 80% 예요.")
+    )
+    text, source = await generate_reason_with_source(ctx)
+    assert (text, source) == (template, "template")
+
+
 def test_build_template_none_uses_available_facts():
     ctx = {**_CTX, "congestion_source": "none", "candidate_congestion": None}
     text = _build_template(ctx)

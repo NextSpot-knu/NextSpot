@@ -1,8 +1,12 @@
 'use client';
 
-// 엔진 검증 — 서울 실시간 도시데이터 대비 혼잡 추정기 성적표.
+// 실시간 데이터 리허설(옛 '엔진 검증') — 서울 실시간 파이프라인의 실제 상태 + 혼잡 추정기 성적표.
 //
-// 이 화면이 지켜야 하는 것 두 가지:
+// 맨 위는 운영자가 먼저 알아야 하는 것이다: 대상지마다 수집이 실제로 도는가(주기·마지막 버킷·채움률·호출 예산),
+// 정규화 표가 쌓이는가, 결정 품질(S4)은 나왔는가. 표가 없거나 행이 없거나 늦으면 그 사실과 할 일을 그대로 말하고
+// '돌고 있다' 로 보이게 하지 않는다(lib/rehearsalStatus.ts). 그 아래가 기존 추정기 성적표다.
+//
+// 성적표가 지켜야 하는 것 두 가지:
 //  1) **표본이 적을 때도 운영 콘솔로 읽힐 것.** 서울 API 는 이력을 주지 않아 수집을 시작한 날부터만
 //     표본이 쌓인다. 초기 구간은 '수집 중' 이 정상 상태다 — 깨진 화면이나 0% 로 보이면 안 된다.
 //     상태 판정·문구는 lib/engineValidation.ts 가 하고 테스트가 잠근다.
@@ -19,6 +23,8 @@ import { ConfusionTable } from '@/components/admin/engine-validation/ConfusionTa
 import { ValidationSeriesChart } from '@/components/admin/engine-validation/ValidationSeriesChart';
 import { SeoulAlternativesPanel } from '@/components/admin/engine-validation/SeoulAlternativesPanel';
 import { SeoulCalibrationPanel } from '@/components/admin/engine-validation/SeoulCalibrationPanel';
+import { DecisionQualityPanel, RehearsalStatusPanel } from '@/components/admin/engine-validation/RehearsalStatusPanel';
+import { chartStepMinutes, parseDecisionQuality, parsePipeline, sampleSpan } from '@/lib/rehearsalStatus';
 import { adminApi, adminApiKind, adminApiStatus } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import type { AdminFailureNotice } from '@/lib/adminApiFailure';
@@ -102,6 +108,9 @@ export default function EngineValidationPage() {
   const notice = summary ? describeState(summary, place) : null;
   const tally = place ? tallyMetrics(place.metrics) : null;
   const omitted = place?.omitted_metrics?.length ? place.omitted_metrics : summary?.omitted_metrics ?? [];
+  const pipeline = summary ? parsePipeline(summary.pipeline) : null;
+  const decisionQuality = summary ? parseDecisionQuality(summary.decision_quality) : null;
+  const step = chartStepMinutes(place?.median_bucket_gap_minutes, place?.cadence_minutes);
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
@@ -111,7 +120,7 @@ export default function EngineValidationPage() {
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
             <FlaskConical size={22} className="text-gold-deep" />
-            엔진 검증 — 서울 실시간 도시데이터
+            실시간 데이터 리허설 — 서울 실시간 도시데이터
           </h2>
           <span className="text-xs text-hanok-muted hidden md:block">{SEOUL_ATTRIBUTION}</span>
         </header>
@@ -199,8 +208,18 @@ export default function EngineValidationPage() {
             </div>
           )}
 
+          {summary && (
+            <>
+              {/* 1) 수집 파이프라인 — 대상지별 실제 상태 · 정규화 표 */}
+              <RehearsalStatusPanel pipeline={pipeline} windowDays={summary.window_days} windowStart={summary.window_start} />
+              {/* 2) 결정 품질(S4) — 재생 평가 전에는 '아직 없음' 만 */}
+              <DecisionQualityPanel quality={decisionQuality} />
+            </>
+          )}
+
           {summary && notice && (
             <>
+              <h3 className="text-lg font-bold text-hanok-ink pt-2">예측 오차 · 추정 정확도</h3>
               {/* 수집·판정 상태 */}
               <StateBanner tone={notice.tone} title={notice.title} detail={notice.detail}>
                 {summary.collection && summary.collection.row_count > 0 && (
@@ -251,7 +270,7 @@ export default function EngineValidationPage() {
               <section className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
                   <h3 className="text-lg font-bold text-hanok-ink">정규화 실측 vs NextSpot 추정</h3>
-                  <span className="text-xs text-hanok-muted">10분 버킷 · KST · 수집 구간만 연결</span>
+                  <span className="text-xs text-hanok-muted">{step}분 간격 · KST · 수집 구간만 연결</span>
                 </div>
                 <p className="text-xs text-hanok-muted mb-4">
                   실측 = 서울시 인구 범위 중앙값 ÷ 이 기간 최대 중앙값
@@ -259,7 +278,7 @@ export default function EngineValidationPage() {
                   점선 가로선은 추정 등급 경계(25·50·75%)입니다.
                 </p>
                 <div className="w-full h-[320px]">
-                  <ValidationSeriesChart series={place?.series ?? []} />
+                  <ValidationSeriesChart series={place?.series ?? []} stepMinutes={step} />
                 </div>
               </section>
 
@@ -270,7 +289,7 @@ export default function EngineValidationPage() {
                   {place && place.confusion.total > 0 ? (
                     <ConfusionTable matrix={place.confusion.matrix} total={place.confusion.total} />
                   ) : (
-                    <p className="text-sm text-hanok-muted">등급 대조표를 집계하는 중입니다 — 10분 주기로 표본이 누적됩니다.</p>
+                    <p className="text-sm text-hanok-muted">이 대상지의 등급 대조 표본이 아직 없습니다 — 수집 주기마다 표본이 누적됩니다.</p>
                   )}
                 </section>
 
@@ -291,7 +310,9 @@ export default function EngineValidationPage() {
                     <p className="text-xs mt-1">
                       서울시 4등급(여유·보통·약간 붐빔·붐빔)을 0~3으로 두고, NextSpot 추정은 0.25·0.50·0.75 경계(75 이상 = 혼잡)로 나눕니다.
                       30분 전망은 t 시점의 추정을 t+30분 실측과 맞춰 보고, t 의 실측을 그대로 쓰는 지속 모델과 같은 표본에서 비교합니다.
-                      판정은 버킷 {summary.min_samples}개(위험 오분류는 실측 붐빔 {summary.min_danger_samples}개) 이상에서 확정합니다.
+                      판정은 {sampleSpan(summary.min_samples, place?.median_bucket_gap_minutes ?? place?.cadence_minutes)} 이상(위험 오분류는 실측 붐빔 {summary.min_danger_samples}개)에서 확정합니다.
+                      버킷 개수가 기준이라 수집 주기가 길면 같은 판정에 더 긴 기간이 필요합니다.
+                      30분 전망은 t 와 t+30분 버킷이 둘 다 있어야 짝이 생기므로, 30분을 나누지 않는 주기(예: 20분)의 대상지는 이 지표를 판정할 수 없습니다.
                     </p>
                   </div>
                   <div>
@@ -313,7 +334,7 @@ export default function EngineValidationPage() {
 
           {/* 아래 두 블록은 검증 표본 상태와 무관하게 스스로 조회한다 — 위 지표가 실패해도 보여야 한다. */}
           <SeoulAlternativesPanel />
-          <SeoulCalibrationPanel />
+          <SeoulCalibrationPanel targets={pipeline?.targets ?? []} />
 
           <footer className="text-xs text-hanok-muted border-t border-hanok-line pt-4">
             {SEOUL_ATTRIBUTION}
@@ -331,7 +352,7 @@ function StateBanner({ tone, title, detail, children }: { tone: Tone; title: str
     <div className={`flex items-start gap-3 border rounded-2xl p-4 ${style.box}`}>
       <Icon size={20} className={`${style.title} flex-shrink-0 mt-0.5`} />
       <div className="min-w-0">
-        <p className={`font-bold ${style.title}`}>{title}</p>
+        <p className={`font-bold break-words ${style.title}`}>{title}</p>
         <p className="text-sm text-hanok-muted mt-1">{detail}</p>
         {children}
       </div>

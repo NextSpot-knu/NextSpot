@@ -13,11 +13,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  COUPON_RATE_CAP,
+  COUPON_VALID_DAYS,
   fetchFacilityCongestionForecast,
+  fetchMerchantStats,
   forecastNote,
   hasTimesaleOverlapNotice,
   resetPredictModelInfoMemo,
+  STATS_WINDOW_OPTIONS,
   timesaleConfirmPreview,
+  timesaleCostNote,
   timesalePublishNotice,
   timesaleRateHint,
   type MerchantTimesaleCreated,
@@ -426,6 +431,34 @@ async function main() {
     }
   }
 
+  // --- 성적표 기간(P1-2) — 고른 기간을 서버에 그대로 보낸다 ---------------------------
+  // 7일·30일 두 값만 있다(서버도 이 두 값만 받는다). 기본은 7일 — 예전 화면과 같은 숫자에서 시작한다.
+  {
+    assert.deepEqual([...STATS_WINDOW_OPTIONS], [7, 30]);
+    const seen: string[] = [];
+    const route: Route = (url) => {
+      seen.push(url);
+      return { status: 200, body: { facility_id: 'f 1', window_days: 30 } };
+    };
+    await withFetch(route, () => fetchMerchantStats('f 1', 30));
+    assert.match(seen.at(-1) ?? '', /\/api\/v1\/merchant\/stats\?facility_id=f%201&days=30$/, '30일을 골라도 서버에 기간이 가지 않는다');
+    await withFetch(route, () => fetchMerchantStats('f 1'));
+    assert.match(seen.at(-1) ?? '', /&days=7$/, '기본 기간이 7일이 아니다');
+  }
+
+  // --- 발행 확인 단계의 비용 안내(P1 · 평가 M4) -----------------------------------------
+  // 두 사실 — 쿠폰은 세일이 끝나도 발급 후 7일 산다 · 20% 를 넘는 할인율은 추천에 더 보태지 않는다.
+  // 숫자는 서버 상수에서 온다: 7 은 coupon_service.COUPON_TTL_DAYS(API 테스트 test_merchant_cost_terms.py 가
+  // 이 파일의 값과 대조한다), 0.20 은 score.py COUPON_RATE_CAP ↔ shared-types(패리티 테스트로 잠김).
+  {
+    assert.equal(COUPON_VALID_DAYS, 7);
+    assert.equal(COUPON_RATE_CAP, 0.2);
+    const note = timesaleCostNote();
+    assert.match(note, /세일이 끝나도 발급 후 7일 동안 쓸 수 있어요/);
+    assert.match(note, /할인율이 20%를 넘어도 추천에 더해지는 효과는 20%와 같아요/);
+    assert.doesNotMatch(note, /솔직|투명|확실|믿을|인센티브/, '비용 안내에 자기 평가·내부 용어가 섞였다');
+  }
+
   // --- 화면 배선 가드 ---------------------------------------------------------
 
   // 콘솔 구현은 2026-09-21 에 라우트(app/merchant/dashboard/page.tsx)에서 컴포넌트로 옮겼다 —
@@ -525,6 +558,56 @@ async function main() {
     '사장님 콘솔에 내부 용어(인센티브·확인값·예측값)나 조사 꼬리표가 남아 있다',
   );
   assert.match(dashboardSrc, /손님 추천 카드의 할인 배지도 함께 내려가요/, '타임세일 취소 안내가 바뀌지 않았다');
+
+  // P1-2 — 성적표 기간 토글 · 표본/비교 줄 · 셈법 설명 · 브리핑 자리 요약 · 발행 확인의 비용 안내.
+  assert.match(dashboardSrc, /fetchMerchantStats\(facilityId, days\)/, '② 가 고른 기간을 서버에 보내지 않는다');
+  // 리뷰(10-31) — 요청은 그것을 시작한 효과가 주인이다. 가게를 바꾼 직후 이전 가게의 늦은 7일 응답이
+  // onWeeklyStats 로 콘솔 숫자를 덮어 맨 위 요약이 사라지던 경합을 막는다: 정리(cleanup)된 효과의 응답은 반영하지
+  // 않고(성공·실패 둘 다), onWeeklyStats 도 그 검사 뒤에서만 부른다. 받아 둔 숫자는 가게|기간 자리에 둔다.
+  const statsFn = dashboardSrc.slice(
+    dashboardSrc.indexOf('function StatsSection('),
+    dashboardSrc.indexOf('const STAT_ICONS'),
+  );
+  assert.match(
+    statsFn,
+    /let current = true;[\s\S]*?if \(!current\) return;[\s\S]*?onWeeklyStats\?\.\(data\)[\s\S]*?if \(!current\) return;[\s\S]*?current = false;/,
+    '늦게 온 이전 가게·기간의 응답이 화면과 맨 위 요약을 덮는다(요청 신원 검사 없음)',
+  );
+  assert.match(statsFn, /const slot = statsSlot\(facilityId, days\);/, '받아 둔 숫자가 가게와 기간으로 갈리지 않는다');
+  assert.doesNotMatch(statsFn, /\[target\]:/, '기간만으로 자리를 잡는 예전 캐시가 남아 있다');
+  assert.match(dashboardSrc, /STATS_WINDOW_OPTIONS\.map\(/, '② 에 7일·30일 토글이 없다');
+  assert.match(dashboardSrc, /aria-label="성적표 기간"/, '기간 토글에 이름이 없다');
+  // 구 API(?days= 를 무시하고 늘 7일)와 데모(7일 고정값)에는 토글을 두지 않는다 — '30일' 을 눌러 7일 숫자를 받지 않게.
+  assert.match(
+    dashboardSrc,
+    /periodsSupported = weekly\?\.state === 'ready' && !!weekly\.stats\.metrics/,
+    '기간을 고를 수 없는 서버에서도 30일 토글을 보인다',
+  );
+  assert.match(dashboardSrc, /demo \|\| !periodsSupported \? null/, '데모에서 7일 고정값을 30일로 고르게 한다');
+  assert.match(dashboardSrc, /detail=\{tile\.detail\}/, '성적표 타일이 표본·직전 기간 비교 줄을 그리지 않는다');
+  assert.match(dashboardSrc, /scorecardNotes\(stats\)/, "'숫자는 이렇게 셉니다' 가 배선되지 않았다");
+  // 브리핑 자리: AI 브리핑이 없다고 확정된 뒤에만 숫자 요약 — 묻는 동안 요약을 띄웠다 갈아 끼우지 않는다.
+  assert.match(dashboardSrc, /scorecardSummary\(weeklyStats\)/, 'AI 브리핑이 없을 때 그 자리를 요약으로 채우지 않는다');
+  assert.match(dashboardSrc, /briefing === undefined\) return null/, '브리핑을 묻는 동안 요약을 먼저 그린다(깜빡임)');
+  assert.match(dashboardSrc, /onWeeklyStats=\{setWeeklyStats\}/, '② 의 최근 7일 숫자가 맨 위 요약으로 올라가지 않는다');
+  // 숫자 요약을 'AI 브리핑' 제목 아래 두지 않는다 — 그것도 거짓말이다.
+  const briefingFn = dashboardSrc.slice(
+    dashboardSrc.indexOf('function BriefingCard('),
+    dashboardSrc.indexOf('function ForecastSection('),
+  );
+  const summaryBranch = briefingFn.slice(0, briefingFn.indexOf('AI 실행 브리핑'));
+  assert.match(summaryBranch, /badge="성적표 요약"/, '숫자 요약이 AI 브리핑 카드 모양으로 그려진다');
+  // 비용 안내는 확인 상자 안, '이대로 발행할까요?' 보다 앞(질문이 버튼 바로 위에 남는다).
+  const confirmStart = dashboardSrc.indexOf('data-testid="timesale-confirm"');
+  const confirmBox = dashboardSrc.slice(confirmStart, dashboardSrc.indexOf('다시 고르기', confirmStart));
+  assert.ok(confirmBox.includes('timesaleCostNote()'), '발행 확인 단계에 비용 안내가 없다');
+  // lastIndexOf — 주석이 그 질문을 먼저 인용할 수 있다. 화면에 그려지는 질문은 상자 안 마지막 것이다.
+  assert.ok(
+    confirmBox.indexOf('timesaleCostNote()') < confirmBox.lastIndexOf('이대로 발행할까요?'),
+    "비용 안내가 '이대로 발행할까요?' 뒤에 와서 질문이 버튼에서 멀어졌다",
+  );
+  // 숫자를 화면에 다시 적지 않는다 — 서버 상수에서 온 함수만 쓴다.
+  assert.doesNotMatch(confirmBox, /7일 동안 쓸 수|20%를 넘어도/, '비용 안내 숫자를 화면에 하드코딩했다');
   assert.match(dashboardSrc, /누르면 \$\{SEAT_FRESH_MINUTES\}분 동안 손님 추천에 지금 우리 가게 상황이 반영돼요/, '좌석 방송 안내가 바뀌지 않았다');
 
   // ① 차트의 Y축 — 폭이 좁으면 맨 위 눈금 '100%' 가 '00%' 로 잘린다(2026-10-06 감사).

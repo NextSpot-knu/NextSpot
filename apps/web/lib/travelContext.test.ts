@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, chipCandidates, chipRankingContext, isIndoorEligible, matchesTravelContext, relaxWalkLimit, widenTimeBudget, type TravelContext } from './travelContext';
+import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, chipCandidates, chipRankingContext, isIndoorEligible, isStrollerFriendly, matchesTravelContext, relaxWalkLimit, widenTimeBudget, type TravelContext } from './travelContext';
 
 const origin = { lat: 35.84, lng: 129.21 };
 const distance = (_lat1: number, _lng1: number, lat2: number, _lng2: number) => lat2;
@@ -20,6 +20,30 @@ assert.equal(isIndoorEligible({ type: 'culture', features: { indoor_verified: tr
 assert.equal(matchesTravelContext({ ...base, features: { accessible: true } }, context({ requiredAttributes: ['accessible'] }), origin, distance), false);
 assert.equal(matchesTravelContext({ ...base, features: { accessible_verified: true } }, context({ requiredAttributes: ['accessible'] }), origin, distance), true);
 assert.equal(matchesTravelContext({ ...base, barrierFree: true }, context({ requiredAttributes: ['accessible'] }), origin, distance), true);
+
+// 비 오는 날 '실내만' — 실내 분류(cat3)의 문화시설은 실내다(서버 INDOOR_CULTURE_CAT3 와 같은 목록). 야외일 수 있는 분류는 아니다.
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02060100' } }), true, '박물관');
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02060300' } }), true, '전시관');
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02061200' } }), true, '영화관');
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02060600' } }), false, '공연장은 야외일 수 있다');
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02061100' } }), false, '문화전수시설은 마당이 딸린 곳이 많다');
+assert.equal(isIndoorEligible({ type: 'culture', features: { cat3: 'A02060100', indoor: false } }), false, '명시적 실외가 이긴다');
+assert.equal(isIndoorEligible({ type: 'attraction', features: { cat3: 'A02060100' } }), false, '분류 코드는 문화시설에만 쓴다');
+assert.equal(matchesTravelContext({ ...base, features: { cat3: 'A02060100' } }, context({ requiredAttributes: ['indoor'] }), origin, distance), true);
+
+// 유모차는 휠체어와 따로 본다(P1-6) — '유모차 대여' 원문이 분명히 '가능' 일 때만. 휠체어 확인만으로는 아니다.
+const stroller = context({ requiredAttributes: ['stroller'] });
+assert.equal(isStrollerFriendly({ features: { chk_babycarriage: '가능' } }), true);
+assert.equal(isStrollerFriendly({ features: { chkBabycarriage: '대여 가능(무료)' } }), true, 'apiClient 를 거친 camelCase 키');
+assert.equal(isStrollerFriendly({ features: { chk_babycarriage: '불가' } }), false);
+assert.equal(isStrollerFriendly({ features: { chk_babycarriage: '없음' } }), false);
+assert.equal(isStrollerFriendly({ features: { chk_babycarriage: '' } }), false, '빈 값은 모른다');
+assert.equal(isStrollerFriendly({ features: {} }), false);
+assert.equal(isStrollerFriendly({ features: { stroller: true } }), true, '밤 적재·사람이 적은 칸이 먼저');
+assert.equal(isStrollerFriendly({ features: { stroller: false, chk_babycarriage: '가능' } }), false, '사람이 고친 값이 원문을 이긴다');
+assert.equal(matchesTravelContext({ ...base, features: { chk_babycarriage: '가능' } }, stroller, origin, distance), true);
+assert.equal(matchesTravelContext({ ...base, barrierFree: true }, stroller, origin, distance), false, '휠체어 확인이 유모차를 대신하지 않는다');
+assert.equal(matchesTravelContext({ ...base, features: { chk_babycarriage: '가능' } }, context({ requiredAttributes: ['accessible'] }), origin, distance), false, '유모차 대여가 휠체어를 대신하지 않는다');
 
 console.log('PASS travel context deterministic fallback eligibility');
 

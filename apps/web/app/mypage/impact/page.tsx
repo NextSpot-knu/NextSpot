@@ -1,23 +1,21 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { MYPAGE_BACK } from '@/lib/navigation';
-import { ChevronLeft, Share2, Compass, Wind, Ticket, Clock, Sparkles } from 'lucide-react';
+import { ChevronLeft, Share2, Compass, Wind, Ticket, Clock, Sparkles, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { readImpactSummary, type ImpactSummary } from '@/lib/impactSummary';
 
-// 백엔드 GET /api/v1/impact/summary 응답(snake_case)을 api-client 가 camelCase 로 변환해 준다.
-// '방문(visit_history)' 지표는 여기 없다 — apps/web/lib/visits.ts 의 localStorage 전용 데이터라
-// 백엔드가 볼 수 없다(정직성 원칙). 백엔드가 실제로 DB 에서 파생한 지표만 내려온다.
-interface ImpactSummary {
-  accepted: number;
-  congestionAvoided: number;
-  couponsIssued: number;
-  couponsUsed: number;
-  waitSavedMinutes: number;
-}
+// 백엔드 GET /api/v1/impact/summary 응답(snake_case)을 api-client 가 camelCase 로 변환해 주고, lib/impactSummary 가
+// 화면이 쓸 숫자로 읽는다. '방문(visit_history)' 지표는 여기 없다 — apps/web/lib/visits.ts 의 localStorage 전용
+// 데이터라 백엔드가 볼 수 없다. 서버가 아는 도착은 사용자가 '도착했어요' 를 누른 기록(도착 확인)뿐이다.
+//
+// 타일은 **근거가 있는 값만** 그린다(P0-5 b). 출발·도착 확인은 실제로 센 값이라 0 이어도 그린다(도착 확인은 서버가
+// 세지 못했으면 뺀다). 혼잡 회피·줄인 예상 대기·쿠폰은 0 이면 그리지 않는다 — /main 수락에는 원래 장소와의 비교가 없어
+// 늘 '아낀 대기 0분' 이 붙었고, 그 0 에 "덜 기다린 만큼, 더 여행하셨어요" 같은 칭찬 문구가 따라붙었다.
 
 // 숫자는 천 단위 구분(1,240분) — 요약 카드·타일·공유 문구가 같은 모양이어야 한다.
 const fmt = (n: number) => n.toLocaleString();
@@ -27,8 +25,8 @@ export default function ImpactPage() {
   const t = useT();
   const [summary, setSummary] = useState<ImpactSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // 시작 상태 — 비로그인(401)·서버 미가용·신규 사용자(전부 0)일 때 켜진다. 숫자 대신 '첫 대안으로 이동하면
-  // 아낀 시간이 여기에 쌓여요' 와 지도로 가는 버튼을 보여 준다. 예전에는 관제 데모의 예시 숫자를
+  // 시작 상태 — 비로그인(401)·서버 미가용·신규 사용자(센 기록 없음)일 때 켜진다. 숫자 대신 '추천받은 곳으로
+  // 출발하면 여기에 기록이 쌓여요' 와 지도로 가는 버튼을 보여 준다. 예전에는 관제 데모의 예시 숫자를
   // '나의 경주 여행 임팩트' 로 보여 주고 공유까지 열어 뒀다 — 지어낸 기록으로 읽혔다(2026-10-06 감사 I18).
   const [isEmpty, setIsEmpty] = useState(false);
 
@@ -39,22 +37,10 @@ export default function ImpactPage() {
   const fetchSummary = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await apiClient.get('/api/v1/impact/summary');
-      const next: ImpactSummary = {
-        accepted: Number(data?.accepted) || 0,
-        congestionAvoided: Number(data?.congestionAvoided) || 0,
-        couponsIssued: Number(data?.couponsIssued) || 0,
-        couponsUsed: Number(data?.couponsUsed) || 0,
-        waitSavedMinutes: Number(data?.waitSavedMinutes) || 0,
-      };
-      // 신규 사용자(전부 0)는 보여 줄 성과가 없다 — 시작 상태로.
-      const empty =
-        next.accepted === 0 &&
-        next.congestionAvoided === 0 &&
-        next.couponsIssued === 0 &&
-        next.waitSavedMinutes === 0;
-      setIsEmpty(empty);
-      setSummary(empty ? null : next);
+      const next = readImpactSummary(await apiClient.get('/api/v1/impact/summary'));
+      // 신규 사용자(센 기록이 없다)는 보여 줄 것이 없다 — 시작 상태로.
+      setIsEmpty(!next.hasRecord);
+      setSummary(next.hasRecord ? next : null);
       setIsLoading(false);
     } catch (err) {
       // 인증 필요(401)든 서버 미가용이든 결과는 같다: 시작 상태(숫자를 지어내지 않는다).
@@ -80,11 +66,10 @@ export default function ImpactPage() {
   // 공유 — Web Share API 우선, 미지원/실패 시 클립보드 복사 + 토스트로 폴백.
   const handleShare = useCallback(async () => {
     if (!summary) return;
-    const shareText = t('impact.shareText', {
-      accepted: fmt(summary.accepted),
-      congestionAvoided: fmt(summary.congestionAvoided),
-      couponsIssued: fmt(summary.couponsIssued),
-    });
+    // 공유 문구도 센 숫자만 — 도착 확인을 모르면(null) 그 조각 없이.
+    const shareText = summary.arrivalsConfirmed !== null
+      ? t('impact.shareText', { departures: fmt(summary.accepted), arrivals: fmt(summary.arrivalsConfirmed) })
+      : t('impact.shareTextDepartures', { departures: fmt(summary.accepted) });
     const shareUrl = typeof window !== 'undefined' ? window.location.origin : 'https://nextspot.app';
 
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
@@ -140,7 +125,7 @@ export default function ImpactPage() {
             </div>
           </div>
         ) : isEmpty ? (
-          // 시작 상태 — 숫자·공유 없이, 첫 대안으로 이동할 곳(지도)으로 바로 보낸다.
+          // 시작 상태 — 숫자·공유 없이, 추천을 고를 곳(지도)으로 바로 보낸다.
           <div className="flex flex-col items-center mt-2 md:max-w-md md:mx-auto md:w-full animate-fade-in">
             <div className="w-full bg-white border border-gold/30 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_8px_32px_rgba(43,35,32,0.10)]">
               <div className="w-14 h-14 rounded-2xl bg-gold/15 flex items-center justify-center mb-5">
@@ -161,7 +146,7 @@ export default function ImpactPage() {
         ) : summary ? (
           // 공유 카드 — 지표 타일은 백엔드가 실제로 준 것만(방문 타일 없음 — 위 인터페이스 주석 참고).
           <div className="flex flex-col items-center mt-2 md:max-w-md md:mx-auto md:w-full animate-fade-in">
-            {/* 헤드라인 2종 — /mypage 최상단 카드가 보여준 바로 그 두 숫자의 상세다.
+            {/* 헤드라인 — /mypage 최상단 카드가 보여준 바로 그 숫자들(같은 규칙: lib/impactSummary)의 상세다.
                 (요약 카드를 탭해서 온 사람이 같은 숫자를 다시 만나야 '상세로 들어왔다'가 성립한다.) */}
             <div className="mb-4 w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-jade/10 p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-muk">
@@ -170,8 +155,9 @@ export default function ImpactPage() {
               </span>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {[
-                  t('impact.summaryDispersals', { n: fmt(summary.accepted) }),
-                  t('impact.summarySavedWait', { n: fmt(summary.waitSavedMinutes) }),
+                  t('impact.summaryDepartures', { n: fmt(summary.accepted) }),
+                  ...(summary.arrivalsConfirmed !== null ? [t('impact.summaryArrivals', { n: fmt(summary.arrivalsConfirmed) })] : []),
+                  ...(summary.waitSavedMinutes > 0 ? [t('impact.summarySavedWait', { n: fmt(summary.waitSavedMinutes) })] : []),
                 ].map((text) => (
                   <span
                     key={text}
@@ -205,50 +191,50 @@ export default function ImpactPage() {
                 <h2 className="text-2xl font-bold font-serif text-muk mb-1">{t('impact.cardTitle')}</h2>
                 <p className="text-xs text-muk-soft mb-6">{t('impact.cardSubtitle')}</p>
 
-                {/* 지표 타일 */}
+                {/* 지표 타일 — 근거가 있는 값만(위 머리말). 출발은 언제나, 도착 확인은 서버가 셌을 때, 나머지는 0 보다 클 때. */}
                 <div className="grid grid-cols-2 gap-3 w-full mb-6">
-                  <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
-                    <Compass size={20} className="text-terracotta" aria-hidden="true" />
-                    <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileAcceptedValue', { n: fmt(summary.accepted) })}
-                    </span>
-                    <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
-                      {t('impact.metricAccepted')}
-                    </span>
-                  </div>
-                  <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
-                    <Wind size={20} className="text-jade" aria-hidden="true" />
-                    <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileCongestionAvoidedValue', { n: fmt(summary.congestionAvoided) })}
-                    </span>
-                    <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
-                      {t('impact.metricCongestionAvoided')}
-                    </span>
-                  </div>
-                  <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
-                    <Ticket size={20} className="text-gold-deep" aria-hidden="true" />
-                    <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileCouponsIssuedValue', { n: fmt(summary.couponsIssued) })}
-                    </span>
-                    <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
-                      {t('impact.metricCouponsIssued')}
-                      {summary.couponsUsed > 0 && (
-                        <> · {t('impact.metricCouponsUsedInline', { n: fmt(summary.couponsUsed) })}</>
-                      )}
-                    </span>
-                  </div>
-                  <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
-                    <Clock size={20} className="text-muk-soft" aria-hidden="true" />
-                    <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileWaitSavedValue', { n: fmt(summary.waitSavedMinutes) })}
-                    </span>
-                    <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
-                      {t('impact.metricWaitSaved')}
-                    </span>
-                  </div>
+                  <Tile
+                    icon={<Compass size={20} className="text-terracotta" aria-hidden="true" />}
+                    value={t('impact.tileTimesValue', { n: fmt(summary.accepted) })}
+                    label={t('impact.metricDepartures')}
+                  />
+                  {summary.arrivalsConfirmed !== null && (
+                    <Tile
+                      icon={<MapPin size={20} className="text-jade" aria-hidden="true" />}
+                      value={t('impact.tileTimesValue', { n: fmt(summary.arrivalsConfirmed) })}
+                      label={t('impact.metricArrivals')}
+                    />
+                  )}
+                  {summary.congestionAvoided > 0 && (
+                    <Tile
+                      icon={<Wind size={20} className="text-jade" aria-hidden="true" />}
+                      value={t('impact.tileTimesValue', { n: fmt(summary.congestionAvoided) })}
+                      label={t('impact.metricCongestionAvoided')}
+                    />
+                  )}
+                  {summary.couponsIssued > 0 && (
+                    <Tile
+                      icon={<Ticket size={20} className="text-gold-deep" aria-hidden="true" />}
+                      value={t('impact.tileCouponsIssuedValue', { n: fmt(summary.couponsIssued) })}
+                      label={<>
+                        {t('impact.metricCouponsIssued')}
+                        {summary.couponsUsed > 0 && (
+                          <> · {t('impact.metricCouponsUsedInline', { n: fmt(summary.couponsUsed) })}</>
+                        )}
+                      </>}
+                    />
+                  )}
+                  {summary.waitSavedMinutes > 0 && (
+                    <Tile
+                      icon={<Clock size={20} className="text-muk-soft" aria-hidden="true" />}
+                      value={t('impact.tileWaitSavedValue', { n: fmt(summary.waitSavedMinutes) })}
+                      label={t('impact.metricWaitSaved')}
+                    />
+                  )}
                 </div>
 
-                <p className="text-sm text-muk font-medium leading-relaxed">{t('impact.moodCopy')}</p>
+                {/* 세는 규칙 한 줄 — 한 번의 결정을 여러 번으로 세지 않는다(서버 impact.py). */}
+                <p className="text-[11px] text-muk-soft leading-relaxed">{t('impact.countNote')}</p>
               </div>
             </div>
 
@@ -264,6 +250,17 @@ export default function ImpactPage() {
           </div>
         ) : null}
       </main>
+    </div>
+  );
+}
+
+// 지표 타일 하나 — 아이콘 · 값(크게) · 이름. 값과 이름은 로케일 문장을 통째로 받는다.
+function Tile({ icon, value, label }: { icon: ReactNode; value: string; label: ReactNode }) {
+  return (
+    <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
+      {icon}
+      <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">{value}</span>
+      <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">{label}</span>
     </div>
   );
 }

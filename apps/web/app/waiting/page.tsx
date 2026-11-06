@@ -92,6 +92,12 @@ const BOARD_TYPES = ["restaurant", "cafe", "attraction", "culture"] as const;
 const TOP_CARD_COUNT = 3;
 // 유형당 조회 개수(대표 3 + 리스트 여유분) — 과호출 방지를 위한 상한.
 const PER_TYPE_LIMIT = 8;
+// 영업이 확인된 곳이 모자랄 때 영업 미확인 등급으로 채워 달라고 하지 않는다(P1-4 의 fill_weaker_tiers 를 끈다).
+// 이 보드는 대기 짧은 순으로 다시 세우고 카드에 영업 확인 여부를 말하지 않아, 채운 가게가 1위에 서면 문 닫은 곳을
+// '덜 기다리는 곳' 으로 내세우게 된다. 지도 카드·대안 화면은 음식점·카페 요청에서만 켠다 — 그 카드는 '출발 전에 카카오맵에서
+// 영업시간을 먼저 보여 드려요' 를 달고 길안내 전에 영업시간을 먼저 확인시킨다(api-client fillsWeakerTiersFor).
+// 프리페치(api-client prefetchDemoHotPaths)도 같은 값이어야 서버 응답 캐시 키가 맞는다.
+const BOARD_FILLS_WEAKER_TIERS = false;
 
 // 스테일-우선 캐시 — 마지막 성공 보드를 로컬에 보관해 재방문 시 **즉시** 그리고,
 // 백그라운드로 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신
@@ -889,7 +895,7 @@ export default function WaitingBoardPage() {
     for (const type of BOARD_TYPES) {
       if (stale()) return;
       try {
-        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset));
+        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset), BOARD_FILLS_WEAKER_TIERS);
         results.push({ status: "fulfilled", value });
       } catch (reason) {
         results.push({ status: "rejected", reason });
@@ -916,7 +922,7 @@ export default function WaitingBoardPage() {
         if (results[i].status !== "rejected") continue;
         if (stale()) return;
         try {
-          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset));
+          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset), BOARD_FILLS_WEAKER_TIERS);
           results[i] = { status: "fulfilled", value };
         } catch { /* 그대로 실패 유지 — 나머지 섹터로 보드는 뜬다 */ }
       }

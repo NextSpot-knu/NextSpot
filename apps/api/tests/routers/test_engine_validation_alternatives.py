@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.routers import engine_validation_admin as router_module
 from app.services import engine_validation_metrics as metrics
 from app.services import seoul_alternatives_service as alternatives
@@ -122,6 +123,13 @@ def _install(monkeypatch, table: _Table):
     monkeypatch.setattr(router_module, "supabase_admin", _Client(table))
 
 
+@pytest.fixture(autouse=True)
+def _pinned_targets(monkeypatch):
+    # 신선도 기준은 대상지 주기에서 나온다 — 기본 설정이 바뀌어도 이 파일의 기대값이 흔들리지 않게 고정한다
+    # (시연 권역 10분 = 매 버킷 → 기준 30분).
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구,연남동,합정역,명동 관광특구@3+2")
+
+
 def _client():
     app = FastAPI()
     app.include_router(router_module.router)
@@ -195,10 +203,12 @@ def test_rows_only_outside_lookback_is_stale(monkeypatch):
 
 
 def test_old_bucket_inside_lookback_is_stale_not_ready(monkeypatch):
+    # 10분 주기 권역의 기준은 그대로 30분이다.
     _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=45))))
     body = router_module.build_alternatives("홍대 관광특구", now=NOW)
     assert body["state"] == "stale"
     assert body["latest_age_minutes"] == 45.0
+    assert body["stale_after_minutes"] == 30
     assert all(place["stale"] is True for place in body["places"])
     # 값 자체는 그대로 보여 준다 — 감추지 않고 '지금이 아니다' 라고만 말한다.
     assert _card(body, "홍대 관광특구")["congest_lvl"] == "붐빔"
@@ -418,3 +428,42 @@ def test_full_lookback_pages_past_postgrest_cap(monkeypatch):
     assert _card(body, "연남동")["lookback_buckets"] == 7 * 144 - 1
     # 정규화 최대값이 창 전체에서 나온다 — 1000행에서 잘렸다면 여기서 드러난다.
     assert _card(body, "연남동")["lookback_max_midpoint"] == 12000.0
+
+
+# --- 주기를 아는 신선도(§6 S6) ---------------------------------------------------
+
+
+def test_twenty_minute_cluster_is_fresh_between_its_own_collections(monkeypatch):
+    # 20분 주기 홍대 권역 — 한 번 늦은 차례(나이 40분)는 아직 '지금' 이다. 예전 30분 고정 기준이면 stale 이었다.
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구@2,연남동@2,합정역@2")
+    _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=40))))
+    body = router_module.build_alternatives("홍대 관광특구", now=NOW)
+    assert body["state"] == "ready"
+    assert all(place["stale"] is False and place["stale_after_minutes"] == 48 for place in body["places"])
+
+
+def test_ten_minute_cluster_keeps_the_thirty_minute_rule(monkeypatch):
+    _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=31))))
+    body = router_module.build_alternatives("홍대 관광특구", now=NOW)
+    assert body["state"] == "stale"
+    assert body["stale_after_minutes"] == 30
+    assert all(place["stale"] is True and place["stale_after_minutes"] == 30 for place in body["places"])
+
+
+def test_invalid_cadence_falls_back_to_thirty_minutes(monkeypatch):
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구@0")
+    _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=40))))
+    body = router_module.build_alternatives("홍대 관광특구", now=NOW)
+    assert body["state"] == "stale" and body["stale_after_minutes"] == 30
+
+
+def test_build_places_without_thresholds_keeps_the_old_default():
+    cards = alternatives.build_places(_cluster_rows(at=NOW - timedelta(minutes=31)), origin="홍대 관광특구", now=NOW)
+    assert all(card["stale"] is True and card["stale_after_minutes"] == 30 for card in cards)
+
+
+def test_thirty_minute_cluster_uses_sixty_eight_minutes(monkeypatch):
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", "홍대 관광특구@3,연남동@3,합정역@3")
+    _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW - timedelta(minutes=60))))
+    body = router_module.build_alternatives("홍대 관광특구", now=NOW)
+    assert body["state"] == "ready" and body["stale_after_minutes"] == 68

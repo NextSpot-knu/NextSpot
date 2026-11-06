@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.authz import (
@@ -52,7 +52,8 @@ from app.core.authz import (
     require_merchant_console_enabled,
 )
 from app.core.config import settings
-from app.core.supabase import supabase_admin
+from app.core.internal_accounts import filter_internal_roles, internal_ids_from_rows, is_internal_user
+from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import merchant_briefing_service, reference_snapshot
 from app.services.merchant_boost import SEAT_LEVEL_CONGESTION, SEAT_STATUS_FRESH_MINUTES
 
@@ -113,70 +114,359 @@ _SEAT_LEVELS = ("low", "mid", "full")
 
 
 # =========================================================================
-# 성적표 — GET /api/v1/merchant/stats?facility_id=
-# 최근 7일 쿠폰 발급/사용(user_coupons) · 혼잡 제보(congestion_logs source='user_report') ·
-# 추천 노출 대비 수락(recommendations recommended_facility_id 기준) 집계.
-# ⚠️ '방문확인 수'는 apps/web/lib/visits.ts 가 클라이언트 로컬(localStorage)로만 관리해 서버에
-#   시설별로 집계할 원천 데이터가 없다 — 지어내지 않고 null + 안내 문구로 정직하게 표시한다.
+# 성적표 — GET /api/v1/merchant/stats?facility_id=&days=7|30
+#
+# 최근 N일과 **그 직전 N일**을 같은 규칙으로 센다. 사장님이 '늘었나, 줄었나' 를 같은 잣대로 볼 수 있어야
+# 숫자가 쓸모 있다(예전에는 최근 7일 합계 하나뿐이라 월말에 "손님을 데려왔나" 에 답할 수 없었다).
+#   · 쿠폰 발급/사용 — user_coupons. 발급 시각(issued_at)으로 기간을 가르고, 사용은 그 기간에 발급된
+#     쿠폰 중 사용 처리된 것이다(예전과 같은 정의).
+#   · 혼잡 제보     — congestion_logs source='user_report'.
+#   · 길안내 시작   — recommendations.accepted=true. 아래 '수락 행' 참조.
+#   · 도착 확인     — recommendation_outcomes.arrival_confirmed_at 이 있고, 그 추천의
+#     recommended_facility_id 가 이 가게인 방문. 예전에는 서버에 이 기록이 있는데도 null 이었다.
+#   · 추천 노출     — usage_events 'rec_shown'. 손님 화면에 이 가게 카드가 **실제로 그려진** 횟수다.
+#     아래 '노출' 참조.
+#
+# 내부 계정(users.role admin·developer)의 쿠폰·제보·길안내·도착은 세지 않는다 — 팀·심사 계정이 눌러 본
+# 기록이 사장님 실적으로 보이면 안 된다. rec_shown 은 계정과 이어지지 않아(usage_events 에 user_id 칼럼이
+# 없다) 뺄 수 없다 — 대신 운영 주소 밖(로컬·미리보기)·자동화(e2e) 접속은 웹이 애초에 남기지 않는다.
+#
+# [노출] 예전 '노출' 은 이 가게가 들어간 recommendations 행 수였다. 그 행은 화면과 무관하게 생긴다 —
+#   /main 은 들어올 때마다 4업종×8곳을 미리 요청하고(apps/web/lib/api-client.ts), 그 응답이 전부 행이 된다.
+#   그래서 실제로 본 사람이 없어도 숫자가 불었다. rec_shown 은 카드가 그려질 때 한 번 남고
+#   (components/RecommendationCard.tsx), props.facility_id 로 가게가 정확히 갈린다. props.rank 가 없는 기록은
+#   손님이 검색·링크로 직접 연 카드라 '추천 노출' 이 아니다 — 세지 않는다.
+#   · 이 기록은 usage_events 가 생긴 뒤(운영 2026-10-24)부터만 있다. 그래서 기록 시작이 기간 안에 있으면
+#     counted_since 로 '언제부터 센 숫자인지' 를 함께 주고, 직전 기간이 기록 시작보다 앞서면 비교값을 주지
+#     않는다(없던 기록을 0 으로 읽으면 '노출이 늘었다' 는 거짓 비교가 된다).
+#   · usage_events 를 못 읽거나 기록이 한 번도 없으면 예전처럼 행 수로 물러서되, exposure_basis='list_rows' 로
+#     **다른 숫자라는 것**을 알린다 — 화면은 이름을 '추천 목록에 포함된 횟수' 로 바꿔 단다.
+#
+# [수락 행] 두 모양이 섞여 있다(2026-10-31 기준).
+#   · 예전 메인 '바로 갈래요'(/recommendations/accept): 노출된 행은 그대로 두고 original=recommended 인 새 행을
+#     accepted=true 로 하나 더 넣는다(spot_score 0, score_breakdown {}).
+#   · 새 경로(recommendation_id 를 함께 보낸 수락)·탐색 화면 피드백(/feedback): 노출된 그 행을 accepted=true 로 바꾼다.
+#   어느 쪽이든 수락 하나에 accepted=true 행은 하나다. 다만 예전 모양은 같은 손님이 다시 누르면 행이 하나 더 생기고,
+#   새 모양은 같은 추천을 다시 눌러도 그대로다 — 그래서 **(손님, KST 날짜)당 한 번**으로 센다. 이행 중 한 수락이
+#   갱신과 삽입으로 두 번 적혀도 한 번이다. 도착 확인도 같은 규칙으로 센다.
+#   새 모양의 행은 created_at 이 '노출된 시각' 이다(accepted_at 칸이 없다) — 수락이 노출보다 늦으면 노출한 날로
+#   센다. 보통 몇 분 차이라 기간 경계에서만 드물게 하루가 밀린다.
+#   행 수로 노출을 셀 때는 score_breakdown 이 빈 행(예전 수락 행)을 뺀다 — 목록에 들어간 적이 없는 행이다.
 # =========================================================================
+
+# 성적표가 고를 수 있는 기간(일) — 화면의 7일·30일 토글과 같은 값만 받는다. 임의 기간을 받으면 직전 기간과의
+# 비교 잣대가 흔들리고, 긴 기간은 두 기간치를 통째로 훑는다(30일이면 60일).
+_STATS_WINDOW_CHOICES = (7, 30)
+# PostgREST 는 한 응답을 1,000행에서 조용히 자른다(오류가 아니라 잘린 200). 그래서 전부 .range() 로 넘겨 읽는다.
+# 예전 .limit(5000) 은 이 캡 아래에서 아무 일도 하지 않았다 — 많이 오른 가게일수록 숫자가 1,000 에서 멈췄다.
+_STATS_PAGE_SIZE = 1000
+# '같은 날' 은 한국 날짜로 가른다 — 사장님의 하루다.
+_KST = timezone(timedelta(hours=9))
+# 손님 화면에 추천 카드가 그려질 때 웹이 남기는 익명 이벤트(apps/web/lib/usageEvents.ts 의 목록과 같은 이름).
+_CARD_SHOWN_EVENT = "rec_shown"
+_EXPOSURE_BASIS_CARD = "card_shown"
+_EXPOSURE_BASIS_ROWS = "list_rows"
+# 메인 탐색의 '관심 없음' 행 — 추천 실적이 아니다(20260716150000_recommendation_source).
+_BROWSE_SOURCE = "browse"
+
+
+class _StatsWindow:
+    """최근 N일과 그 직전 N일. 요청 시각에서 거꾸로 잰 롤링 창이다(예전 7일 창과 같은 방식)."""
+
+    def __init__(self, days: int, now: datetime):
+        self.days = days
+        self.until = now
+        self.since = now - timedelta(days=days)
+        self.previous_since = self.since - timedelta(days=days)
+
+    def period_of(self, value) -> str | None:
+        """타임스탬프가 어느 기간인지 — 'current' · 'previous' · None(둘 다 아니거나 못 읽음)."""
+        ts = value if isinstance(value, datetime) else _parse_iso(value)
+        if ts is None:
+            return None
+        if ts >= self.since:
+            # 집계하는 동안 들어온 행(ts > until)도 이번 기간이다 — 미래 시각이라고 버리지 않는다.
+            return "current"
+        if ts >= self.previous_since:
+            return "previous"
+        return None
+
+
+def _metric(current: int | None, previous: int | None, people: int | None = None,
+            counted_since: str | None = None) -> dict:
+    """지표 하나의 응답 모양 — 모든 지표가 같은 칸을 갖는다(화면이 한 가지 모양만 읽게)."""
+    return {"current": current, "previous": previous, "people": people, "counted_since": counted_since}
+
+
+def _is_internal(user_id, internal_ids: frozenset[str]) -> bool:
+    return is_internal_user(user_id, internal_ids)
+
+
+async def _fetch_stats_rows(table: str, select: str, apply_filters) -> list[dict]:
+    """조건에 맞는 행 전부(1,000행씩 .range() 로 넘겨 읽는다). 실패는 그대로 올린다 — 호출부가 정한다."""
+    return await asyncio.to_thread(
+        fetch_all_rows, supabase_admin, table, select, _STATS_PAGE_SIZE, apply_filters
+    )
+
+
+async def _internal_user_ids() -> frozenset[str]:
+    """사장님 실적에서 빼는 계정(관리자·개발자) — 관제 지표와 같은 정의(app/core/internal_accounts.py)."""
+    rows = await _fetch_stats_rows("users", "id, role", filter_internal_roles)
+    return internal_ids_from_rows(rows)
+
+
+def _period_counts(rows: list[dict], ts_key: str, window: _StatsWindow) -> dict:
+    counts = {"current": 0, "previous": 0}
+    for row in rows:
+        period = window.period_of(row.get(ts_key))
+        if period is not None:
+            counts[period] += 1
+    return _metric(counts["current"], counts["previous"])
+
+
+def _person_day_counts(rows: list[dict], ts_key: str, window: _StatsWindow) -> dict:
+    """(손님, KST 날짜)당 한 번으로 센 기간별 수 + 이번 기간의 사람 수(표본).
+
+    같은 손님이 같은 날 같은 가게로 여러 번 누른 것은 한 번이다(머리말 '수락 행' — 예전 모양의 중복 행과
+    이행 중 이중 기록을 함께 흡수한다). 사용자를 모르는 행은 합칠 근거가 없어 하나씩 센다
+    (지금 스키마에서 두 표의 user_id 는 NOT NULL 이라 실제로는 생기지 않는다).
+    """
+    keys: dict[str, set] = {"current": set(), "previous": set()}
+    for index, row in enumerate(rows):
+        ts = _parse_iso(row.get(ts_key))
+        period = window.period_of(ts)
+        if period is None:
+            continue
+        user_id = row.get("user_id")
+        owner = str(user_id) if user_id is not None else f"row:{index}"
+        keys[period].add((owner, ts.astimezone(_KST).date()))
+    return _metric(
+        len(keys["current"]),
+        len(keys["previous"]),
+        people=len({owner for owner, _day in keys["current"]}),
+    )
+
+
+def _is_store_arrival(row: dict, facility_id: str) -> bool:
+    """outcome 행이 이 가게 추천의 도착인가. 끼워 온 recommendations 한 행으로 판정한다
+    (PostgREST 는 다대일 임베드를 객체로 주지만, 목록으로 와도 받는다)."""
+    embedded = row.get("recommendations")
+    if isinstance(embedded, list):
+        embedded = embedded[0] if embedded else None
+    if not isinstance(embedded, dict):
+        return False
+    target = str(embedded.get("recommended_facility_id") or "").lower()
+    return target == str(facility_id).lower() and embedded.get("source") != _BROWSE_SOURCE
+
+
+async def _arrival_rows(facility_id: str, window: _StatsWindow) -> list[dict] | None:
+    """이 가게 추천으로 도착이 확인된 방문 행. 못 읽으면 None — 성적표 전체를 실패시키지 않는다
+    (도착은 예전에 없던 칸이라, 이것 하나 때문에 나머지 숫자까지 잃을 이유가 없다)."""
+    try:
+        return await _fetch_stats_rows(
+            "recommendation_outcomes",
+            "recommendation_id, user_id, arrival_confirmed_at, "
+            "recommendations!inner(recommended_facility_id, source)",
+            lambda q: q.eq("recommendations.recommended_facility_id", facility_id)
+            .gte("arrival_confirmed_at", window.previous_since.isoformat())
+            .order("recommendation_id"),
+        )
+    except Exception as e:
+        logger.warning("merchant_stats_arrivals_unavailable", facility_id=facility_id, error=str(e))
+        return None
+
+
+async def _card_exposures(facility_id: str, window: _StatsWindow) -> dict | None:
+    """손님 화면에 추천 카드로 그려진 횟수(rec_shown). 못 읽거나 기록이 한 번도 없으면 None(행 수로 물러선다)."""
+    try:
+        first_res, rows = await asyncio.gather(
+            # 기록 시작 시각 — (event, created_at) 인덱스로 한 행만 본다.
+            asyncio.to_thread(
+                supabase_admin.table("usage_events")
+                .select("created_at")
+                .eq("event", _CARD_SHOWN_EVENT)
+                .order("created_at")
+                .limit(1)
+                .execute
+            ),
+            _fetch_stats_rows(
+                "usage_events",
+                "id, anon_id, created_at, rank:props->>rank",
+                lambda q: q.eq("event", _CARD_SHOWN_EVENT)
+                .eq("props->>facility_id", facility_id)
+                .gte("created_at", window.previous_since.isoformat())
+                .order("id"),
+            ),
+        )
+    except Exception as e:
+        logger.warning("merchant_stats_card_exposures_unavailable", facility_id=facility_id, error=str(e))
+        return None
+
+    first = (first_res.data or [None])[0] or {}
+    tracking_since = _parse_iso(first.get("created_at"))
+    if tracking_since is None:
+        # 표는 있는데 카드 기록이 한 번도 없다 — 기록이 꺼진 배포다. 0 을 '아무도 안 봤다' 로 읽히게 두지 않는다.
+        return None
+
+    counts = {"current": 0, "previous": 0}
+    viewers: set[str] = set()
+    for row in rows:
+        if row.get("rank") is None:
+            continue  # 검색·링크로 직접 연 카드 — 추천 노출이 아니다.
+        period = window.period_of(row.get("created_at"))
+        if period is None:
+            continue
+        counts[period] += 1
+        if period == "current" and row.get("anon_id"):
+            viewers.add(str(row["anon_id"]))
+
+    metric = _metric(
+        counts["current"],
+        counts["previous"] if tracking_since <= window.previous_since else None,
+        people=len(viewers),
+        counted_since=tracking_since.isoformat() if tracking_since > window.since else None,
+    )
+    return {**metric, "basis": _EXPOSURE_BASIS_CARD}
+
+
+async def _list_row_exposures(facility_id: str, window: _StatsWindow, internal_ids: frozenset[str]) -> dict:
+    """물러선 노출 — 이 가게가 계산된 추천 목록에 들어간 행 수. 화면에 보였는지는 이 숫자로 알 수 없다."""
+    rows = await _fetch_stats_rows(
+        "recommendations",
+        # score_breakdown 은 통째로 읽지 않는다(행마다 수십 바이트 JSON) — 목록에서 왔는지만 본다.
+        "id, user_id, created_at, source, travel_time:score_breakdown->travel_time",
+        lambda q: q.eq("recommended_facility_id", facility_id)
+        .neq("source", _BROWSE_SOURCE)
+        .gte("created_at", window.previous_since.isoformat())
+        .order("id"),
+    )
+    counts = {"current": 0, "previous": 0}
+    users: set[str] = set()
+    for row in rows:
+        if row.get("source") == _BROWSE_SOURCE or row.get("travel_time") is None:
+            continue  # '관심 없음' 행 · 예전 수락 행(빈 score_breakdown) — 목록에 들어간 기록이 아니다.
+        if _is_internal(row.get("user_id"), internal_ids):
+            continue
+        period = window.period_of(row.get("created_at"))
+        if period is None:
+            continue
+        counts[period] += 1
+        if period == "current" and row.get("user_id") is not None:
+            users.add(str(row["user_id"]))
+    return {**_metric(counts["current"], counts["previous"], people=len(users)), "basis": _EXPOSURE_BASIS_ROWS}
 
 
 @router.get("/stats")
-async def get_stats(facility_id: str, ctx: dict = Depends(merchant_context)):
+async def get_stats(
+    facility_id: str,
+    days: int = Query(_STATS_WINDOW_DAYS, description="집계 기간(일) — 7 또는 30"),
+    ctx: dict = Depends(merchant_context),
+):
     assert_owns(ctx, facility_id)
-    since = (datetime.now(timezone.utc) - timedelta(days=_STATS_WINDOW_DAYS)).isoformat()
+    # Literal[7, 30] 은 쿼리 문자열 '7' 을 받지 못한다(pydantic v2 리터럴은 형 변환을 하지 않는다) — 직접 본다.
+    if days not in _STATS_WINDOW_CHOICES:
+        raise HTTPException(status_code=422, detail="집계 기간은 7일 또는 30일만 고를 수 있습니다.")
+    window = _StatsWindow(days, datetime.now(timezone.utc))
+    previous_since = window.previous_since.isoformat()
     try:
-        coupons_res, reports_res, recs_res = await asyncio.gather(
-            asyncio.to_thread(
-                supabase_admin.table("user_coupons")
-                .select("status, issued_at")
-                .eq("facility_id", facility_id)
-                .gte("issued_at", since)
-                .limit(5000)
-                .execute
+        internal_ids, coupons, reports, accepted, arrival_rows, card_exposures = await asyncio.gather(
+            _internal_user_ids(),
+            _fetch_stats_rows(
+                "user_coupons",
+                "id, user_id, status, issued_at",
+                lambda q: q.eq("facility_id", facility_id).gte("issued_at", previous_since).order("id"),
             ),
-            asyncio.to_thread(
-                supabase_admin.table("congestion_logs")
-                .select("id, timestamp")
-                .eq("facility_id", facility_id)
+            _fetch_stats_rows(
+                "congestion_logs",
+                "id, reporter_user_id, timestamp",
+                lambda q: q.eq("facility_id", facility_id)
                 .eq("source", "user_report")
-                .gte("timestamp", since)
-                .limit(5000)
-                .execute
+                .gte("timestamp", previous_since)
+                .order("id"),
             ),
-            asyncio.to_thread(
-                supabase_admin.table("recommendations")
-                .select("accepted, created_at")
-                .eq("recommended_facility_id", facility_id)
-                .neq("source", "browse")
-                .gte("created_at", since)
-                .limit(5000)
-                .execute
+            _fetch_stats_rows(
+                "recommendations",
+                "id, user_id, created_at, accepted, source",
+                lambda q: q.eq("recommended_facility_id", facility_id)
+                .eq("accepted", True)
+                .neq("source", _BROWSE_SOURCE)
+                .gte("created_at", previous_since)
+                .order("id"),
             ),
+            _arrival_rows(facility_id, window),
+            _card_exposures(facility_id, window),
         )
+        exposures = card_exposures or await _list_row_exposures(facility_id, window, internal_ids)
     except Exception as e:
         logger.error("merchant_stats_fetch_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="성적표 집계에 실패했습니다.")
 
-    coupons = coupons_res.data or []
-    reports = reports_res.data or []
-    recs = recs_res.data or []
+    # 조건은 쿼리가 이미 걸었지만 여기서도 한 번 더 본다 — 이 숫자는 사장님이 돈(쿠폰)을 걸고 읽는 숫자라,
+    # 필터 하나가 빠진 응답이 내부 계정·'관심 없음' 기록을 실적으로 섞어 넣지 않게 한다.
+    customer_coupons = [r for r in coupons if not _is_internal(r.get("user_id"), internal_ids)]
+    coupons_issued = _period_counts(customer_coupons, "issued_at", window)
+    coupons_used = _period_counts(
+        [r for r in customer_coupons if r.get("status") == "used"], "issued_at", window
+    )
+    congestion_reports = _period_counts(
+        [r for r in reports if not _is_internal(r.get("reporter_user_id"), internal_ids)], "timestamp", window
+    )
+    accepts = _person_day_counts(
+        [
+            r for r in accepted
+            if r.get("accepted") is True
+            and r.get("source") != _BROWSE_SOURCE
+            and not _is_internal(r.get("user_id"), internal_ids)
+        ],
+        "created_at",
+        window,
+    )
+    if arrival_rows is None:
+        arrivals = _metric(None, None)
+        arrivals_note = "도착 확인 기록을 지금 불러오지 못했습니다."
+    else:
+        arrivals = _person_day_counts(
+            [
+                r for r in arrival_rows
+                if _is_store_arrival(r, facility_id) and not _is_internal(r.get("user_id"), internal_ids)
+            ],
+            "arrival_confirmed_at",
+            window,
+        )
+        arrivals_note = (
+            "추천을 보고 길안내를 시작한 손님이 앱에서 도착을 확인한 방문입니다. "
+            "같은 손님의 같은 날 방문은 한 번으로 셉니다."
+        )
 
     return {
+        # ── 예전 칸(이름·형 불변 — 구 화면이 그대로 읽는다). 값은 '이번 기간' 이다.
         "facility_id": facility_id,
-        "since": since,
-        "window_days": _STATS_WINDOW_DAYS,
-        "coupons_issued": len(coupons),
-        "coupons_used": sum(1 for c in coupons if c.get("status") == "used"),
-        "congestion_reports": len(reports),
-        "recommendations_exposed": len(recs),
-        "recommendations_accepted": sum(1 for r in recs if r.get("accepted")),
-        # 서버 미집계 항목 — 지어내지 않고 정직하게 null + 사유를 함께 준다(프런트가 문구로 노출).
-        "visit_confirmations": None,
-        "visit_confirmations_note": (
-            "방문확인은 현재 관광객 단말 로컬 기록(localStorage)이라 매장별 서버 집계가 불가합니다. "
-            "서버 적재 연동은 2단계 예정입니다."
-        ),
+        "since": window.since.isoformat(),
+        "window_days": days,
+        "coupons_issued": coupons_issued["current"],
+        "coupons_used": coupons_used["current"],
+        "congestion_reports": congestion_reports["current"],
+        # 구 화면은 이 칸을 '손님 추천에 노출' 로 읽는다 — 기준이 무엇인지는 exposure_basis 가 말한다.
+        "recommendations_exposed": exposures["current"],
+        "recommendations_accepted": accepts["current"],
+        "visit_confirmations": arrivals["current"],
+        "visit_confirmations_note": arrivals_note,
+        # ── 추가 칸
+        "until": window.until.isoformat(),
+        "previous_since": window.previous_since.isoformat(),
+        "exposure_basis": exposures["basis"],
+        "internal_accounts_excluded": True,
+        # 지표마다 {current, previous, people, counted_since}. previous=None 은 '비교할 수 없음'(0 이 아니다),
+        # people 은 이번 기간 숫자를 만든 사람 수(표본). 무엇으로 세는지는 지표마다 다르다 — 카드 기준 노출은 익명
+        # 기기(usage_events.anon_id), 목록 행 기준 노출·길안내·도착은 계정(users.id — 관광객 게스트 세션 포함)이다.
+        "metrics": {
+            "exposures": exposures,
+            "accepts": accepts,
+            "arrivals": arrivals,
+            "coupons_issued": coupons_issued,
+            "coupons_used": coupons_used,
+            "congestion_reports": congestion_reports,
+        },
     }
 
 
@@ -185,7 +475,8 @@ async def get_stats(facility_id: str, ctx: dict = Depends(merchant_context)):
 # 서버가 '앞으로 6시간' 예측 창의 최저 혼잡 시간대(golden-hour 앵커링 산식 재사용, argmin 은
 # 서버)와 활성 타임세일 현황을 사실로 수집하고, Solar 는 한국어 2~3문장 프로즈만 생성한다.
 # 게이트/캐시/폴백 규칙은 merchant_briefing_service 가 보유한다. 어떤 실패든 briefing=None
-# 으로 강등되며 프런트는 카드 자체를 렌더하지 않는다(무해 폴백). 이 엔드포인트는 읽기 전용 —
+# 으로 강등된다. 그때 프런트는 이 카드 대신 성적표 숫자로 만든 요약(LLM 없음)을 그 자리에 그리고,
+# 요약할 숫자도 없으면 아무것도 그리지 않는다(lib/merchant/scorecard.ts scorecardSummary). 이 엔드포인트는 읽기 전용 —
 # 타임세일 발행 등 어떤 실행 동작도 하지 않는다(실행 결정은 사람 몫, SOLAR_LLM_EXPANSION §4-④).
 # =========================================================================
 

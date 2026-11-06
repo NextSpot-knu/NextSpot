@@ -31,6 +31,13 @@ const REASON_CODES: readonly LabReasonCode[] = [
   'other',
 ] as const;
 
+// 답한 뒤 토스트 — 서버가 이 답으로 취향 프로필을 **실제로 움직였을 때만**(응답 updated_vector) '취향 프로필에
+// 반영했어요' 라고 말한다(P0-5 c). 이유 코드로 짐작하지 않는다: 취향 이유(멀어요·붐벼요 등)라도 이미 반영된 행이거나
+// 시설 종류를 모르면 서버는 학습을 건너뛴다. 영업 안 함·부정확(데이터 품질)·이미 가 봄·지금 상황·기타는 원래 취향을
+// 건드리지 않는다. 구 서버(필드 없음)도 '고마워요' 만 — 모르면 반영했다고 하지 않는다.
+const answeredKey = ({ updatedVector }: { updatedVector: boolean }) =>
+  updatedVector ? 'lab.answeredTaste' : 'lab.answered';
+
 // 시설 유형(캐노니컬 키) — i18n category 네임스페이스로 표시명을 번역한다(coupons 페이지와 동일 규약).
 const TYPE_IDS = ['restaurant', 'cafe', 'attraction', 'culture'];
 
@@ -112,16 +119,17 @@ export default function LabPage() {
   }, [loadPending]);
 
   // 답변/건너뛰기/제거 공통 — 낙관적으로 목록에서 즉시 제거하고, 실패하면 이전 목록으로 롤백한다.
+  // successKey 가 함수면 서버 응답을 보고 문구를 고른다(답변 — answeredKey).
   const mutate = useCallback(
-    async (feedbackId: string, run: () => Promise<void>, successKey: string) => {
+    async <R,>(feedbackId: string, run: () => Promise<R>, successKey: string | ((result: R) => string)) => {
       if (busyId) return;
       setBusyId(feedbackId);
       const snapshot = items;
       setItems((prev) => prev.filter((it) => it.id !== feedbackId));
       setNoteFor((prev) => (prev === feedbackId ? null : prev));
       try {
-        await run();
-        toast.success(t(successKey));
+        const result = await run();
+        toast.success(t(typeof successKey === 'function' ? successKey(result) : successKey));
       } catch (err) {
         console.warn('lab mutation failed', err);
         setItems(snapshot); // 롤백 — 서버에 반영되지 않은 것을 사라진 것처럼 보이게 두지 않는다.
@@ -142,7 +150,7 @@ export default function LabPage() {
         setFreeTextFor(null); // 에디터는 한 번에 하나만 — 자유 입력을 닫는다.
         return;
       }
-      void mutate(item.id, () => answerLabReason(item.id, code), 'lab.answered');
+      void mutate(item.id, () => answerLabReason(item.id, code), answeredKey);
     },
     [mutate],
   );
@@ -153,7 +161,7 @@ export default function LabPage() {
       void mutate(
         item.id,
         () => answerLabReason(item.id, 'other', note || undefined),
-        'lab.answered',
+        answeredKey,
       );
     },
     [mutate, noteText],
@@ -175,11 +183,12 @@ export default function LabPage() {
       if (!text || busyId) return;
       setBusyId(item.id);
       try {
-        const { resolved } = await classifyLabReason(item.id, text);
-        if (resolved) {
+        const classified = await classifyLabReason(item.id, text);
+        if (classified.resolved) {
           setItems((prev) => prev.filter((it) => it.id !== item.id));
           setFreeTextFor((prev) => (prev === item.id ? null : prev));
-          toast.success(t('lab.answered'));
+          // 자유 텍스트가 취향 이유로 분류돼 서버가 프로필을 움직였으면 선택지 답과 같은 문구를 쓴다.
+          toast.success(t(answeredKey(classified)));
         } else {
           toast.error(t('lab.classifyFallback'));
         }

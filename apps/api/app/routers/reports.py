@@ -5,8 +5,8 @@
 보안 배경(init RLS 20250523120001 + 20260827140000):
   congestion_logs 에는 일반 사용자용 INSERT 정책이 **없다** — anon 도, 로그인한 관광객도
   Supabase 로 직접 쓸 수 없다. 그래서 제보는 반드시 이 백엔드 엔드포인트를 거쳐
-  supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 get_current_user(로그인 필수)로
-  강제한다 — 익명 대량 조작을 1차 차단.
+  supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 authz.get_registered_user(계정 로그인 필수 —
+  게스트 익명 세션은 403, 아래 '게스트(익명 세션) 차단')로 강제한다.
 
   2026-09-07 이전에는 "service_role 만 쓸 수 있다" 가 **사실이 아니었다.** 정책 admin_all_logs
   (FOR ALL TO authenticated, USING/WITH CHECK = public.is_admin_or_dev()) 가 admin·developer
@@ -16,24 +16,41 @@
   20260907090000_congestion_logs_admin_read_only.sql 이 그 정책을 admin_read_logs(FOR SELECT)
   로 좁혀 닫았다. **이 문단을 지우지 말 것** — '언제부터 사실인지' 가 이 문장의 핵심이다.
 
-레이트리밋: 사용자·시설당 5분 쿨다운(_REPORT_COOLDOWN_SEC)을 프로세스 인메모리로 적용해
-  스팸/조작이 ML 혼잡 신호를 오염시키는 것을 1차 차단한다. 단일 인스턴스 데모 기준이며,
-  다중 인스턴스 배포 시에는 Redis 등 공유 저장소 기반 토큰버킷으로 승격해야 한다.
+게스트(익명 세션) 차단(2026-10-30, 보안 진단 '중'):
+  두 제보 경로 모두 계정 로그인을 요구한다(JWT 의 is_anonymous → 403, DB 를 읽기 전에 끝난다).
+  그 전에는 get_current_user 만 봐서 SessionBootstrap 이 모든 방문자에게 자동 발급하는 익명
+  세션도 통과했다. 익명 세션은 클릭 한 번이면 새로 생기므로 '사용자·시설당 쿨다운' 이 세션마다
+  초기화됐고, 게스트 둘이 같은 단계를 보내면 DB 트리거(correlate_congestion_report_evidence)가
+  corroborated 로 승격했다 — 그 등급은 추천 순위와 모델 학습 정답에 들어간다. 영업 상태도 같아서
+  게스트 둘이 '닫힘' 을 맞추면 그 장소가 60분간 추천에서 빠졌다(record_facility_availability_report).
+  웹은 게스트의 영업 상태 답을 서버에 기록하지 않고 그 사람 화면에만 적용한다(RecommendationCard ·
+  explore/recommend) — 수락·길안내 흐름은 게스트에게도 그대로다.
+
+레이트리밋 두 겹(프로세스 인메모리, 단일 인스턴스 데모 기준 — 다중 인스턴스는 Redis 등 공유 저장소로 승격):
+  · 사용자·시설당 쿨다운(혼잡 5분 · 영업 1분) — 같은 사람의 연타.
+  · **IP·시설당 한 계정**(교차검증 창 30분) — 한 단말에서 계정 여러 개를 돌려 '두 사람의 일치' 를 꾸미는 것.
+    교차검증은 30분 안의 서로 다른 계정 둘을 센다(트리거 ±30분 · RPC 최근 30분). 그래서 IP 쪽을 쿨다운 길이
+    (5분·1분)로 걸면 두 번째 계정이 5분 1초 뒤에 보내 그대로 corroborated 가 된다 — 늦출 뿐 막지 못한다.
+    같은 와이파이 일행의 두 번째 제보도 막히지만, 같은 일행의 같은 관찰은 원래 '독립된 두 확인' 이 아니다.
+  IP 키는 app/core/client_ip.py 의 해석(XFF 마지막 값)을 따른다. 검사와 자리 잡기는 await 없이 한 번에
+  한다(app/core/report_slots.reserve_report_slot — 게스트 방문 확인 답 경로와 공용) — 사이에 await 가 있으면 동시에 들어온 두 계정이 둘 다 검사를 통과한다.
 """
 import asyncio
-import time
 from datetime import datetime, timezone
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.authz import get_registered_user
+from app.core.client_ip import client_ip
+from app.core.report_slots import CONGESTION_VOTES_BY_IP, release_report_slot, reserve_report_slot
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 # 이 문장이 **모든 authenticated 역할에 대해** 참이 된 시점과 그 전에 무엇이 열려 있었는지는
 # 이 파일 상단 독스트링의 '보안 배경' 을 볼 것(20260907090000 마이그레이션).
-from app.core.supabase import supabase_admin, get_current_user
+from app.core.supabase import supabase_admin
 from app.services import reference_snapshot
 from app.services.coupon_service import issue_coupon_if_partner
 
@@ -62,6 +79,12 @@ _REPORT_COOLDOWN_SEC = 300.0
 _last_report_at: dict[tuple[str, str], float] = {}
 _AVAILABILITY_COOLDOWN_SEC = 60.0
 _last_availability_report_at: dict[tuple[str, str], float] = {}
+
+# (IP, 시설) → (그 IP 에서 마지막으로 성공한 계정, 시각). 창 안에서는 같은 IP 의 **다른** 계정을 받지 않는다.
+# 규칙·자리 잡기는 app/core/report_slots.py(방문 확인 체감 혼잡과 공용). 게스트 방문 확인 답은 이 표를 읽기만 한다 —
+# 같은 IP 에서 계정 사용자가 먼저 제보한 장소의 게스트 답은 버려지지만, 게스트 답이 계정 사용자의 제보를 막지는 않는다.
+_last_report_by_ip = CONGESTION_VOTES_BY_IP
+_last_availability_report_by_ip: dict[tuple[str, str], tuple[str, float]] = {}
 
 
 class CongestionReportRequest(BaseModel):
@@ -150,13 +173,14 @@ def _coerce_level(level: float | str) -> float:
 @router.post("/reports/availability", response_model=AvailabilityReportResponse)
 async def report_availability(
     req: AvailabilityReportRequest,
-    current_user: dict = Depends(get_current_user),
+    request: Request,
+    current_user: dict = Depends(get_registered_user),
 ):
     """Record a short-lived opening-status check using server time.
 
     The database RPC atomically keeps one current report per user/place and promotes
     only two-user agreement to corroborated evidence. A single report never affects
-    recommendation eligibility.
+    recommendation eligibility. Guest (anonymous) sessions are rejected with 403.
     """
     facility = await asyncio.to_thread(
         supabase_admin.table("facilities")
@@ -168,16 +192,15 @@ async def report_availability(
     if not facility.data:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
-    cooldown_key = (current_user["id"], req.facility_id)
-    now_mono = time.monotonic()
-    last_at = _last_availability_report_at.get(cooldown_key)
-    if last_at is not None and now_mono - last_at < _AVAILABILITY_COOLDOWN_SEC:
-        retry_after = max(1, int(_AVAILABILITY_COOLDOWN_SEC - (now_mono - last_at)))
-        raise HTTPException(
-            status_code=429,
-            detail="영업 상태는 1분에 한 번만 확인할 수 있습니다.",
-            headers={"Retry-After": str(retry_after)},
-        )
+    slot = reserve_report_slot(
+        user_store=_last_availability_report_at,
+        ip_store=_last_availability_report_by_ip,
+        user_id=current_user["id"],
+        ip=client_ip(request),
+        facility_id=req.facility_id,
+        cooldown_sec=_AVAILABILITY_COOLDOWN_SEC,
+        cooldown_detail="영업 상태는 1분에 한 번만 확인할 수 있습니다.",
+    )
 
     try:
         result = await asyncio.to_thread(
@@ -191,6 +214,7 @@ async def report_availability(
             ).execute
         )
     except Exception as exc:
+        release_report_slot(slot)
         logger.error(
             "availability_report_failed",
             facility_id=req.facility_id,
@@ -204,20 +228,21 @@ async def report_availability(
     if isinstance(payload, list):
         payload = payload[0] if payload else {}
     if not payload:
+        release_report_slot(slot)
         raise HTTPException(status_code=503, detail="영업 상태 저장 결과를 확인하지 못했습니다.")
-    _last_availability_report_at[cooldown_key] = now_mono
     return AvailabilityReportResponse(success=True, **payload)
 
 
 @router.post("/reports/congestion", response_model=CongestionReportResponse)
 async def report_congestion(
     req: CongestionReportRequest,
-    current_user: dict = Depends(get_current_user),
+    request: Request,
+    current_user: dict = Depends(get_registered_user),
 ):
     """관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').
 
-    흐름: 인증(get_current_user) → level 정규화 → 시설 존재 검증 →
-    supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다
+    흐름: 인증 + 게스트 거부(get_registered_user, 403) → level 정규화 → 시설 존재 검증 →
+    쿨다운(사용자 5분 · IP 한 계정 30분) → supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다
     (congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).
     """
     level = _coerce_level(req.level)
@@ -240,17 +265,17 @@ async def report_congestion(
     if not fac_res.data:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
-    # 1-1. 레이트리밋: 사용자·시설당 쿨다운(스팸/조작 1차 차단). 성공 제보 후에만 타임스탬프를 갱신한다.
-    cooldown_key = (current_user["id"], req.facility_id)
-    last_at = _last_report_at.get(cooldown_key)
-    now_mono = time.monotonic()
-    if last_at is not None and (now_mono - last_at) < _REPORT_COOLDOWN_SEC:
-        retry_after = max(1, int(_REPORT_COOLDOWN_SEC - (now_mono - last_at)))
-        raise HTTPException(
-            status_code=429,
-            detail=f"제보는 {int(_REPORT_COOLDOWN_SEC // 60)}분에 한 번만 가능합니다. 잠시 후 다시 시도해 주세요.",
-            headers={"Retry-After": str(retry_after)},
-        )
+    # 1-1. 레이트리밋: 사용자·시설당 쿨다운 + IP·시설당 한 계정(스팸/조작 1차 차단, 상단 독스트링).
+    #      여기서 자리를 잡고, 저장이 실패하면 되돌린다.
+    slot = reserve_report_slot(
+        user_store=_last_report_at,
+        ip_store=_last_report_by_ip,
+        user_id=current_user["id"],
+        ip=client_ip(request),
+        facility_id=req.facility_id,
+        cooldown_sec=_REPORT_COOLDOWN_SEC,
+        cooldown_detail=f"제보는 {int(_REPORT_COOLDOWN_SEC // 60)}분에 한 번만 가능합니다. 잠시 후 다시 시도해 주세요.",
+    )
 
     capacity = fac_res.data[0].get("capacity") or 0
     current_count = round(capacity * level)
@@ -273,13 +298,13 @@ async def report_congestion(
             supabase_admin.table("congestion_logs").insert(row).execute
         )
     except Exception as e:
+        release_report_slot(slot)  # 저장하지 못한 시도는 쿨다운을 남기지 않는다
         logger.error("congestion_report_insert_failed", error=str(e), facility_id=req.facility_id)
         # 우리 쪽 장애는 503 이다(이 저장소의 규칙 — 중복만 409, 잘못된 입력은 422).
         # 500 은 프런트가 '다시 시도해도 소용없는 오류' 로 다루기 쉽고, 실제로는 Render
         # 콜드 스타트나 Supabase 순간 장애라 다시 누르면 되는 경우가 대부분이다.
         raise HTTPException(status_code=503, detail="혼잡 제보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.")
 
-    _last_report_at[cooldown_key] = now_mono  # 성공 제보 후 쿨다운 시작
     reference_snapshot.mark_dirty("congestion")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
     inserted = (ins.data or [{}])[0]
     logger.info("congestion_report_saved", facility_id=req.facility_id, level=level)

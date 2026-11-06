@@ -40,7 +40,7 @@ test.beforeEach(async ({ page }) => stubExternalServices(page));
 
 const ZERO_IMPACT: Impact = {
   status: 200,
-  body: { accepted: 0, congestion_avoided: 0, coupons_issued: 0, coupons_used: 0, wait_saved_minutes: 0 },
+  body: { accepted: 0, arrivals_confirmed: 0, congestion_avoided: 0, coupons_issued: 0, coupons_used: 0, wait_saved_minutes: 0 },
 };
 
 test('a new guest sees no sample impact numbers, no sign-out and a Korean role chip', async ({ page }) => {
@@ -51,8 +51,9 @@ test('a new guest sees no sample impact numbers, no sign-out and a Korean role c
 
   await expect(page.getByText('경주 여행자', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect.poll(api.impactCalls, { timeout: 20_000 }).toBeGreaterThan(0);
-  // 출발점 카드는 그대로 있다(긍정 문구 · 임팩트 상세로) — 예시 숫자 카드 대신 이것이 첫 줄이다.
-  await expect(page.getByText('지금부터 아낀 시간이 쌓입니다').first()).toBeVisible({ timeout: 20_000 });
+  // 근거 없는 0 에는 아무것도 붙이지 않는다(P0-5 b) — 예전의 '지금부터 아낀 시간이 쌓입니다' 배너·'아낀 대기 0분' 이 없다.
+  await page.waitForTimeout(1_000);
+  await expect(page.getByText(/아낀 시간|아낀 대기|예상 대기|아끼셨어요/)).toHaveCount(0);
 
   const body = page.locator('body');
   await expect(body).not.toContainText(/예시 값|312|1,240|Explorer|참여 점포|분산 유도/);
@@ -81,7 +82,7 @@ test('the impact page starts with a map button instead of sample numbers or a sh
   await stubApis(page, { role: 'tourist', is_anonymous: true }, UNAUTHORIZED);
   await page.goto('/mypage/impact');
 
-  await expect(page.getByText('첫 대안으로 이동하면 아낀 시간이 여기에 쌓여요')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('추천받은 곳으로 출발하면 여기에 기록이 쌓여요')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('body')).not.toContainText(/예시 값|312|1,240|참여 점포/);
   await expect(page.getByRole('button', { name: /공유/ })).toHaveCount(0);
   await page.getByRole('button', { name: '지도에서 시작' }).click();
@@ -100,25 +101,44 @@ test('real impact numbers use thousands separators and drop the store count', as
   test.setTimeout(90_000);
   await stubApis(page, { role: 'tourist', is_anonymous: false }, {
     status: 200,
-    body: { accepted: 1234, congestion_avoided: 2, coupons_issued: 1500, coupons_used: 0, wait_saved_minutes: 5 },
+    body: { accepted: 1234, arrivals_confirmed: 1001, congestion_avoided: 2, coupons_issued: 1500, coupons_used: 0, wait_saved_minutes: 5 },
   });
   await page.goto('/mypage');
-  await expect(page.getByText('대안으로 이동 1,234번')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('아낀 대기 5분')).toBeVisible();
-  await expect(page.locator('body')).not.toContainText('참여 점포');
+  await expect(page.getByText('길안내로 출발 1,234번')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('도착 확인 1,001번').first()).toBeVisible();
+  await expect(page.getByText('줄인 예상 대기 5분').first()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(/참여 점포|대안으로 이동/);
 
   await page.goto('/mypage/impact');
-  await expect(page.getByText('1,234곳')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('1,500장')).toBeVisible();
+  // 타일 값(머리 줄의 '길안내로 출발 1,234번' 과 겹치지 않게 값만 정확히).
+  await expect(page.getByText('1,234번', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('1,500장', { exact: true })).toBeVisible();
+  await expect(page.getByText('같은 날 같은 곳으로 여러 번 출발해도 한 번으로 셌어요.')).toBeVisible();
   await expect(page.getByRole('button', { name: '임팩트 카드 공유하기' })).toBeVisible();
-  await expect(page.locator('body')).not.toContainText(/참여 점포|예시 값/);
+  await expect(page.locator('body')).not.toContainText(/참여 점포|예시 값|덜 기다린 만큼/);
+});
+
+// P0-5 b — /main 수락처럼 원래 장소와의 비교가 없는 기록만 있으면 '아낀 대기 0분'·'혼잡 회피 0번' 타일과 칭찬 문구가
+// 붙었다. 이제는 센 값(출발·도착 확인)만 보이고, 근거 없는 0 타일은 그리지 않는다. 도착 확인을 서버가 세지 못했으면(null)
+// 그 숫자도 지어내지 않는다.
+test('the impact page shows only counted numbers — no baseless zero tiles or praise', async ({ page }) => {
+  test.setTimeout(90_000);
+  await stubApis(page, { role: 'tourist', is_anonymous: false }, {
+    status: 200,
+    body: { accepted: 3, arrivals_confirmed: null, congestion_avoided: 0, coupons_issued: 0, coupons_used: 0, wait_saved_minutes: 0 },
+  });
+  await page.goto('/mypage/impact');
+  await expect(page.getByText('길안내로 출발 3번')).toBeVisible({ timeout: 30_000 });
+  const body = page.locator('body');
+  await expect(body).not.toContainText(/도착 확인|혼잡 회피|줄인 예상 대기|발급 쿠폰|덜 기다린 만큼|아낀 대기/);
+  await expect(page.getByRole('button', { name: '임팩트 카드 공유하기' })).toBeVisible();
 });
 
 for (const [locale, footer] of [
-  ['ko', '최종 업데이트 · 2026-10-23'],
-  ['en', 'Last updated · 2026-10-23'],
-  ['ja', '最終更新 · 2026-10-23'],
-  ['zh', '最后更新 · 2026-10-23'],
+  ['ko', '최종 업데이트 · 2026-10-31'],
+  ['en', 'Last updated · 2026-10-31'],
+  ['ja', '最終更新 · 2026-10-31'],
+  ['zh', '最后更新 · 2026-10-31'],
 ] as const) {
   test(`${locale} privacy footer shows the update date, not a contest edition`, async ({ page }) => {
     await stubApis(page, { role: 'tourist', is_anonymous: true }, UNAUTHORIZED);

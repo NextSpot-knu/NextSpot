@@ -17,6 +17,39 @@ interface QueuedOutcome {
 
 let flushing: Promise<void> | null = null;
 
+/**
+ * 방문 확인 체감 혼잡 답의 서버 처리 결과를 알리는 창 이벤트(D3). 'rated' 단계에 답을 실어 보낸 항목이 저장되면 쏜다.
+ * detail.crowdAnswer 는 API 응답 crowd_answer 그대로다 — registered · guest_shadow · guest_live, 또는
+ * not_recorded_*(게스트 답을 이번에는 저장하지 않음: 같은 네트워크·30분 쿨다운·DB 마이그레이션 전). 응답에 없으면 null.
+ */
+export const CROWD_ANSWER_EVENT = 'nextspot:crowd-answer';
+
+export interface CrowdAnswerDetail {
+  recommendationId: string;
+  crowdAnswer: string | null;
+}
+
+/** 응답 본문(camelCase 변환 뒤)에서 crowdAnswer 를 꺼낸다. 문자열이 아니면 null. */
+export function readCrowdAnswer(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+  const value = (response as { crowdAnswer?: unknown }).crowdAnswer;
+  return typeof value === 'string' ? value : null;
+}
+
+/** 서버가 이번 혼잡 답을 저장하지 않았는가(평가는 저장됨). */
+export function isUnrecordedCrowdAnswer(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith('not_recorded');
+}
+
+function announceCrowdAnswer(detail: CrowdAnswerDetail): void {
+  try {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent<CrowdAnswerDetail>(CROWD_ANSWER_EVENT, { detail }));
+  } catch {
+    /* 알림은 선택 — 큐 처리를 막지 않는다 */
+  }
+}
+
 function readQueue(): QueuedOutcome[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -37,11 +70,12 @@ const MAX_QUEUE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // 다시 보내도 결과가 같은 상태들. 추천 행이 지워졌거나(404), 남의 추천이거나(403),
 // 본문이 스키마에 안 맞는(422) 경우가 여기다.
 //
-// **409 는 일부러 넣지 않는다.** 이 엔드포인트의 409 는 "방문 결과 단계 순서가 올바르지
-// 않습니다" 이고(recommendations.py:1361), 그건 우리 큐가 순서를 어겨서 나는 오류다 —
-// 버리면 우리가 만든 오류로 멀쩡한 arrival/rated 기록을 지우게 된다. 순서가 바로잡히면
-// 다음 시도에 통과하고, 영영 안 될 경우는 아래 MAX_QUEUE_AGE_MS 가 걷어낸다.
-const PERMANENT_STATUSES = new Set([400, 403, 404, 410, 422]);
+// **409 도 여기다.** 이 엔드포인트의 409 는 서버 RPC 가 "앞 단계가 먼저 기록돼야 한다"·"이미 기록돼 바꿀 수 없다"
+// 고 거절한 것이다(recommendations.py record_recommendation_outcome). 큐 안의 순서는 queuedAt 정렬과 '같은 단계는
+// 처음 시각 유지'가 이미 지킨다 — 그래도 409 가 나면 앞 단계가 서버에 영영 없는 경우다(예: 길안내 시작을
+// 기록하지 않던 옛 화면에서 수락하고 도착만 확인). 다시 보내도 같고, 남겨 두면 큐 맨 앞에서 그 뒤 기록을 7일 동안
+// 전부 막는다. 그래서 그 항목만 버리고 경고 로그를 남긴다(아래 flush).
+const PERMANENT_STATUSES = new Set([400, 403, 404, 409, 410, 422]);
 
 /**
  * 이 실패는 다시 시도해서 될 일인가.
@@ -94,15 +128,24 @@ export function flushRecommendationOutcomes(): Promise<void> {
     for (let index = 0; index < queue.length; index++) {
       const item = queue[index];
       try {
-        await apiClient.patch(`/api/v1/recommendations/${item.recommendationId}/outcome`, {
+        const response = await apiClient.patch(`/api/v1/recommendations/${item.recommendationId}/outcome`, {
           stage: item.stage,
           rating: item.rating,
           observedCongestion: item.observedCongestion,
         });
+        if (item.stage === 'rated' && item.observedCongestion) {
+          announceCrowdAnswer({ recommendationId: item.recommendationId, crowdAnswer: readCrowdAnswer(response) });
+        }
       } catch (err) {
         if (isPermanentFailure(err)) {
           // 몇 번을 보내도 같은 결과다. 이 항목만 버리고 계속 진행한다 — 여기서 멈추면
           // 큐 전체가 영영 막힌다(단계 순서도 지킬 앞 단계가 이미 없으니 의미가 없다).
+          // 버린 기록은 조용히 사라지지 않게 남긴다 — 409 가 잦으면 어느 화면이 앞 단계를 빠뜨리는지 찾는 단서다.
+          console.warn('recommendation_outcome_dropped', {
+            recommendationId: item.recommendationId,
+            stage: item.stage,
+            status: httpStatus(err),
+          });
           continue;
         }
         // 일시적 실패에서만 순서를 보존한다. 앞 단계 실패 뒤의 arrival/rated를 먼저 보내지 않는다.

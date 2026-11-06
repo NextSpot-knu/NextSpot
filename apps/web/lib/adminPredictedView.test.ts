@@ -2,11 +2,11 @@
 //
 // 잡으려는 결함:
 //   · 예측 칸이 실측·추정 칸을 덮어쓴다(관측이 예측으로 바뀌면 그건 값을 지어낸 것이다).
-//   · 실측 4건을 실측으로 판다 / 5건을 시나리오로 가린다(하한은 서버 hasLogs 와 같은 5).
+//   · 하한(MIN_MEASURED_SAMPLES)이 서버 hasLogs 와 다른 수가 된다(5).
 //   · 하루 진행 몫이 거꾸로 가거나 곡선 값이 0..1 을 벗어난다 / 렌더마다 값이 달라진다.
-//   · 시나리오 비율이 시각에 따라 흔들린다(비율은 고정, 건수만 오른다).
+//   · 시나리오 비율이 시각에 따라 흔들린다(비율은 고정, 건수만 오른다) — 시나리오는 데모(?demo=1) 전용이다.
 //   · 앵커가 밤·새벽 칸 때문에 늘 상한에 붙어 예측 칸이 100% 로 몰린다 / 예측이 '만석' 으로 읽힌다.
-//   · 추천 고리 패널이 따로 전환해 실측 '0건 수락' 옆에 시나리오 '179건 재배치' 가 선다.
+//   · 운영 대시보드·위젯이 시나리오 값을 다시 그린다(P0-3 — 표본이 모자라면 '표본 부족' 이다).
 //   · 예측 단독 문구가 쓰지도 않은 입력(관광공사 집중률)을 근거로 적는다.
 //   · 이식한 곡선 상수가 서버(industry_baseline.py)와 조용히 갈라진다.
 //   · 판정만 만들고 화면(page.tsx)이 부르지 않는다 — 마지막 배선 가드.
@@ -41,8 +41,6 @@ import {
   predictedDaySummary,
   predictedLevel,
   predictedPeaks,
-  resolveKpiBasis,
-  resolveLoopBasis,
   scenarioKpis,
   topFacilities,
   type FacilityLite,
@@ -380,14 +378,9 @@ const byType = groupFacilitiesByType(FACILITIES);
   assert.deepEqual(scenarioKpis(atKst(13)), noon, '같은 시각에 다른 값');
 }
 
-// ── 전환 하한: 4 → 시나리오(건수 표기), 5 → 실측 ─────────────────────────────
+// ── 하한·근거 문구 ──────────────────────────────────────────────────────────────
 {
   assert.equal(MIN_MEASURED_SAMPLES, 5);
-  assert.equal(resolveKpiBasis(4), 'scenario');
-  assert.equal(resolveKpiBasis(5), 'measured');
-  assert.equal(resolveKpiBasis(0), 'scenario');
-  assert.equal(resolveKpiBasis(null), 'scenario');
-  assert.equal(resolveKpiBasis(undefined), 'scenario');
   assert.equal(basisSubline({ basis: 'scenario', measuredCount: 3 }), '시나리오 · 도입 목표 패턴 × 시각 진행률 · 실측 3건 수집 중');
   assert.equal(basisSubline({ basis: 'scenario', measuredCount: 4, unit: '명' }), '시나리오 · 도입 목표 패턴 × 시각 진행률 · 실측 4명 수집 중');
   assert.equal(basisSubline({ basis: 'scenario', measuredCount: 0 }), '시나리오 · 도입 목표 패턴 × 시각 진행률 · 실측 5건부터 자동 전환');
@@ -466,29 +459,6 @@ const byType = groupFacilitiesByType(FACILITIES);
   assert.equal(todayFieldSampleNote(null), null);
 }
 
-// ── 추천 고리 공동 판정: 한 패널이라도 실측 5건 이상이면 넷 다 실측 ───────────────────
-// [수락률(7일 추천), DAU(오늘 피드백), 분산 효과(오늘 수락), 깔때기(30일 노출)]
-{
-  // 운영과 같은 모양: 추천 5,000건(수락 0) · 피드백 0 · 수락 0 · 노출 10,000 → 전부 실측(시나리오 179건을 세우지 않는다).
-  assert.equal(resolveLoopBasis({ samples: [5000, 0, 0, 10000] }), 'measured');
-  // 다 얇으면 시나리오.
-  assert.equal(resolveLoopBasis({ samples: [3, 2, 2, 4] }), 'scenario');
-  assert.equal(resolveLoopBasis({ samples: [4, 4, 4, 4] }), 'scenario');
-  assert.equal(resolveLoopBasis({ samples: [5, 5, 5, 5] }), 'measured');
-  // 하나만 5건 이상이어도 전부 실측(패널마다 따로 바꾸면 한 화면에서 서로 모순된다).
-  assert.equal(resolveLoopBasis({ samples: [0, 0, 0, 5] }), 'measured');
-  assert.equal(resolveLoopBasis({ samples: [0, 7, 0, 0] }), 'measured');
-  // 브리핑(오늘 실측 사실 문장)이 떠 있으면 실측.
-  assert.equal(resolveLoopBasis({ samples: [3, 2, 2, 4], measuredElsewhere: true }), 'measured');
-  // 로딩 중인 패널이 있으면 판정 보류 — 단, 이미 5건 이상인 패널이 있으면 실측으로 확정.
-  assert.equal(resolveLoopBasis({ samples: [3, 'loading', 2, 4] }), null);
-  assert.equal(resolveLoopBasis({ samples: [5000, 'loading', 'loading', 'loading'] }), 'measured');
-  // 실패한 패널은 뺀다('갱신 중' 자리에는 실측 숫자가 없다). 전부 실패면 시나리오를 그릴 자리가 없다.
-  assert.equal(resolveLoopBasis({ samples: ['failed', 'failed', 2, 3] }), 'scenario');
-  assert.equal(resolveLoopBasis({ samples: ['failed', 'failed', 'failed', 'failed'] }), 'measured');
-  assert.equal(resolveLoopBasis({ samples: [Number.NaN, 2, 2, 2] }), 'scenario', 'NaN 을 표본으로 셌다');
-}
-
 // ── 이식한 상수 = 서버 industry_baseline.py(숫자 하나까지) ──────────────────────────
 // 두 화면(관광객 카드의 'AI 예측' 과 관제 예측)이 다른 곡선을 쓰면 같은 시각에 다른 예측을 말한다.
 {
@@ -527,10 +497,10 @@ const byType = groupFacilitiesByType(FACILITIES);
   // 예측 행 시설은 활성 시설만 — 비활성 미검증 시드(정원이 커서 정원순 상위를 차지한다)가 예측 목록에 오르지 않게.
   const fetchFacilities = page.slice(page.indexOf('async function fetchPredictionFacilities'), page.indexOf('async function fetchPredictionFacilities') + 1500);
   assert.ok(fetchFacilities.length > 0 && /\.eq\('is_active', true\)/.test(fetchFacilities), "fetchPredictionFacilities 가 is_active=true 로 거르지 않는다");
-  // 추천 고리 두 위젯이 공동 판정을 받는다(각자 5건 하한으로 따로 바꾸지 않는다).
-  assert.ok(/<ImpactWidget[^>]*loopBasis=\{loopBasis\}/.test(page), 'ImpactWidget 에 공동 판정(loopBasis)을 넘기지 않는다');
-  assert.ok(/<ModelTrustPanel[^>]*loopBasis=\{loopBasis\}/.test(page), 'ModelTrustPanel 에 공동 판정(loopBasis)을 넘기지 않는다');
-  assert.ok(!/resolveKpiBasis\(/.test(impact) && !/resolveKpiBasis\(/.test(trust), '위젯이 공동 판정 대신 자기 하한으로 전환한다');
+  // P0-3: 운영 대시보드와 추천 고리 위젯은 시나리오 값을 그리지 않는다 — 시나리오는 데모 화면(DemoDashboard) 전용.
+  for (const [name, src] of [['page.tsx', page], ['ImpactWidget.tsx', impact], ['ModelTrustPanel.tsx', trust]] as const) {
+    assert.ok(!/scenarioKpis|SCENARIO_BADGE|ScenarioBadge|loopBasis/.test(src), `${name} 가 운영 화면에 시나리오 값을 다시 그린다`);
+  }
   // 화면 문구에 코드 경로·파일 이름을 적지 않는다(import 줄은 제외하고 본다).
   for (const [name, src] of [['page.tsx', page], ['ImpactWidget.tsx', impact], ['ModelTrustPanel.tsx', trust]] as const) {
     const body = src.replace(/^import[\s\S]*?from '[^']+';$/gm, '');

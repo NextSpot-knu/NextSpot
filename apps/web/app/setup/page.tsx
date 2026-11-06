@@ -102,6 +102,8 @@ export default function SetupPage() {
           <div className="space-y-2.5">
             <Toggle active={context.requiredAttributes.includes('indoor')} onClick={() => toggleAttribute('indoor')} label={t('setup.indoorOnly')} />
             <Toggle active={context.requiredAttributes.includes('accessible')} onClick={() => toggleAttribute('accessible')} label={t('setup.accessibleOnly')} />
+            {/* 유모차는 휠체어와 따로 고른다(P1-6) — 예전에는 '휠체어·유모차' 한 줄이 휠체어 판정만 걸었다. */}
+            <Toggle active={context.requiredAttributes.includes('stroller')} onClick={() => toggleAttribute('stroller')} label={t('setup.strollerOnly')} />
             <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
           </div>
         </Section>

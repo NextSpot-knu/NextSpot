@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, httpStatus, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse, type AvailabilityReportResult } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent } from "@/lib/voice/voiceIntent";
 import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
@@ -21,14 +21,16 @@ import { ShareButton } from "@/components/ShareButton";
 import { CongestionReportButton } from "@/components/CongestionReportButton";
 import RecommendationComparison from "@/components/RecommendationComparison";
 import { recordActiveTrip } from "@/lib/visits";
+import { queueRecommendationOutcome } from "@/lib/recommendationOutcomes";
 import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import { congestionDisplay, formatEstimateTime, formatLastObserved, parseCongestionEstimate } from "@/lib/congestionEstimate";
+import { congestionDisplay, formatEstimateTime, formatLastObserved, isBaselinePrediction, parseCongestionEstimate } from "@/lib/congestionEstimate";
 import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
-// 대기 보드에서 눌러 온 장소 둘레의 같은 종류 대안(I25), 한국어 조사, '원래 장소보다 덜 붐빌 때만' 칩 규칙.
-import { candidateTypesFor, currentOriginLevel, isStrictlyCalmer, withTopicJosa } from "@/lib/recommendOrigin";
+// 대기 보드에서 눌러 온 장소 둘레의 같은 종류 대안(I25), 한국어 조사, '원래 장소보다 덜 붐빌 때만' 칩 규칙,
+// 지도에서 고른 장소의 '대신 갈 곳 보기'(P1-5)와 종류가 바뀐 폴백 안내.
+import { candidateTypesFor, currentOriginLevel, isStrictlyCalmer, readRecommendEntry, showsOtherKinds, withTopicJosa } from "@/lib/recommendOrigin";
 import { boardCrowdSpread } from "@/lib/boardOrder";
 import { faceTastePercent } from "@/lib/compareHeader";
 import { markTasteFeedback } from "@/lib/tasteBadge";
@@ -85,6 +87,8 @@ function buildFallbackReason(
  */
 function assertableCongestionLevel(rec: RecommendationResponse): number | null {
   const display = congestionDisplay(rec);
+  // 업종 시간대 기준선(P0-5 d)은 이 장소의 혼잡을 주장할 근거가 아니다 — '최근 현장 혼잡 정보가 있어요' 로 말하지 않는다.
+  if (display.mode === 'predicted' && isBaselinePrediction(rec)) return null;
   return display.mode === 'measured' || display.mode === 'predicted' ? display.level : null;
 }
 
@@ -233,13 +237,24 @@ function RecommendContent() {
   const paramLat = searchParams.get("lat");
   const paramLng = searchParams.get("lng");
   // 대기 보드에서 눌러 왔으면(I25) 그 장소의 종류와 출처가 함께 온다 — 같은 종류의 대안을 그 장소 둘레에서 찾는다.
+  // 지도에서 고른 장소의 '대신 갈 곳 보기'(P1-5, from=pick)도 같다. 머리글은 걷는 시간을 어디서 쟀는지로 고른다 —
+  // 그 장소에서 쟀으면 '{장소}에서 걸어서 갈 수 있는 곳', 내 위치에서 쟀으면 '{장소} 대신 갈 만한 N곳'.
   const originTypeParam = searchParams.get("type");
-  const fromWaiting = searchParams.get("from") === "waiting";
+  const { walkFromPlace } = readRecommendEntry(searchParams);
   const candidateTypes = useMemo(() => candidateTypesFor(originTypeParam), [originTypeParam]);
+  // 아직 우리 DB 에 없는 장소(카카오 장소 검색 결과)에서 왔으면 시설 id 대신 이름이 온다 — 원래 장소 기록이 없으니
+  // 그 둘레의 같은 종류를 by-type 엔진으로 묻는다(종류를 모르면 물을 수 없어 지도로 돌려보낸다).
+  const originNameParam = (searchParams.get("name") ?? "").trim();
+  const namedOrigin = !facilityId && originNameParam.length > 0 && candidateTypes.length > 0;
+  const hasOrigin = !!facilityId || namedOrigin;
 
   // State
   const [userId, setUserId] = useState<string | null>(null);
-  const [originalFacility, setOriginalFacility] = useState<OriginalFacility | null>(null);
+  const [loadedOriginal, setOriginalFacility] = useState<OriginalFacility | null>(null);
+  // DB 에 없는 장소(namedOrigin)는 주소의 이름·종류가 원래 장소의 전부다 — 붐빔 기록이 없어 알약도 그리지 않는다.
+  const originalFacility: OriginalFacility | null = namedOrigin && originTypeParam
+    ? { id: "", name: originNameParam, type: originTypeParam, congestionLevel: null, features: {} }
+    : loadedOriginal;
   // 원래 장소의 유형 — by-type 대안이 **호출하는 순간** 읽는다. 추천 effect 는 userId 가 오자마자
   // (로컬 세션) 시작해 원래 장소(네트워크 왕복)보다 먼저 돈다. 클로저의 originalFacility 는 그때 null 이라
   // 카페 화면의 대안이 음식점으로 채워졌다. 대안은 45초 타임아웃·재시도 뒤에 불리므로 그때는 이미 채워져 있다.
@@ -280,7 +295,8 @@ function RecommendContent() {
     ]));
   }, [recommendations, t]);
   
-  const [loadingOriginal, setLoadingOriginal] = useState(true);
+  const [loadingOriginalState, setLoadingOriginal] = useState(true);
+  const loadingOriginal = namedOrigin ? false : loadingOriginalState;
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
   // 조회 실패를 빈 결과와 **구분**한다. 예전에는 네 경로가 전부 setRecommendations([])
   // 로 수렴해서, 백엔드가 죽어도 화면에는 "1.5km 내에 갈 곳이 없어요" 가 떴다 —
@@ -305,8 +321,8 @@ function RecommendContent() {
   useEffect(() => setMounted(true), []);
   // 고를 장소가 없으면 빈 화면 대신 지도로 — 뒤로 가기에 이 빈 주소가 남지 않게 replace 로 보낸다.
   useEffect(() => {
-    if (mounted && !facilityId) router.replace("/main");
-  }, [mounted, facilityId, router]);
+    if (mounted && !hasOrigin) router.replace("/main");
+  }, [mounted, hasOrigin, router]);
 
   // Onboarding Modal State (Cold Start)
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -547,6 +563,7 @@ function RecommendContent() {
   useEffect(() => {
     // 대기 보드에서 왔으면 URL 의 종류로 먼저 채운다(I25) — 원래 장소 응답보다 대안 폴백이 먼저 돌아도 같은 종류를 묻는다.
     originalTypeRef.current = originTypeParam;
+    // DB 에 없는 장소(namedOrigin)는 읽을 기록이 없다 — 주소의 이름·종류가 원래 장소의 전부다(아래 originalFacility).
     if (!facilityId) return;
 
     async function fetchOriginalFacility() {
@@ -629,9 +646,26 @@ function RecommendContent() {
         ? { key: congestionKey(originEstimateLevel, busyAt), estimated: true }
         : null;
 
-  // 대안 조회 한 곳(I25) — 대기 보드에서 왔으면 같은 종류부터 묻고, 비면 종류 없이 한 번 더 묻는다.
+  // 같은 SPOT 엔진의 by-type 경로 — 원래 장소의 유형으로 이 둘레를 묻는다. 대안 API 가 실패·타임아웃이면 최후 폴백이고,
+  // DB 에 없는 장소(카카오 검색 결과)면 처음부터 이것이다(원래 장소 기록이 없어 대안 API 를 쓸 수 없다).
+  // 유형은 클로저가 아니라 ref 에서 호출 시점에 읽는다(원래 장소가 effect 시작 뒤에 도착한다).
+  const byTypeFallback = () =>
+    recommendByType(
+      originalTypeRef.current ?? "restaurant",
+      { lat, lng },
+      facilityId ? [facilityId] : [],
+      5,
+      loadTravelContext(),
+      undefined,
+      undefined,
+      BY_TYPE_FALLBACK_TIMEOUT_MS,
+    );
+
+  // 대안 조회 한 곳(I25) — 대기 보드·고른 장소에서 왔으면 같은 종류부터 묻고, 비면 종류 없이 한 번 더 묻는다.
   // 모든 호출 경로(첫 조회·선호 반영·온보딩·다른 대안 보기)가 이 함수를 쓴다.
   const fetchAlternatives = async (): Promise<RecommendationResponse[]> => {
+    // DB 에 없는 장소 — 원래 장소 효과가 주소의 종류를 ref 에 먼저 넣어 둔다(아래 effect 보다 먼저 돈다).
+    if (namedOrigin) return byTypeFallback();
     if (candidateTypes.length > 0) {
       const typed = await getRecommendations(facilityId, { lat, lng }, loadTravelContext(), { candidateTypes });
       if (typed.length > 0) return typed;
@@ -641,7 +675,7 @@ function RecommendContent() {
 
   // Check Cold Start & Fetch Recommendations
   useEffect(() => {
-    if (!userId || !facilityId) return;
+    if (!userId || !hasOrigin) return;
     let cancelled = false;  // in-flight 가드: lat/lng 늦은 갱신 등으로 인한 잔여 응답 경합 방지
 
     async function checkHistoryAndFetch() {
@@ -670,22 +704,11 @@ function RecommendContent() {
         // 떨어질 수 있다 — 에러 화면 대신 짧은 백오프 뒤 1회 조용히 재시도한다(로더 유지).
         // 사용자에게는 '조금 더 긴 로딩'으로만 보인다.
         //
-        // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로로 대안을 채운다(과부하 창에서도 응답 실측).
+        // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로(위 byTypeFallback)로 대안을 채운다(과부하 창에서도 응답 실측).
         // 반환 타입이 동일(RecommendationResponse[])해 화면 로직 변경 없음. 원 시설은 제외한다.
-        // 유형은 클로저가 아니라 ref 에서 호출 시점에 읽는다(원래 장소가 effect 시작 뒤에 도착한다).
-        const byTypeFallback = () =>
-          recommendByType(
-            originalTypeRef.current ?? "restaurant",
-            { lat, lng },
-            [facilityId],
-            5,
-            loadTravelContext(),
-            undefined,
-            undefined,
-            BY_TYPE_FALLBACK_TIMEOUT_MS,
-          );
         let recommendationsList;
-        let triedByType = false;
+        // DB 에 없는 장소는 첫 조회가 이미 by-type 이다 — 비어도 같은 질문을 한 번 더 보내지 않는다.
+        let triedByType = namedOrigin;
         try {
           recommendationsList = await fetchAlternatives();
         } catch (firstErr) {
@@ -737,9 +760,9 @@ function RecommendContent() {
     checkHistoryAndFetch();
     return () => { cancelled = true; };
     // originalFacility 를 deps 에 넣지 않음: 매번 새 객체로 세팅돼 추천을 이중 fetch 시키던 경합의 원인이었다.
-    // fetchAlternatives 는 렌더마다 새 함수지만 읽는 값(facilityId·lat·lng·종류)은 deps 와 같다.
+    // fetchAlternatives 는 렌더마다 새 함수지만 읽는 값(facilityId·이름·lat·lng·종류)은 deps 와 같다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, facilityId, lat, lng]);
+  }, [userId, facilityId, hasOrigin, lat, lng]);
 
   // 음성 입력 시작 (Web Speech API). 미지원 브라우저는 텍스트 입력으로 폴백.
   const startVoice = () => {
@@ -838,7 +861,7 @@ function RecommendContent() {
 
   // 자연어 선호 반영 후 바로 추천 받기 (parse 단계에서 서버가 이미 벡터/카테고리 저장)
   const handleApplyNlAndFetch = async () => {
-    if (!userId || !facilityId) return;
+    if (!userId || !hasOrigin) return;
     stopVoice();
     setShowOnboarding(false);
     setLoadingRecommendations(true);
@@ -862,7 +885,7 @@ function RecommendContent() {
       toast.info(t("recommend.selectAtLeast3"));
       return;
     }
-    if (!userId || !facilityId) return;
+    if (!userId || !hasOrigin) return;
 
     setIsOnboardingSubmitting(true);
     try {
@@ -913,6 +936,9 @@ function RecommendContent() {
       navigation_mode: navigationMode,
       walk_minutes: Math.round(rec.breakdown.travelTime),
     });
+    // 방문 결과의 첫 단계 — 지도(/main)와 같은 기록을 남긴다. 이게 없으면 이 화면에서 수락한 추천의 '도착 확인'이
+    // 서버에서 409(앞 단계 없음)로 거절돼 도착·평가가 집계에서 빠진다(P0-5b 도착 확인 수).
+    queueRecommendationOutcome(rec.recommendationId, 'navigation_started');
     if (navigationMode === 'walk') {
       toast.info(t('trip.selectWalking'));
       openWalkingDirections(rec.facility);
@@ -957,7 +983,17 @@ function RecommendContent() {
     setHoursSubmitting(true);
     setHoursSubmitError(false);
     try {
-      const result = await reportFacilityAvailability(rec.facility.id, status);
+      let result: AvailabilityReportResult | null;
+      try {
+        result = await reportFacilityAvailability(rec.facility.id, status);
+      } catch (err) {
+        // 서버가 이 답을 받지 않는 경우 — 게스트(403)와 같은 네트워크의 다른 계정이 이미 알린 장소(429).
+        // 이유는 apps/api/app/routers/reports.py 상단. 그 사람의 판단으로 수락·제외는 그대로 잇되, 기록된 근거가
+        // 아니므로 availabilityEvidence 는 바꾸지 않는다.
+        const notRecorded = httpStatus(err);
+        if (notRecorded !== 403 && notRecorded !== 429) throw err;
+        result = null;
+      }
       setHoursPrompt(null);
       if (status === 'closed') {
         setRecommendations((current) => current.filter(
@@ -969,7 +1005,7 @@ function RecommendContent() {
       const confirmed: RecommendationResponse = {
         ...rec,
         openStatusAtArrival: 'open_expected',
-        facility: { ...rec.facility, availabilityEvidence: result },
+        facility: result ? { ...rec.facility, availabilityEvidence: result } : rec.facility,
       };
       setRecommendations((current) => current.map((item) => (
         item.recommendationId === rec.recommendationId ? confirmed : item
@@ -1018,7 +1054,7 @@ function RecommendContent() {
 
   // "다른 대안 보기" Click: Reject current top 3, fetch next 3
   const handleRejectAllAndRefresh = async () => {
-    if (recommendations.length === 0 || !facilityId) return;
+    if (recommendations.length === 0 || !hasOrigin) return;
     quietAssistant(); // 음성 비서 진행 중이면 정리(수동/음성 새로고침 공통)
     setIsRefreshing(true);
     try {
@@ -1365,22 +1401,22 @@ function RecommendContent() {
     { id: "culture", labelKey: "category.culture", emoji: "🏛️" },
   ];
 
-  // facilityId 없이 마운트가 끝났다면(깨진 공유 링크·URL 직접 입력) 데이터 로드 이펙트가 전부
-  // `if (!facilityId) return;` 로 빠진다 — 위 effect 가 /main 으로 보내는 동안 빈 한지 바탕만 둔다.
-  if (mounted && !facilityId) {
+  // 원래 장소 없이 마운트가 끝났다면(깨진 공유 링크·URL 직접 입력 — 시설 id 도, 종류가 붙은 이름도 없다) 데이터 로드
+  // 이펙트가 전부 빠진다 — 위 effect 가 /main 으로 보내는 동안 빈 한지 바탕만 둔다.
+  if (mounted && !hasOrigin) {
     return <main className="min-h-screen bg-hanji" />;
   }
 
   // ── 머리글 한 덩어리(P11) ──────────────────────────────────────────────────────────────────
   // 예전에는 히어로 카드 · 원래 장소 카드 · '실시간 추천 대안 (최대 5개)' 세 머리가 쌓여 첫 화면에 대안 사진이 없었다.
-  // 이제 제목 한 줄이 무엇을 보여 주는지 말한다 — 대기 보드에서 왔으면 '{장소}에서 걸어서 갈 수 있는 곳'(그 장소에서
-  // 걷는 시간이다), 아니면 '{장소} 대신 갈 만한 N곳'. 대안이 없으면 결과를 약속하지 않고 이름만.
+  // 이제 제목 한 줄이 무엇을 보여 주는지 말한다 — 걷는 시간을 그 장소에서 쟀으면(대기 보드 · 내 위치를 모르는 '대신 갈 곳
+  // 보기') '{장소}에서 걸어서 갈 수 있는 곳', 아니면 '{장소} 대신 갈 만한 N곳'. 대안이 없으면 결과를 약속하지 않고 이름만.
   const originName = originalFacility?.name ?? null;
   const headerTitle = !originName
     ? t("recommend.heroTitle")
     : noAlternatives
       ? originName
-      : fromWaiting
+      : walkFromPlace
         ? t("recommend.headerFrom", { name: originName })
         : !loadingRecommendations && recommendations.length > 0
           ? t(countKey("recommend.headerInstead", recommendations.length), { name: originName, n: recommendations.length })
@@ -1390,6 +1426,8 @@ function RecommendContent() {
   const originSubject = originName ? (locale === "ko" ? withTopicJosa(originName) : originName) : "";
   const originPillTone =
     originGrade?.key === "busy" ? "busy" : originGrade?.key === "quiet" || originGrade?.key === "relaxed" ? "calm" : null;
+  // 같은 종류로 물었는데 다른 종류가 섞여 왔는가(종류 없이 다시 물은 폴백) — 머리글 아래 안내 한 줄.
+  const otherKindsShown = !loadingRecommendations && showsOtherKinds(candidateTypes, recommendations);
   // 대안들의 추정 붐빔이 한 등급이면(I03) 머리 아래 한 줄로 한 번만 — 원래 장소 알약이 이미 같은 말을 하면 생략.
   // 대안들의 취향 일치율 — 모두 같은 숫자면 앞면 칩에서 말하지 않는다(faceTastePercent).
   const tastePeers = recommendations.map((rec) => Math.round((rec.breakdown?.preference || 0) * 100));
@@ -1463,6 +1501,17 @@ function RecommendContent() {
         <p className="-mt-2 px-1 text-[11px] leading-relaxed text-muk-soft">
           <TrailingNoteText text={t("recommend.dataAttribution")} />
         </p>
+
+        {/* 같은 종류가 비어 종류 없이 다시 물었더니 다른 종류가 왔다(P1-5) — 그 사실을 먼저 말한다. 카페를 눌렀는데
+            말없이 식당이 오면 고장으로 읽힌다. */}
+        {otherKindsShown && (
+          <p
+            data-testid="recommend-kind-fallback"
+            className="rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-[13px] font-semibold leading-snug text-muk"
+          >
+            {t("recommend.otherKindsNotice")}
+          </p>
+        )}
 
         {/* 대안들이 모두 같은 추정 등급이면 그 등급을 한 번만(I03) — 카드에는 걷는 시간·영업·취향이 남는다. */}
         {!originPillTone && altSpread.uniform && altSpread.grade && !loadingRecommendations && recommendations.length > 0 && (
@@ -1567,9 +1616,17 @@ function RecommendContent() {
               const whyId = `recommend-why-${rec.recommendationId}`;
               const measuredKey = display.mode === "measured" && shownLevel !== null ? congestionKey(shownLevel, busyAt) : null;
               const predictedKey = display.mode === "predicted" && shownLevel !== null ? congestionKey(shownLevel, busyAt) : null;
+              // 'predicted' 중 업종 시간대 기준선(P0-5 d) — 'AI 예측' 이 아니라 '평소 이 시간' 으로, 퍼센트 없이 등급만.
+              // 이 장소의 값이 아니라서 원래 장소와 견주는 앞면 혜택 칩으로 쓰지 않는다('추천 근거 자세히' 안에만).
+              const predictedBaseline = predictedKey !== null && isBaselinePrediction(rec);
+              const predictedLabel = predictedKey === null
+                ? null
+                : predictedBaseline
+                  ? t("card.baselineLevel", { label: t(`congestion.${predictedKey}`) })
+                  : `${t("map.forecast")} · ${t(`congestion.${predictedKey}`)}`;
               // 실측·예측 칩도 추정 칩과 같은 규칙 — 앞면에는 원래 장소보다 확실히 덜 붐빌 때만, 나머지는 '추천 근거 자세히' 뒤에.
               const measuredOnFace = measuredKey !== null && isStrictlyCalmer(measuredKey, originGrade?.key ?? null);
-              const predictedOnFace = predictedKey !== null && isStrictlyCalmer(predictedKey, originGrade?.key ?? null);
+              const predictedOnFace = predictedKey !== null && !predictedBaseline && isStrictlyCalmer(predictedKey, originGrade?.key ?? null);
               // 실제 대기 분(검증 근거)이 있으면 앞면 혜택 칩 — 추정이 '지금' 자리를 가져갔으면 그 분은 낡은 관측에서 나온 값이라 쓰지 않는다.
               const waitOnFace = display.mode !== "none" && !estimate && hasWait;
 
@@ -1700,7 +1757,7 @@ function RecommendContent() {
                     )}
                     {predictedKey && predictedOnFace && (
                       <span className="inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap bg-jade/10 border-jade/30 text-jade">
-                        {t("map.forecast")} · {t(`congestion.${predictedKey}`)}
+                        {predictedLabel}
                       </span>
                     )}
                     {estimate && estimateKey && estimateOnFace && (
@@ -1721,6 +1778,20 @@ function RecommendContent() {
                       </span>
                     )}
                   </div>
+
+                  {/* 영업시간을 모르는 음식점·카페(도착 영업 needs_confirmation — 서버가 약한 등급에서 채운 카드 포함) — 지도 카드와
+                      같은 안내를 단다. '도보 길안내' 를 누르면 카카오맵 영업시간과 '영업 중인가요?' 질문이 먼저 뜬다(requestAccept).
+                      '영업시간 미확인' 칩은 그리지 않는다(계획 A4). 질문이 열려 있으면 같은 말을 되풀이하지 않는다. */}
+                  {needsHoursCheck(rec) && hoursPrompt?.recommendationId !== rec.recommendationId && (
+                    <p
+                      data-testid="alt-hours-hint"
+                      className={`text-[12px] font-medium leading-snug ${
+                        arrivalDisplayStatus === "likely_closed_unknown" ? "text-terracotta" : "text-muk-soft"
+                      }`}
+                    >
+                      {t("card.checkHoursKakaoHint")}
+                    </p>
+                  )}
 
                   {/* CTA button */}
                   {hoursPrompt?.recommendationId === rec.recommendationId && (
@@ -1821,7 +1892,10 @@ function RecommendContent() {
                       shareText={t("recommend.shareText", { name: rec.facility.name })}
                       url={
                         typeof window !== "undefined"
-                          ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
+                          ? `${window.location.origin}/explore/recommend?${facilityId
+                            ? `facilityId=${encodeURIComponent(facilityId)}`
+                            // DB 에 없는 장소(카카오 검색 결과)는 이름·종류로 돌아온다 — 빈 facilityId 는 지도로 튕긴다.
+                            : `name=${encodeURIComponent(originNameParam)}&type=${encodeURIComponent(originTypeParam ?? "")}`}&lat=${lat}&lng=${lng}&ref=share`
                           : undefined
                       }
                       className="min-h-11"
@@ -1887,8 +1961,12 @@ function RecommendContent() {
                         </span>
                       )}
                       {predictedKey && !predictedOnFace && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-gold/10 border-gold/30 text-gold-deep">
-                          {t("map.forecast")} · {t(`congestion.${predictedKey}`)}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          predictedBaseline
+                            ? "border-dashed border-line bg-white/70 text-muk-soft"
+                            : "bg-gold/10 border-gold/30 text-gold-deep"
+                        }`}>
+                          {predictedLabel}
                         </span>
                       )}
                       {estimate && estimateKey ? (

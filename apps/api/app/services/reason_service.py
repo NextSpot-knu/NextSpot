@@ -52,12 +52,35 @@ def _facility_name(ctx: dict) -> str:
     return ctx.get("recommended_facility_name") or "대안 시설"
 
 
+# 업종 시간대 곡선 문장의 주어(조사까지). 업종을 모르면 주어 없이 쓴다.
+_INDUSTRY_SUBJECT = {
+    "restaurant": "음식점이",
+    "cafe": "카페가",
+    "attraction": "관광지가",
+    "culture": "문화시설이",
+}
+# 곡선이 이 이상이면 '보통 붐비는 시간대' 라고 말한다 — 아래 '붐빔' 판정(0.75)과 같은 선.
+_BUSY_LEVEL = 0.75
+
+
+def _industry_pattern_sentence(ctx: dict, level) -> str | None:
+    """업종 시간대 곡선이 붐비는 시간대를 가리킬 때만 한 문장. 숫자도 'AI' 도 쓰지 않는다."""
+    if not isinstance(level, (int, float)) or level < _BUSY_LEVEL:
+        return None
+    subject = _INDUSTRY_SUBJECT.get(ctx.get("facility_type") or "")
+    return f"이 시간대는 {subject} 보통 붐비는 때예요." if subject else "보통 붐비는 시간대예요."
+
+
 def _build_template(ctx: dict) -> str:
     """주어진 수치만으로 만드는 결정적 사유 문장.
 
     혼잡 3단계(CONGESTION_TRUST_SPEC): congestion_source 가
       - "measured"(또는 미지정 하위호환): 실측 → "혼잡도 N%"
-      - "predicted": AI 예측 → "예상 혼잡도 N% (AI 예측)" — 예측임을 문구에 명시
+      - "predicted" + 학습된 모델(congestion_prediction_basis 가 "model" 이거나 없음):
+        "예상 혼잡도 N% (AI 예측)" — 예측임을 문구에 명시
+      - "predicted" + 업종 시간대 곡선(congestion_prediction_basis="industry_baseline"): 이 가게를 잰 값도,
+        학습한 모델의 예측도 아니다 — '%' 와 'AI' 를 쓰지 않고, 붐비는 시간대일 때만 "이 시간대는 카페가 보통
+        붐비는 때예요." 를 덧붙인다(그 외에는 혼잡을 말하지 않는다). '지금은 붐벼' 처럼 이 가게를 말하지 않는다.
       - "none": 혼잡 근거 없음 → 혼잡 문구 생략(0% 를 실측처럼 팔지 않는다)
     """
     name = _facility_name(ctx)
@@ -67,6 +90,12 @@ def _build_template(ctx: dict) -> str:
     cong_source = ctx.get("congestion_source") or "measured"
     if cong_source == "none":
         cand_cong = None
+    if cong_source == "predicted" and ctx.get("congestion_prediction_basis") == "industry_baseline":
+        pattern = _industry_pattern_sentence(ctx, cand_cong)
+        # 곡선 값은 아래 '혼잡도 N%' 자리에도, '지금은 붐벼' 판정에도 쓰지 않는다.
+        cand_cong = None
+    else:
+        pattern = None
 
     parts = []
     # 분은 카드(웹)와 같은 규칙으로 정수화한다(card_minutes) — 다르면 같은 카드에 두 숫자가 뜬다.
@@ -83,18 +112,19 @@ def _build_template(ctx: dict) -> str:
             parts.append(f"혼잡도 {round(cand_cong * 100)}%")
 
     # 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 안내한다.
-    is_congested = isinstance(cand_cong, (int, float)) and cand_cong >= 0.75
+    is_congested = isinstance(cand_cong, (int, float)) and cand_cong >= _BUSY_LEVEL
     if parts:
         if is_congested:
             return f"{name}: " + ", ".join(parts) + " 수준으로 지금은 붐벼 대기가 길 수 있어요."
         if not isinstance(cand_cong, (int, float)):
             # 혼잡 근거 없음 — "여유"도 혼잡 주장이므로 쓰지 않는다(거리·대기 사실만 안내).
             # '준비 중이에요' 같은 자기 결점 고백도 붙이지 않는다(no-defensive-copy, 2026-09-21).
-            return f"{name} 추천: " + ", ".join(parts) + " 수준입니다."
+            sentence = f"{name} 추천: " + ", ".join(parts) + " 수준입니다."
+            return f"{sentence} {pattern}" if pattern else sentence
         return f"{name} 추천: " + ", ".join(parts) + " 수준으로 여유가 있습니다."
     if is_congested:
         return f"{name}은(는) 현재 혼잡해 대기가 길 수 있어요."
-    return f"{name}을(를) 추천합니다."
+    return f"{name}을(를) 추천합니다. {pattern}" if pattern else f"{name}을(를) 추천합니다."
 
 
 # --- LLM 문체 다듬기(Upstage Solar) — 사실은 템플릿이 정하고 LLM 은 표현만 다듬는다 -------

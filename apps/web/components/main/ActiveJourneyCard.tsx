@@ -11,7 +11,7 @@ import { track } from '@/lib/analytics';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
-import { displayWalkingMinutes } from '@/lib/recommender';
+import { displayWalkingMinutes, eligibilityTierRank } from '@/lib/recommender';
 import { classifyReplanOutcome, replanNotice, type ReplanOutcome } from '@/lib/replanOutcome';
 
 const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
@@ -113,9 +113,15 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       // 예산 초과를 '빈 배열' 로 표현하지 않는다. 예전에는 setTimeout 이 [] 를 resolve 했고,
       // 그 [] 가 서버의 '조건에 맞는 곳 0건' 과 구분되지 않아 타임아웃이 '추천할 곳이 없어요' 로
       // 나갔다. 표식을 따로 돌려주고 아래 classifyReplanOutcome 이 셋을 갈라놓는다.
+      // 갈아타기는 카드를 보여 주지 않고 곧바로 길안내를 연다 — 영업 근거 등급('영업시간 미확인')을 사용자가 볼 틈이
+      // 없다. 그래서 약한 등급 채우기(fillWeakerTiers)를 끄고(서버 종전 동작: 가장 강한 등급만), 종류가 여럿이면
+      // 등급을 먼저 비교한다 — 점수만 보면 다른 종류의 미확인 가게가 영업 확인 곳을 이긴다(P1-4).
       const raced = await Promise.race([
         Promise.all(
-          facilityTypes.map((facilityType) => recommendByType(facilityType, location, [trip.facilityId], 1, context)),
+          facilityTypes.map((facilityType) => recommendByType(
+            facilityType, location, [trip.facilityId], 1, context,
+            undefined, undefined, undefined, undefined, false,
+          )),
         ).then((batches) => ({ batches })),
         new Promise<{ overBudget: true }>((resolve) => {
           deadlineId = setTimeout(() => resolve({ overBudget: true }), REPLAN_RESPONSE_BUDGET_MS);
@@ -124,7 +130,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       if (deadlineId) clearTimeout(deadlineId);
       const timedOut = 'overBudget' in raced;
       const candidates = timedOut ? [] : raced.batches.flat().sort((a, b) =>
-        b.spotScore - a.spotScore || a.distanceM - b.distanceM || a.facility.id.localeCompare(b.facility.id),
+        eligibilityTierRank(a) - eligibilityTierRank(b)
+        || b.spotScore - a.spotScore || a.distanceM - b.distanceM || a.facility.id.localeCompare(b.facility.id),
       );
       // 후보가 없으면 outcome 은 'empty' 아니면 'timeout' 이다('replaced' 는 후보가 있을 때만 나온다).
       const next = candidates[0];
@@ -228,7 +235,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
                 {AVAILABLE.map((minutes) => <ChoiceChip key={minutes} active={draft.availableMinutes === minutes} onClick={() => updateDraft((current) => ({ ...current, availableMinutes: minutes }))}>{minutes === 120 ? t('setup.twoHoursPlus') : t('trip.availableChip', { n: minutes })}</ChoiceChip>)}
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {(['indoor', 'accessible'] as RequiredAttribute[]).map((attribute) => <ChoiceChip key={attribute} active={draft.requiredAttributes?.includes(attribute) ?? false} onClick={() => toggleAttribute(attribute)}>{t(`trip.attribute.${attribute}`)}</ChoiceChip>)}
+                {/* 유모차는 휠체어와 따로(P1-6) — 서버 travel_context 가 같은 세 값을 받는다. */}
+                {(['indoor', 'accessible', 'stroller'] as RequiredAttribute[]).map((attribute) => <ChoiceChip key={attribute} active={draft.requiredAttributes?.includes(attribute) ?? false} onClick={() => toggleAttribute(attribute)}>{t(`trip.attribute.${attribute}`)}</ChoiceChip>)}
                 <ChoiceChip active={draft.excludeVisited === true} onClick={() => updateDraft((current) => ({ ...current, excludeVisited: !current.excludeVisited }))}>{t('setup.excludeVisited')}</ChoiceChip>
               </div>
               <div className="mt-2 flex gap-2">

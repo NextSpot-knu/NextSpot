@@ -175,6 +175,21 @@ async def get_current_profile(current_user: dict = Depends(get_current_user)) ->
     )
 
 
+_GUEST_FORBIDDEN_DETAIL = "게스트 세션으로는 사용할 수 없습니다. 계정으로 로그인해 주세요."
+
+
+async def get_registered_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """계정으로 로그인한 사용자만 통과시킨다 — 게스트(익명 세션)는 403.
+
+    역할·소유 가게가 필요 없는 경로용이다. get_current_profile 과 같은 근거(검증된 JWT 의
+    is_anonymous 클레임)로 판정하지만 **DB 를 읽지 않는다** — 그래서 게스트 거부가 프로필 조회 장애(503)에
+    묶이지 않고, 자동 발급되는 익명 세션마다 users 조회가 생기지도 않는다. 반환은 get_current_user 그대로.
+    """
+    if (current_user.get("payload") or {}).get("is_anonymous"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=_GUEST_FORBIDDEN_DETAIL)
+    return current_user
+
+
 def _extract_bearer(request: Request) -> str | None:
     """Authorization / 프록시 경유 헤더에서 Bearer 토큰을 꺼낸다.
 

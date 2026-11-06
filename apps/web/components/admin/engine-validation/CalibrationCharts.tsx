@@ -106,7 +106,7 @@ export function CalibrationCurveChart({ curve }: { curve: CalibrationCurve | nul
 /** 하루 모양 비교 — 서울 실측 인구 vs 경주 주차 점유율(평일·주말). */
 export function HourShapeChart({ rows }: { rows: HourShapeRow[] }) {
   if (rows.length === 0) {
-    return <Empty>시간대별 평균을 집계하는 중입니다 — 10분 주기로 표본이 누적됩니다.</Empty>;
+    return <Empty>시간대별 평균을 낼 표본이 아직 없습니다 — 수집 주기마다 표본이 누적됩니다.</Empty>;
   }
   return (
     <ResponsiveContainer width="100%" height="100%">

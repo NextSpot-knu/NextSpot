@@ -51,6 +51,10 @@ SAMPLE_FETCHED_AT = datetime(2026, 9, 20, 3, 2, 0, tzinfo=KST).astimezone(timezo
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     seoul.reset_state()
+    # 정규화 이중 저장(zone_crowd_snapshots)은 test_seoul_citydata_cadence.py 가 본다 — 여기서는 버린다.
+    monkeypatch.setattr(seoul.crowd_store, "_upsert_row", lambda _row: None)
+    # 저장 표 확인(조회 전)은 기본적으로 '있음' — 없을 때는 아래 테스트가 따로 본다.
+    monkeypatch.setattr(seoul, "_probe_table", lambda: None)
     monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", "")
     monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", HONGDAE)
     monkeypatch.setattr(settings, "TOURAPI_KEY", "")
@@ -411,17 +415,61 @@ def test_missing_table_stops_the_run_with_migration_code(monkeypatch):
         code = "PGRST205"
         message = "Could not find the table 'public.seoul_citydata_snapshots' in the schema cache"
 
-    def missing(_row):
+    writes: list[str] = []
+
+    def missing(row):
+        writes.append(row["area_nm"])
+        raise _PostgrestLikeError(_PostgrestLikeError.message)
+
+    def probe():
         raise _PostgrestLikeError(_PostgrestLikeError.message)
 
     monkeypatch.setattr(seoul, "_upsert_row", missing)
+    monkeypatch.setattr(seoul, "_probe_table", probe)
 
     with pytest.raises(seoul.SeoulSnapshotPersistenceError) as info:
         asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT))
     assert info.value.code == "migration_not_applied"
-    # 저장할 곳이 없으면 나머지 대상지로 호출 한도를 쓰지 않는다.
-    assert calls == [HONGDAE]
+    # 표가 없으면 조회 **전에** 멈춘다 — 서울 API 호출 0회(버킷마다 한도를 버리지 않는다).
+    assert calls == []
+    assert writes == []
     assert seoul.get_collection_status()["error_code"] == "migration_not_applied"
+
+
+def test_missing_table_found_only_at_write_still_stops_at_the_first_row(monkeypatch):
+    """확인이 판정을 못 하면(네트워크 오류) 수집은 계속하고, 저장 첫 행에서 같은 코드로 멈춘다."""
+    monkeypatch.setattr(settings, "SEOUL_OPENDATA_KEY", FAKE_KEY)
+    monkeypatch.setattr(settings, "SEOUL_CITYDATA_TARGETS", f"{HONGDAE},{GWANGHWAMUN}")
+    fetch, calls = _fake_fetch({HONGDAE: _hongdae(), GWANGHWAMUN: _sample()})
+    monkeypatch.setattr(seoul, "fetch_citydata", fetch)
+
+    def probe():
+        raise ConnectionError("reset")
+
+    writes: list[str] = []
+
+    def missing(row):
+        writes.append(row["area_nm"])
+        raise Exception("Could not find the table 'public.seoul_citydata_snapshots' in the schema cache")
+
+    monkeypatch.setattr(seoul, "_probe_table", probe)
+    monkeypatch.setattr(seoul, "_upsert_row", missing)
+    with pytest.raises(seoul.SeoulSnapshotPersistenceError) as info:
+        asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT))
+    assert info.value.code == "migration_not_applied"
+    assert calls == [HONGDAE, GWANGHWAMUN]
+    assert writes == [HONGDAE]
+
+
+def test_table_probe_runs_once_per_process(monkeypatch):
+    _enable(monkeypatch)
+    fetch, _ = _fake_fetch({HONGDAE: _hongdae()})
+    monkeypatch.setattr(seoul, "fetch_citydata", fetch)
+    probes: list[int] = []
+    monkeypatch.setattr(seoul, "_probe_table", lambda: probes.append(1))
+    asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT))
+    asyncio.run(seoul.collect_seoul_citydata(now=HONGDAE_FETCHED_AT + timedelta(minutes=10)))
+    assert probes == [1]
 
 
 def test_other_persistence_errors_stay_per_target(monkeypatch):
@@ -478,6 +526,39 @@ def test_tourism_level_matches_exact_name_for_today_and_caches(monkeypatch):
     assert asyncio.run(seoul.tourism_level_for(HONGDAE, date_kst="2026-09-20")) == 0.64
     assert asyncio.run(seoul.tourism_level_for(HONGDAE, date_kst="2026-09-20")) == 0.64
     assert calls == [11440], "집중률은 하루 한 값 — 10분마다 다시 부르지 않는다"
+
+
+def test_tourism_cache_is_per_signgu_and_date_with_inflight_dedupe(monkeypatch):
+    """같은 시군구(마포 11440)의 대상지 셋이 동시에 물어도 집중률은 한 번만 받는다(날짜가 바뀌면 다시)."""
+    monkeypatch.setattr(settings, "TOURAPI_KEY", "tour-key")
+    profiles = {
+        name: seoul.TargetProfile(37.55, 126.92, 11440, ("홍대걷고싶은거리",))
+        for name in (HONGDAE, "연남동", "합정역")
+    }
+    monkeypatch.setattr(seoul, "_TARGET_PROFILES", profiles)
+    calls: list[int] = []
+
+    async def rows(signgu):
+        calls.append(signgu)
+        await asyncio.sleep(0.05)  # 셋이 동시에 기다리는 구간
+        return [
+            {"tourist_attraction_name": "홍대걷고싶은거리", "forecast_date": "2026-09-20", "concentration_rate": 64.0},
+            {"tourist_attraction_name": "홍대걷고싶은거리", "forecast_date": "2026-09-21", "concentration_rate": 10.0},
+        ]
+
+    monkeypatch.setattr(seoul, "_load_signgu_concentration", rows)
+
+    async def three(date_kst):
+        return await asyncio.gather(*(
+            seoul.tourism_level_for(name, date_kst=date_kst) for name in profiles
+        ))
+
+    assert asyncio.run(three("2026-09-20")) == [0.64, 0.64, 0.64]
+    assert calls == [11440], "진행 중 조회에 합류한다"
+    assert asyncio.run(three("2026-09-20")) == [0.64, 0.64, 0.64]
+    assert calls == [11440], "캐시"
+    assert asyncio.run(three("2026-09-21")) == [0.1, 0.1, 0.1]
+    assert calls == [11440, 11440], "날짜가 바뀌면 다시 받는다"
 
 
 def test_tourism_level_failure_is_harmless(monkeypatch):

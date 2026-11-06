@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
-import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
+import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { isPaintableMeasurement, pinDisplay, pinSvg } from '@/lib/map/markerSvg';
 import { centerTargetFor, type BandInsets } from '@/lib/map/visibleBand';
@@ -13,7 +13,7 @@ import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rank
 import { REGION, isWithinRegion } from '@/lib/region';
 import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
 import { trackEvent, usageCardProps } from '@/lib/usageEvents';
-import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, loadSharedCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, httpStatus, loadSharedCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
   displayableEstimate,
   estimatesFromFeed,
@@ -58,7 +58,10 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
-import { chipCandidates, EMPTY_TRAVEL_CONTEXT, loadTravelContext, matchesTravelContext, relaxWalkLimit, saveTravelContext, type CuisinePreference, type PlaceCategory, type TravelContext, CUISINE_INTENT } from '@/lib/travelContext';
+import { chipCandidates, EMPTY_TRAVEL_CONTEXT, isStrollerFriendly, loadTravelContext, matchesTravelContext, relaxWalkLimit, saveTravelContext, type CuisinePreference, type PlaceCategory, type RequiredAttribute, type TravelContext, CUISINE_INTENT } from '@/lib/travelContext';
+// '대신 갈 곳 보기'(P1-5) — 고른 장소 둘레의 같은 종류 대안 화면 주소 · 서버에 보낼 수 있는 추천 id(P1-1).
+import { buildRecommendHref, candidateTypesFor } from '@/lib/recommendOrigin';
+import { isServerRecommendationId } from '@/lib/recommendationIds';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import { congestionKey } from '@/lib/congestionScale';
@@ -135,6 +138,8 @@ interface FacilityRecord {
   lastUpdated: string | null;
   source?: string | null;
   congestionSource?: 'measured' | 'predicted' | 'none';
+  // 'predicted' 의 출처(서버 판정 — model | industry_baseline). 카드가 업종 기준선을 'AI 예측 %' 로 칠하지 않게 쓴다.
+  congestionPredictionBasis?: 'model' | 'industry_baseline' | null;
   congestionLogSource?: string | null;
   congestionIsStale?: boolean | null;
   isStale?: boolean;
@@ -236,6 +241,29 @@ const CATEGORY_FILTERS: { id: string; type: PlaceCategory }[] = [
   { id: '관광지', type: 'attraction' },
   { id: '문화시설', type: 'culture' },
 ];
+
+// ♿ 휠체어 · 👶 유모차 조건 핀 — 지도 마커 필터(visibleFacilities)와 같은 판정. 둘 다 켜져 있으면 둘 다 만족하는 핀만
+// 지도에 남으므로, 빈 카드 자리에서 '지도에 N곳' 을 셀 때도 · 지도를 핀에 맞출 때도 같은 묶음으로 본다.
+type PinAttribute = 'accessible' | 'stroller';
+const PIN_ATTRIBUTES: readonly PinAttribute[] = ['accessible', 'stroller'];
+function pinAttributesOf(required: readonly string[]): PinAttribute[] {
+  return PIN_ATTRIBUTES.filter((attribute) => required.includes(attribute));
+}
+type PinCandidate = { type: string; barrierFree?: unknown; barrier_free?: unknown; features?: Record<string, unknown> | null };
+function hasPinAttributes(f: PinCandidate, attributes: readonly PinAttribute[]): boolean {
+  return attributes.every((attribute) => (attribute === 'stroller'
+    ? isStrollerFriendly(f)
+    : (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true));
+}
+// 묶음(attributes)을 모두 만족하는 핀 수(유형별). 묶음이 비면 전부 0 — 조건이 없으면 '조건 핀' 도 없다.
+function countPinsByType(facilities: readonly PinCandidate[], attributes: readonly PinAttribute[]): Record<PlaceCategory, number> {
+  const counts: Record<PlaceCategory, number> = { restaurant: 0, cafe: 0, attraction: 0, culture: 0 };
+  if (attributes.length === 0) return counts;
+  for (const f of facilities) {
+    if (f.type in counts && hasPinAttributes(f, attributes)) counts[f.type as PlaceCategory] += 1;
+  }
+  return counts;
+}
 
 // localStorage 'nextspot_saved_facilities' 항목 — handlePutOff 가 저장하는 형태(읽기는 id만 사용).
 interface SavedBookmark {
@@ -557,10 +585,13 @@ export default function MainPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   // ♿ 무장애 필터는 공통 여행 조건과 단일화한다. 명시적으로 검증된 시설만 후보와 지도에 남긴다.
   const showBarrierFree = travelContext.requiredAttributes.includes('accessible');
-  const toggleBarrierFree = () => {
-    const requiredAttributes = showBarrierFree
-      ? travelContext.requiredAttributes.filter((attribute) => attribute !== 'accessible')
-      : [...new Set([...travelContext.requiredAttributes, 'accessible' as const])];
+  // 👶 유모차(P1-6) — 휠체어와 따로 켠다. 예전에는 '♿ 휠체어·유모차' 칩 하나가 휠체어 판정만으로 둘을 대신 말했다.
+  // 판정은 lib/travelContext.isStrollerFriendly(서버 travel_context 의 미러) — 지도 핀·후보 수·서버 추천이 같은 조건이다.
+  const showStroller = travelContext.requiredAttributes.includes('stroller');
+  const toggleRequiredAttribute = (attribute: RequiredAttribute) => {
+    const requiredAttributes = travelContext.requiredAttributes.includes(attribute)
+      ? travelContext.requiredAttributes.filter((item) => item !== attribute)
+      : [...new Set([...travelContext.requiredAttributes, attribute])];
     const next = { ...travelContext, requiredAttributes };
     setTravelContext(next);
     saveTravelContext(next);
@@ -572,6 +603,7 @@ export default function MainPage() {
       exclude_visited: next.excludeVisited,
     });
   };
+  const toggleBarrierFree = () => toggleRequiredAttribute('accessible');
   // 🅿 주차 가능 필터 on/off — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 마커·히트맵에 표시.
   // 🐾 반려동물 동반 필터 on/off — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만. 둘 다 배리어프리와 동일 패턴(AND 조합 가능).
   const [showParkingFilter, setShowParkingFilter] = useState(false);
@@ -986,6 +1018,9 @@ export default function MainPage() {
   useEffect(() => { rejectedIdsRef.current = rejectedIds; }, [rejectedIds]);
   useEffect(() => { savedIdsRef.current = savedIds; }, [savedIds]);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
+  // 위 좌표가 정말 내 위치인가 — 위치를 못 잡았거나 경주 밖이라 지역 중심으로 바꾼 값이면 false.
+  // '대신 갈 곳 보기' 가 대안의 걷는 시간을 내 위치에서 잴지, 고른 장소에서 잴지를 이것으로 정한다(lib/recommendOrigin).
+  const [userLocationKnown, setUserLocationKnown] = useState(false);
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
 
   // 의도 선반영 프리페치 — 심사위원이 /main 에 머무는 동안 대기 보드·분산 코스 요청을 미리 발사해
@@ -1097,6 +1132,8 @@ export default function MainPage() {
               sessionStorage.setItem(OUT_OF_REGION_NOTICE_KEY, '1');
             } catch { /* 저장소 차단 — 이번 한 번은 알린다 */ }
             if (!noticed) setOutOfRegionNotice(true);
+          } else {
+            setUserLocationKnown(true);
           }
 
           setUserLocation({ lat, lng });
@@ -1668,13 +1705,15 @@ export default function MainPage() {
         });
     let out = withEstimates;
     if (showBarrierFree) out = out.filter((f) => (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true);
+    // 👶 유모차 — 추천 후보와 같은 판정(isStrollerFriendly)이라 핀과 카드가 같은 곳을 말한다.
+    if (showStroller) out = out.filter((f) => isStrollerFriendly(f));
     // 🅿🐾 주차·반려동물 필터: 순차 .filter() 체이닝이라 배리어프리와도 자연히 AND 조합된다.
     // 관광지 위주로 적재된 필드라 커버리지가 낮다 — 후보가 확 줄거나 0이어도 숨기지 않고 그대로 보여준다(정직성).
     // (parking 은 밑줄이 없어 camelCase 변환 영향이 없지만, chk_pet 은 apiClient 경유 시 chkPet 으로 바뀌므로 둘 다 확인.)
     if (showParkingFilter) out = out.filter((f) => parseAvailability(f?.features?.parking as string | null | undefined) === true);
     if (showPetFilter) out = out.filter((f) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true);
     return out;
-  }, [activeFilter, facilities, parkingLots, showBarrierFree, showParkingFilter, showPetFilter, estimateById, estimateClock]);
+  }, [activeFilter, facilities, parkingLots, showBarrierFree, showStroller, showParkingFilter, showPetFilter, estimateById, estimateClock]);
 
   // '🔮 혼잡 예측' 칸 고르기(계획 B3 · I01). +N: 예측(모델 → 세션 권역 곡선)을 받는 동안 카드는 곧바로 지금+N시간
   // 기준으로 다시 고른다(cardHours). 예측이 없으면 알림 한 줄과 함께 지금으로 돌아간다(카드도 지금 기준으로 돌아온다).
@@ -1812,6 +1851,7 @@ export default function MainPage() {
               eligibilityTier: rec.eligibilityTier,
               availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
               congestionSource: rec.congestionSource,
+              congestionPredictionBasis: rec.congestionPredictionBasis,
               congestionLogSource: rec.congestionLogSource,
               congestionIsStale: rec.congestionIsStale,
               congestionTimestamp: rec.congestionTimestamp,
@@ -2040,6 +2080,7 @@ export default function MainPage() {
                     eligibilityTier: r.eligibilityTier,
                     availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
                     congestionSource: r.congestionSource,
+                    congestionPredictionBasis: r.congestionPredictionBasis,
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,
                     congestionTimestamp: r.congestionTimestamp,
@@ -2094,9 +2135,9 @@ export default function MainPage() {
           setNoOpenTodayOnly(false); // 랭킹 0건 — 휴무 소진과 구분
           setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
           finishRecalc(null);
-          // ♿ 가 켜져 있는데 서버가 이 칩에 0곳을 줬다(클라이언트는 셌다) — 빈 지도로 두지 않고 클라이언트 0곳일 때처럼
-          // 무장애 핀으로 지도를 맞춘다(제안 카드가 '지도에 N곳' 을 말한다).
-          if (rankContext.requiredAttributes.includes('accessible')) fitBarrierFreePins(targetType as PlaceCategory);
+          // ♿·👶 가 켜져 있는데 서버가 이 칩에 0곳을 줬다(클라이언트는 셌다 — 유모차를 모르는 구 서버면 걸러서 0곳일 수도
+          // 있다) — 빈 지도로 두지 않고 클라이언트 0곳일 때처럼 조건 핀으로 지도를 맞춘다(제안 카드가 '지도에 N곳' 을 말한다).
+          fitAttributePins(targetType as PlaceCategory, pinAttributesOf(rankContext.requiredAttributes));
           maybeSwitchFirstView(targetType as PlaceCategory);
           return;
         }
@@ -2150,19 +2191,44 @@ export default function MainPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery, assumedPreset, cardHours]);
 
+  // '대신 갈 곳 보기'(P1-5) — 직접 고른 장소(핀 · 검색 · 링크 카드, 카카오 검색 결과 줄)를 원래 장소로 대안 화면을 연다.
+  // 걷는 시간은 내 위치를 알면 내 위치에서, 모르면 그 장소에서 잰다(lib/recommendOrigin.buildRecommendHref).
+  const openInstead = (origin: {
+    facilityId?: string | null; name?: string | null; type: string; latitude?: number | null; longitude?: number | null;
+  }) => {
+    router.push(buildRecommendHref(origin, { from: 'pick', user: userLocationKnown ? userLocation : null }));
+  };
+
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
     if (!fac) return;
 
     // 수락 기록(계약 1) — 여정 차단 금지: fire-and-forget. 성공 응답에 coupon_issued 면 쿠폰함 토스트.
     // 실패(백엔드 다운/미인증)는 조용히 무시하고 길안내는 그대로 진행한다.
-    apiClient
-      .post('/api/v1/recommendations/accept', { facilityId: fac.id })
-      .then((res: any) => {
+    // 추천으로 보여 준 카드면 그 추천 id 를 함께 보낸다(P1-1) — 서버가 새 행을 넣지 않고 노출된 그 추천을 수락으로 바꾸고
+    // 취향(+10%)을 반영한다. 핀·검색으로 직접 고른 곳처럼 추천 id 가 없거나 합성 id 면 종전처럼 시설 id 만 보낸다.
+    // (/feedback accepted_visit_intent 는 여기서 함께 보내지 않는다 — 같은 카드를 두 번 세지 않게.)
+    const recommendationId = isServerRecommendationId(fac.recommendationId) ? fac.recommendationId : undefined;
+    // 취향 학습이 일어날 수 있는 행동을 했다(마이페이지 레이더의 '실시간 학습 반영' 은 벡터가 실제로 움직였을 때만 — lib/tasteBadge).
+    markTasteFeedback();
+    const postAccept = (body: { facilityId: string; recommendationId?: string }) =>
+      apiClient.post('/api/v1/recommendations/accept', body);
+    postAccept(recommendationId ? { facilityId: fac.id, recommendationId } : { facilityId: fac.id })
+      .catch((err: unknown) => {
+        // 서버가 그 추천 행을 잇지 못하면(없음 404 · 남의 행 403 · 다른 장소 409) 시설 수락으로 한 번만 다시 보낸다 —
+        // 수락 기록과 쿠폰은 남기고, 이을 행이 없으니 취향은 배우지 않는다(서버가 updated_vector: false 로 답한다).
+        const status = httpStatus(err);
+        if (recommendationId && (status === 404 || status === 403 || status === 409)) return postAccept({ facilityId: fac.id });
+        throw err;
+      })
+      .then((res: { couponIssued?: boolean; couponRate?: number; updatedVector?: boolean } | null) => {
         if (res?.couponIssued) {
           const rate = Math.round((res.couponRate ?? 0) * 100);
           showToast(t('map.couponIssued', { rate }));
         }
+        // '취향 프로필에 반영했어요' 는 서버가 그 추천으로 취향을 실제로 움직였다고 답했을 때만(updated_vector — /feedback 과
+        // 같은 이름). 그 필드를 모르는 서버(배포 시차)나 이미 반영한 추천을 다시 누른 경우에는 말하지 않는다.
+        if (recommendationId && res?.updatedVector === true) showProfileToast();
       })
       .catch(() => { /* 조용히 무시(여정 차단 금지) */ });
     const spot = fac.spot || calculateSPOT(fac);
@@ -2186,14 +2252,13 @@ export default function MainPage() {
       showToast(t('trip.driveBasisHint'));
       openDrivingDirections(fac);
     }
-    showProfileToast();
   };
 
-  // '취향 프로필에 반영했어요 · 보기' — 도보 길안내·관심 없어요가 마이페이지 취향 프로필로 이어진다는 것을 한 번
-  // 보여 준다(계획 B2 · F2 ⑤). 한 세션에 한 번만 — 누를 때마다 알림이 쌓이지 않게. 띄웠으면 true.
+  // '취향 프로필에 반영했어요 · 보기' — 추천 카드의 길안내가 마이페이지 취향 프로필로 이어진다는 것을 한 번 보여 준다
+  // (계획 B2 · F2 ⑤). 서버가 수락을 받아 취향을 반영한 뒤에만 부른다(위 handleAccept). '다시 안볼래요' 에서는 부르지
+  // 않는다 — 거절은 나의 실험실에서 이유를 답해야 반영되므로 그때는 실험실 안내(maybeShowLabHint)다.
+  // 한 세션에 한 번만 — 누를 때마다 알림이 쌓이지 않게. 띄웠으면 true.
   const showProfileToast = (): boolean => {
-    // 마이페이지 레이더가 '실시간 학습 반영' 을 말해도 되는 순간(lib/tasteBadge) — 알림을 띄우든 아니든 남긴다.
-    markTasteFeedback();
     try {
       if (sessionStorage.getItem(PROFILE_TOAST_KEY) === '1') return false;
       sessionStorage.setItem(PROFILE_TOAST_KEY, '1');
@@ -2372,10 +2437,13 @@ export default function MainPage() {
     // '다른 곳을 보여드릴게요' 는 정말 다음 장소가 뜰 때만. 남은 곳이 없으면 카드가 닫히는 것(과 고를 칩이 있으면
     // 제안 카드)이 답이다 — 지키지 못할 약속도, '없어요' 같은 빈 말도 하지 않는다.
     if (nextCandidates.length > 0) showToast(t('map.rejectToast'));
-    if (!showProfileToast()) maybeShowLabHint();
+    // 거절은 지금 취향을 바꾸지 않는다 — 나의 실험실에서 이유를 답해야(취향 때문일 때만) 반영된다(P0-5 c). 예전에는 여기서
+    // '취향 프로필에 반영했어요' 를 띄웠다. 레이더 배지는 그 답 뒤에 벡터가 실제로 움직였을 때만 '학습 반영' 을 말한다.
+    markTasteFeedback();
+    maybeShowLabHint();
   };
 
-  // 거절 안내 힌트(lab.hint) — 처음 LAB_HINT_MAX_SHOWS 회만, 비차단으로 노출.
+  // 거절 안내 힌트(lab.hint) — 처음 LAB_HINT_MAX_SHOWS 회만, 비차단으로 노출. '보기' 로 나의 실험실에 바로 간다.
   // 브라우즈 거절은 source='browse' 추천 이력으로 서버 실험실에 보내며 성과 집계에서는 제외된다.
   // 저장 요청과 무관하게 현재 세션 후보 제외(rejectedIds)는 즉시 유지한다.
   // 페이지 로컬 showToast 대신 전역 sonner 를 쓰는 이유: showToast 는 단일 슬롯이라 방금 띄운
@@ -2389,7 +2457,9 @@ export default function MainPage() {
     } catch {
       return; // localStorage 차단 → 노출 횟수를 셀 수 없으므로 아예 띄우지 않는다(무한 반복 방지).
     }
-    toast.info(t('lab.hint'));
+    toast.info(t('lab.hint'), {
+      action: { label: t('card.profileToastView'), onClick: () => router.push('/mypage/lab') },
+    });
   };
 
   // 음성 '다음/별로': 폐기(rejectedIds)하지 않고 보이는 추천 목록(서버 상위 5곳)에서 다음 순위로만 이동한다 —
@@ -3247,7 +3317,14 @@ export default function MainPage() {
     ...(showBarrierFree
       ? [{ key: 'barrierFree' as const, label: t('condition.barrierFree'), name: t('condition.barrierFreeName') }]
       : []),
+    ...(showStroller
+      ? [{ key: 'stroller' as const, label: t('condition.stroller'), name: t('condition.strollerName') }]
+      : []),
   ];
+  // 카드 조건 칩 → 여행 조건의 필수 속성(도보 제한은 따로).
+  const CONDITION_ATTRIBUTE: Record<Exclude<CardCondition['key'], 'walk'>, RequiredAttribute> = {
+    indoor: 'indoor', barrierFree: 'accessible', stroller: 'stroller',
+  };
   const removeCondition = (key: CardCondition['key']) => {
     // 도보 제한은 키 자체를 뺀다 — undefined 로 남기면 서버로 null 이 실려 간다(lib/travelContext relaxWalkLimit 와 같은 이유).
     const next: TravelContext = key === 'walk'
@@ -3255,7 +3332,7 @@ export default function MainPage() {
       : {
           ...travelContext,
           requiredAttributes: travelContext.requiredAttributes.filter((attribute) =>
-            attribute !== (key === 'indoor' ? 'indoor' : 'accessible')),
+            attribute !== CONDITION_ATTRIBUTE[key]),
         };
     setTravelContext(next);
     saveTravelContext(next);
@@ -3322,16 +3399,54 @@ export default function MainPage() {
     }
     return counts;
   }, [facilities, travelContext, userLocation]);
-  // 무장애 확인 핀(이 유형)을 지도 한 화면에 모은다 — 카드에 오를 곳이 없어도 어디에 있는지는 보여 준다.
-  // 서버의 0곳 답이 지도보다 먼저 오면(느린 기기 · 첫 진입) 맞출 지도가 아직 없다 — 지도가 뜨는 대로 한 번 맞춘다(빈 지도로
-  // 두지 않게). 지도의 첫 중심 보정(initMap) 뒤에 돌도록 mapLoaded effect 에서 부른다.
-  const pendingBarrierFitRef = useRef<PlaceCategory | null>(null);
-  const fitBarrierFreePins = (type: PlaceCategory) => {
+  // 👶 유모차 편의가 확인된 핀 수(유형별, 지도 핀과 같은 판정) — 넷 다 0이면 칩을 숨긴다(♿·🐾 와 같은 규칙 — 켜면 늘 빈
+  // 지도가 되는 칩은 두지 않는다).
+  const strollerByType = useMemo(() => countPinsByType(facilities, ['stroller']), [facilities]);
+  const strollerAnywhere = Object.values(strollerByType).some((count) => count > 0);
+  // 👶 를 켰을 때 칩마다 카드에 오를 수 있는 곳의 수 — ♿ 와 같은 조건(chipCandidates)으로 센다.
+  const strollerCandidatesByType = useMemo(() => {
+    const stroller = travelContext.requiredAttributes.includes('stroller')
+      ? travelContext
+      : { ...travelContext, requiredAttributes: [...travelContext.requiredAttributes, 'stroller' as const] };
+    const counts: Record<PlaceCategory, number> = { restaurant: 0, cafe: 0, attraction: 0, culture: 0 };
+    for (const { type } of CATEGORY_FILTERS) {
+      counts[type] = chipCandidates(
+        facilities.filter((f) => f.type === type && !(type === 'restaurant' && isBarFacility(f))),
+        stroller,
+        (context) => (f: Facility) => matchesTravelContext(f, context, userLocation, haversineMeters),
+      ).items.length;
+    }
+    return counts;
+  }, [facilities, travelContext, userLocation]);
+  // 켜는 순간 지금 칩에 카드에 오를 곳이 없으면 가장 많은 칩으로 옮긴다(♿ 와 같은 규칙). 어느 칩에도 없으면(전부 걸어갈
+  // 거리 밖 등) ♿ 처럼 유모차 핀이 있는 칩에서 그 핀들로 지도를 맞추고, 카드 자리의 제안 카드가 '지도에 N곳' 을 말한다.
+  const onStrollerChip = () => {
+    toggleRequiredAttribute('stroller');
+    const current = CATEGORY_FILTERS.find(({ id }) => id === activeFilter);
+    if (showStroller || !current || strollerCandidatesByType[current.type] > 0) return;
+    const best = CATEGORY_FILTERS
+      .map((filter) => ({ ...filter, count: strollerCandidatesByType[filter.type] }))
+      .sort((a, b) => b.count - a.count)[0];
+    if (best.count > 0) {
+      selectCategory(best.id);
+      showToast(t('map.strollerSwitched', { category: t(`category.${best.type}`), n: best.count }));
+      return;
+    }
+    // 켠 뒤의 조건 묶음 — state 는 아직 옛 값이라 직접 만든다(이미 켜진 ♿ 도 함께: 지도에는 둘 다 맞는 핀만 남는다).
+    showAttributePins(pinAttributesOf([...travelContext.requiredAttributes, 'stroller']));
+  };
+  // 조건 핀(♿·👶 — 켜진 조건을 모두 만족하는 핀, 이 유형)을 지도 한 화면에 모은다 — 카드에 오를 곳이 없어도 어디에 있는지는
+  // 보여 준다. 서버의 0곳 답이 지도보다 먼저 오면(느린 기기 · 첫 진입) 맞출 지도가 아직 없다 — 지도가 뜨는 대로 한 번 맞춘다
+  // (빈 지도로 두지 않게). 지도의 첫 중심 보정(initMap) 뒤에 돌도록 mapLoaded effect 에서 부른다.
+  // 묶음은 호출부가 넘긴다 — 칩을 켜는 순간에는 state 가 아직 옛 값이라 '켠 뒤의 묶음' 을 호출부가 만든다.
+  const pendingPinFitRef = useRef<{ type: PlaceCategory; attributes: PinAttribute[] } | null>(null);
+  const fitAttributePins = (type: PlaceCategory, attributes: PinAttribute[]) => {
+    if (attributes.length === 0) return;
     const map = mapInstanceRef.current;
-    if (!map) pendingBarrierFitRef.current = type;
+    if (!map) pendingPinFitRef.current = { type, attributes };
     if (!map || typeof window === 'undefined' || !window.kakao) return;
     const pins = facilities.filter((f) => f.type === type
-      && (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true
+      && hasPinAttributes(f, attributes)
       && Number.isFinite(f.latitude) && Number.isFinite(f.longitude));
     if (pins.length === 0) return;
     if (pins.length === 1) {
@@ -3348,12 +3463,28 @@ export default function MainPage() {
     try { map.setBounds(bounds, top + 16, (insets.right || 8) + 16, bottom + 16, 24); } catch { /* 투영 실패 — 지도는 그대로 둔다 */ }
   };
   useEffect(() => {
-    const type = pendingBarrierFitRef.current;
-    if (!mapLoaded || !type) return;
-    pendingBarrierFitRef.current = null;
-    fitBarrierFreePins(type);
+    const pending = pendingPinFitRef.current;
+    if (!mapLoaded || !pending) return;
+    pendingPinFitRef.current = null;
+    fitAttributePins(pending.type, pending.attributes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapLoaded]);
+  // 어느 칩에도 카드에 오를 곳이 없다(전부 걸어갈 거리 밖 등) — 조건 핀이 있는 칩(지금 칩에 있으면 지금 칩, 없으면 가장 많은
+  // 칩)에서 그 핀들로 지도를 맞춘다. 카드 자리에는 제안 카드가 '지도에 N곳' 을 말한다(아래 category-suggestion).
+  // 핀이 하나도 없으면 칩을 옮기지 않는다 — 제안 카드가 그 사실을 말한다(👶 strollerPinsNone).
+  const showAttributePins = (attributes: PinAttribute[]) => {
+    const current = CATEGORY_FILTERS.find(({ id }) => id === activeFilter);
+    if (!current) return;
+    const pins = countPinsByType(facilities, attributes);
+    const pinFilter = pins[current.type] > 0
+      ? current
+      : CATEGORY_FILTERS
+        .map((filter) => ({ ...filter, count: pins[filter.type] }))
+        .sort((a, b) => b.count - a.count)[0];
+    if (pins[pinFilter.type] === 0) return;
+    if (pinFilter.id !== activeFilter) selectCategory(pinFilter.id);
+    fitAttributePins(pinFilter.type, attributes);
+  };
   const onBarrierFreeChip = () => {
     toggleBarrierFree();
     // 켜는 순간 지금 칩에 카드에 오를 무장애 장소가 없으면 빈 지도로 두지 않고 가장 많은 칩으로 옮긴다.
@@ -3367,15 +3498,8 @@ export default function MainPage() {
       showToast(t('map.barrierFreeSwitched', { category: t(`category.${best.type}`), n: best.count }));
       return;
     }
-    // 어느 칩에도 카드에 오를 곳이 없다(전부 걸어갈 거리 밖 등) — 무장애 핀이 있는 칩에서 그 핀들로 지도를
-    // 맞춘다. 카드 자리에는 제안 카드가 '지도에 N곳' 을 말한다(아래 category-suggestion).
-    const pinFilter = barrierFreeByType[current.type] > 0
-      ? current
-      : CATEGORY_FILTERS
-        .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
-        .sort((a, b) => b.count - a.count)[0];
-    if (pinFilter.id !== activeFilter) selectCategory(pinFilter.id);
-    fitBarrierFreePins(pinFilter.type);
+    // 켠 뒤의 조건 묶음으로 핀을 가리킨다(이미 켜진 👶 도 함께 — 지도에는 둘 다 맞는 핀만 남는다).
+    showAttributePins(pinAttributesOf([...travelContext.requiredAttributes, 'accessible']));
   };
 
   // 칩에 추천할 곳이 없을 때 대신 보여 줄 다른 칩과 그 후보 수 — 추천 effect 와 같은 조건(chipCandidates).
@@ -3394,15 +3518,27 @@ export default function MainPage() {
       }))
       .filter(({ count }) => count > 0);
   }, [noRecommendation, activeFilter, facilities, travelContext, userLocation]);
-  // ♿ 가 켜졌는데 고를 칩이 없을 때(카드에 오를 무장애 장소가 어디에도 없음) — 빈 칸 대신 무장애 핀을 가리킨다.
-  // 지금 칩에 핀이 있으면 그 수와 '지도에서 보기', 없으면 핀이 있는 다른 칩.
+  // ♿·👶 가 켜졌는데 고를 칩이 없을 때(카드에 오를 곳이 어디에도 없음) — 빈 칸 대신 조건 핀을 가리킨다.
+  // 지금 칩에 핀이 있으면 그 수와 '지도에서 보기', 없으면 핀이 있는 다른 칩. 셈은 지도 마커 필터와 같은 묶음
+  // (켜진 조건 모두)이다 — 둘 다 켜져 있으면 둘 다 맞는 핀만 지도에 남는다.
   const activeCategoryType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type ?? null;
-  const barrierFreePinsHere = showBarrierFree && activeCategoryType ? barrierFreeByType[activeCategoryType] : 0;
-  const barrierFreePinChips = showBarrierFree && suggestedCategories.length === 0 && barrierFreePinsHere === 0
+  const pinAttributes = useMemo(
+    () => pinAttributesOf(travelContext.requiredAttributes),
+    [travelContext.requiredAttributes],
+  );
+  const attributePinsByType = useMemo(() => countPinsByType(facilities, pinAttributes), [facilities, pinAttributes]);
+  const attributePinsHere = activeCategoryType ? attributePinsByType[activeCategoryType] : 0;
+  const attributePinChips = pinAttributes.length > 0 && suggestedCategories.length === 0 && attributePinsHere === 0
     ? CATEGORY_FILTERS
-      .filter(({ id, type }) => id !== activeFilter && barrierFreeByType[type] > 0)
-      .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
+      .filter(({ id, type }) => id !== activeFilter && attributePinsByType[type] > 0)
+      .map((filter) => ({ ...filter, count: attributePinsByType[filter.type] }))
     : [];
+  // 👶 가 켜져 있는데 조건에 맞는 핀이 어디에도 없다(설정 화면에서 켰거나 ♿ 와 겹쳐 0곳) — 빈 지도로 두지 않고
+  // 그 사실을 말하고 유모차 조건을 끌 수 있게 한다. 유모차 핀은 있는데 ♿ 와 겹치는 곳이 없으면 '함께 확인된 곳이 없다' 고
+  // 말한다('유모차 편의 확인된 곳이 없다' 는 틀린 말이다). ♿ 만 켠 경우는 칩을 켤 때 핀이 있는 칩으로 옮겨 이 상태가 거의 없다.
+  const strollerPinsNone = showStroller && suggestedCategories.length === 0
+    && attributePinsHere === 0 && attributePinChips.length === 0;
+  const strollerNoneKey = showBarrierFree && strollerAnywhere ? 'map.strollerAndWheelchairNone' : 'map.strollerNone';
 
   // Kakao 시설명 검색 — 등록 여부와 현재 카테고리에 관계없이 지점·작은 점포까지 찾는다.
   useEffect(() => {
@@ -3881,14 +4017,36 @@ export default function MainPage() {
             ) : (
               <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
                 {liveSearchItems.map((item) => {
+                  // '대신 갈 곳 보기'(P1-5) — 우리 DB 에 같은 카카오 장소가 있으면 그 시설로(혼잡 근거가 붙고 자기 자신은 대안에서
+                  // 빠진다), 없으면 이름·종류·좌표로 묻는다. 종류를 모르는 줄(식당·카페가 아닌 곳)은 같은 종류를 고를 수 없어 두지 않는다.
+                  const known = facilities.find((f) =>
+                    String(f.features?.kakaoPlaceId ?? f.features?.kakao_place_id ?? '') === String(item.placeId));
+                  const insteadType = known?.type ?? item.type ?? null;
+                  const canSeeInstead = !!insteadType && candidateTypesFor(insteadType).length > 0;
                   return (
-                    <li key={item.placeId} className="px-3 py-2.5 flex items-center gap-2">
+                    <li key={item.placeId} className="px-3 py-2.5 flex items-start gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-muk truncate">{item.name}</p>
                         {item.address && <p className="text-[11px] text-muk-soft truncate">{item.address}</p>}
                         <span className="inline-block mt-1 text-[10px] font-medium text-muk-soft bg-line/60 rounded-full px-2 py-0.5">
                           {item.categoryName || t('map.placeSearchResult')}
                         </span>
+                        {/* '대신 갈 곳 보기'는 '지도에서 보기' 옆 기둥에 쌓지 않고 이름 아래 제 줄에 둔다 — 두 알약이 4px 간격으로 붙어
+                            있으면 엄지로 누를 때 엉뚱한 쪽이 눌린다. 손가락 행동이라 탭 높이 44px·글자 13px(DESIGN_PRINCIPLES 탭 영역). */}
+                        {canSeeInstead && insteadType && (
+                          <button
+                            type="button"
+                            data-testid="search-see-instead"
+                            onClick={() => openInstead(known
+                              ? { facilityId: String(known.id), type: known.type, latitude: known.latitude, longitude: known.longitude }
+                              : { name: item.name, type: insteadType, latitude: item.latitude, longitude: item.longitude })}
+                            aria-label={t('card.seeInsteadAria', { name: item.name })}
+                            className="mt-2 flex min-h-11 max-w-full items-center gap-1 rounded-full border border-jade/50 bg-jade/5 px-3.5 text-[13px] font-semibold text-jade hover:bg-jade/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                          >
+                            <span className="truncate">{t('waiting.seeInstead')}</span>
+                            <ChevronRight size={14} aria-hidden className="shrink-0" />
+                          </button>
+                        )}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <button
@@ -4213,6 +4371,13 @@ export default function MainPage() {
                 </button>
               )}
 
+              {/* 👶 유모차(P1-6) — 휠체어와 따로. 확인된 곳이 한 칩에도 없으면 숨기고, 켜져 있는 동안은 끌 수 있게 남긴다. */}
+              {(strollerAnywhere || showStroller) && (
+                <button type="button" onClick={onStrollerChip} aria-pressed={showStroller} className={layerChipClass(showStroller)}>
+                  👶 {t('map.stroller')}
+                </button>
+              )}
+
               {/* 🅿 주차 가능 — features.parking 이 '가능' 으로 읽히는 곳만 지도에(배리어프리와 AND). */}
               <button type="button" onClick={() => setShowParkingFilter((prev) => !prev)} aria-pressed={showParkingFilter} className={layerChipClass(showParkingFilter)}>
                 🅿 {t('map.filterParking')}
@@ -4273,6 +4438,7 @@ export default function MainPage() {
               {/* 이 패널은 지도를 덮는 모달이라, 여기서 히트맵을 켜면 바뀐 지도를 볼 수 없다 — 함께 닫는다. */}
               <button type="button" onClick={() => { setShowHeatmap((value) => !value); setShowMobileTools(false); }} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
               {(barrierFreeAnywhere || showBarrierFree) && <button type="button" onClick={onBarrierFreeChip} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>♿ {t('map.barrierFree')}</button>}
+              {(strollerAnywhere || showStroller) && <button type="button" onClick={onStrollerChip} aria-pressed={showStroller} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showStroller ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>👶 {t('map.stroller')}</button>}
               <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🅿 {t('map.filterParking')}</button>
             </div>
             {activeFilter === '음식점' && (
@@ -4388,11 +4554,13 @@ export default function MainPage() {
         const showSkeleton = !!recalcLabel || (pickingFirst && !selectedFacility);
         const showCard = !!selectedFacility && !recalcLabel;
         // (b) 현재 칩에 추천할 곳이 없으면 '없어요' 대신 지금 후보가 있는 다른 칩을 바로 고르게 한다.
-        //     ♿ 가 켜져 있으면 무장애 확인 장소가 있는 칩만 나온다(같은 조건으로 센다). 그런 칩이 없으면 무장애 핀을
-        //     가리킨다(barrierFreePinsHere · barrierFreePinChips). 고를 것이 하나도 없으면 카드 자체를 그리지 않는다.
+        //     ♿·👶 가 켜져 있으면 그 조건이 확인된 장소가 있는 칩만 나온다(같은 조건으로 센다). 그런 칩이 없으면 조건 핀을
+        //     가리킨다(attributePinsHere · attributePinChips). 👶 인데 핀도 없으면 그 사실과 '유모차 조건 끄기'(strollerPinsNone).
+        //     고를 것이 하나도 없으면 카드 자체를 그리지 않는다.
         const showSuggestion = !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility
           && noRecommendation && !showSkeleton
-          && (suggestedCategories.length > 0 || noOpenTodayOnly || barrierFreePinsHere > 0 || barrierFreePinChips.length > 0);
+          && (suggestedCategories.length > 0 || noOpenTodayOnly || attributePinsHere > 0 || attributePinChips.length > 0
+            || strollerPinsNone);
         // 음성 비서는 카드가 없어도 남는다(♿·밤처럼 카드가 없는 화면에서도 말로 칩을 바꿀 수 있다 — 계획 B2).
         const voiceAvailable = voice.ttsSupported && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0;
         if (!showSkeleton && !showCard && !showSuggestion && !voiceAvailable) return null;
@@ -4515,6 +4683,15 @@ export default function MainPage() {
                     onDrive={() => { trackEvent('rec_drive', usageCardProps(selectedFacility, listRank)); handleAccept(selectedFacility, 'car'); }}
                     onReject={() => { trackEvent('rec_next', usageCardProps(selectedFacility, listRank)); handleReject(selectedFacility); }}
                     onPutOff={() => { trackEvent('rec_later', usageCardProps(selectedFacility, listRank)); handlePutOff(selectedFacility); }}
+                    // '선택한 장소'(목록 밖 · 검색 · 링크로 직접 연 곳)에만 — 추천 목록의 카드는 이미 대안이다(P1-5).
+                    onSeeInstead={listRank === null && candidateTypesFor(selectedFacility.type).length > 0
+                      ? () => openInstead({
+                          facilityId: String(selectedFacility.id),
+                          type: selectedFacility.type,
+                          latitude: selectedFacility.latitude,
+                          longitude: selectedFacility.longitude,
+                        })
+                      : undefined}
                     spotScore={spot.score}
                     preferencePercent={spot.preferencePercent}
                     tastePeers={tastePeers}
@@ -4556,6 +4733,7 @@ export default function MainPage() {
                     }}
                     openStatusAtArrival={selectedFacility.openStatusAtArrival}
                     congestionSource={selectedFacility.congestionSource}
+                    congestionPredictionBasis={selectedFacility.congestionPredictionBasis}
                     // 서버 판정: 이 실측이 '지금' 을 말할 자격이 있는가(verified/corroborated · 30분).
                     congestionIsCurrent={timeShifted ? false : selectedFacility.congestionIsCurrent}
                     congestionTimestamp={selectedFacility.congestionTimestamp ?? selectedFacility.lastUpdated}
@@ -4598,7 +4776,9 @@ export default function MainPage() {
             {/* '다른 곳을 보여드릴게요' 는 아래에 고를 칩이 있을 때만 — 버튼 없이 약속만 남기지 않는다. */}
             {suggestedCategories.length > 0 && (
               <p className="text-muk text-sm font-semibold">
-                {showBarrierFree ? t('map.barrierFreeElsewhere') : t('map.suggestTitle')}
+                {showBarrierFree
+                  ? t('map.barrierFreeElsewhere')
+                  : showStroller ? t('map.strollerElsewhere') : t('map.suggestTitle')}
               </p>
             )}
             {/* 소진 원인이 '전부 오늘 휴무'면 그 사실을 말한다 — 데이터 부족/엔진 실패로 오해하지 않게. */}
@@ -4619,33 +4799,52 @@ export default function MainPage() {
                 ))}
               </div>
             )}
-            {suggestedCategories.length === 0 && barrierFreePinsHere > 0 && activeCategoryType && (
+            {suggestedCategories.length === 0 && attributePinsHere > 0 && activeCategoryType && (
               <>
-                <p className="text-muk text-sm font-semibold">{t('map.barrierFreeOnMap', { n: barrierFreePinsHere })}</p>
+                <p className="text-muk text-sm font-semibold">
+                  {showBarrierFree
+                    ? t('map.barrierFreeOnMap', { n: attributePinsHere })
+                    : t('map.strollerOnMap', { n: attributePinsHere })}
+                </p>
                 <button
                   type="button"
-                  onClick={() => fitBarrierFreePins(activeCategoryType)}
+                  onClick={() => fitAttributePins(activeCategoryType, pinAttributes)}
                   className="toss-pressable mt-1 rounded-full border border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   {t('map.placeSearchView')}
                 </button>
               </>
             )}
-            {barrierFreePinChips.length > 0 && (
+            {attributePinChips.length > 0 && (
               <>
-                <p className="text-muk text-sm font-semibold">{t('map.barrierFreeElsewhere')}</p>
+                <p className="text-muk text-sm font-semibold">
+                  {showBarrierFree ? t('map.barrierFreeElsewhere') : t('map.strollerElsewhere')}
+                </p>
                 <div className="mt-1 flex flex-wrap justify-center gap-2">
-                  {barrierFreePinChips.map(({ id, type, count }) => (
+                  {attributePinChips.map(({ id, type, count }) => (
                     <button
                       key={id}
                       type="button"
-                      onClick={() => { selectCategory(id); fitBarrierFreePins(type); }}
+                      onClick={() => { selectCategory(id); fitAttributePins(type, pinAttributes); }}
                       className="toss-pressable rounded-full border border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t('map.suggestButton', { category: t(`category.${type}`), n: count })}
                     </button>
                   ))}
                 </div>
+              </>
+            )}
+            {/* 👶 조건에 맞는 핀이 어디에도 없다 — '없어요' 로 끝내지 않고 조건을 끄는 길을 준다(끄면 지도·카드가 바로 돌아온다). */}
+            {strollerPinsNone && (
+              <>
+                <p data-testid="stroller-none" className="text-muk text-sm font-semibold">{t(strollerNoneKey)}</p>
+                <button
+                  type="button"
+                  onClick={() => toggleRequiredAttribute('stroller')}
+                  className="toss-pressable mt-1 min-h-11 rounded-full border border-gold/50 bg-gold/10 px-4 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                >
+                  {t('map.strollerOff')}
+                </button>
               </>
             )}
           </div>
@@ -4718,6 +4917,7 @@ export default function MainPage() {
                       key={loc.id}
                       onClick={() => {
                         setUserLocation({ lat: loc.lat, lng: loc.lng });
+                        setUserLocationKnown(true); // 직접 고른 가정 위치 — 이 화면은 이것을 내 위치로 쓴다
                         // 전체 화면 중심이 아니라 가시영역(칩 바 아래·카드 패널 왼쪽) 중심으로 —
                         // 초기 진입과 같은 규칙이라 '내 위치' 점이 항상 같은 자리에 놓인다.
                         centerOnFreeArea(loc.lat, loc.lng);

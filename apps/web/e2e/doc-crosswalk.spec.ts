@@ -349,7 +349,7 @@ for (const viewport of [DESKTOP, PHONE]) {
       await test.step('④ 무장애(♿)·주차(🅿)·반려동물(🐾) 필터 — 조건을 만족하는 시설만 남는다', async () => {
         await expect.poll(() => markers(page)).toContain('대릉원');
         const filters = [
-          { name: /^♿ 휠체어·유모차$/, keeps: '경주 계림' },
+          { name: /^♿ 휠체어$/, keeps: '경주 계림' },
           { name: /^🅿 주차$/, keeps: '경주 계림' },
           // 🐾 는 반려동물 동반 정보가 있을 때만 서는 칩이고, 휴대폰 시트에는 없다(데스크톱 툴바 둘째 줄).
           ...(isPhone(page) ? [] : [{ name: /^🐾 반려동물$/, keeps: '첨성대 꽃밭' }]),
@@ -430,9 +430,11 @@ for (const viewport of [DESKTOP, PHONE]) {
         await reject.scrollIntoViewIfNeeded();
         await reject.click();
         await expect(page.getByText('알겠어요, 다른 곳을 보여드릴게요')).toBeVisible();
-        // 피드백이 취향 프로필에 들어갔다는 알림 — 마이페이지로 가는 '보기' 가 붙는다(⑤ 로 이어진다).
-        await expect(page.getByText('취향 프로필에 반영했어요')).toBeVisible();
+        // 거절은 지금 취향을 바꾸지 않는다 — 나의 실험실에서 이유를 답해야 반영된다(P0-5 c). 그 사실과 실험실로 가는
+        // '보기' 를 알린다. '취향 프로필에 반영했어요' 는 거절에서 나오지 않는다.
+        await expect(page.getByText('취향 때문이라면 나의 실험실에서 이유를 알려 주세요. 그때 취향 프로필에 반영돼요')).toBeVisible();
         await expect(page.getByRole('button', { name: '보기', exact: true })).toBeVisible();
+        await expect(page.getByText('취향 프로필에 반영했어요')).toHaveCount(0);
         // 다음 대안 — 거절한 곳을 뺀 서버 순위의 다음 장소.
         await expect(card(page)).toContainText('경주 향교');
         await expect(card(page)).not.toContainText('경주 계림');
@@ -653,7 +655,8 @@ for (const viewport of [DESKTOP, PHONE]) {
         await expect(page.getByText('쿠폰 정책 개입', { exact: true }).first()).toBeVisible();
         await nav.getByRole('button', { name: '③ 분산 효과' }).click();
         await expect(page.locator('#step-effect')).toBeInViewport();
-        await expect(page.getByRole('heading', { name: '도입 30일 분산 효과 시나리오' })).toBeVisible();
+        // 운영 화면은 시나리오 곡선을 그리지 않는다(P0-3) — 관측이 모자라면 같은 제목 아래 '표본 부족' 을 말한다.
+        await expect(page.getByRole('heading', { name: '최근 30일 혼잡·추천 수락 추이' })).toBeVisible();
         const trust = page.getByRole('region', { name: '추천 모델 신뢰도' });
         await trust.scrollIntoViewIfNeeded();
         await expect(trust).toBeVisible();

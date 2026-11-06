@@ -752,40 +752,73 @@ def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
     assert fetch_all.await_count == 1
 
 
-def test_recommend_by_type_does_not_fill_from_weaker_eligibility_tier(auth_client):
+def test_recommend_by_type_fills_from_weaker_tier_only_below_the_limit(auth_client):
+    """영업 근거 등급 채움(P1-4) — 요청이 청하고(fill_weaker_tiers) 확인 등급이 limit 보다 적을 때만 다음 등급에서
+    채우고, 정렬은 등급이 먼저다.
+
+    예전에는 가장 강한 등급만 남겨, 영업시간이 확인된 곳이 하나라도 있으면 영업시간이 빈 곳이 통째로 빠졌다
+    (모두가 같은 소수 가게로 몰렸다). 'weaker' 는 가장 가까워 점수로만 줄 세우면 1위인 곳이다 — 그래도 확인된
+    두 곳 뒤에 서야 하고, 자기 등급('영업 확인 필요')을 달고 나와야 한다. 플래그가 없으면(배포된 구 번들 — 응답을
+    점수로 다시 줄 세운다) 종전처럼 확인 등급만 돌려준다.
+    """
     cafes = [
         _facility("verified-a", "cafe", 0.0002),
         _facility("verified-b", "cafe", 0.0004),
         _facility("weaker", "cafe", 0.0006),
     ]
     tier_by_id = {"verified-a": 0, "verified-b": 0, "weaker": 2}
-    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
-         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
-         patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
-             WalkingRoute(2.0, 130.0, "osm_pedestrian"),
-             WalkingRoute(3.0, 195.0, "osm_pedestrian"),
-             WalkingRoute(1.0, 65.0, "osm_pedestrian"),
-         ])), \
-         patch(
-             "app.routers.recommendations.recommendation_eligibility_tier",
-             side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
-         ), \
-         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
-         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
-         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
-        response = auth_client.post("/api/v1/recommendations/by-type", json={
+
+    def _run(limit: int, fill: bool | None):
+        body = {
             "user_id": AUTH_USER_ID,
             "facility_type": "cafe",
             "user_lat": BASE_LAT,
             "user_lng": BASE_LNG,
-            "limit": 3,
-        })
+            "limit": limit,
+        }
+        if fill is not None:
+            body["fill_weaker_tiers"] = fill
+        with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+             patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+             patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
+                 WalkingRoute(2.0, 130.0, "osm_pedestrian"),
+                 WalkingRoute(3.0, 195.0, "osm_pedestrian"),
+                 WalkingRoute(1.0, 65.0, "osm_pedestrian"),
+             ])), \
+             patch(
+                 "app.routers.recommendations.recommendation_eligibility_tier",
+                 side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
+             ), \
+             patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+             patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+             patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+            response = auth_client.post("/api/v1/recommendations/by-type", json=body)
+        assert response.status_code == 200
+        return response.json()
 
-    assert response.status_code == 200
-    items = response.json()
-    assert {item["facility"]["id"] for item in items} == {"verified-a", "verified-b"}
-    assert len(items) == 2
-    assert all(item["eligibility_tier"] == "verified_open_route" for item in items)
+    # 확인 등급 2곳 < limit 3, 채움을 청함 → 모자란 한 자리를 다음 등급에서 채운다.
+    filled = _run(3, True)
+    assert [item["facility"]["id"] for item in filled] == ["verified-a", "verified-b", "weaker"]
+    assert [item["rank"] for item in filled] == [1, 2, 3]
+    assert [item["eligibility_tier"] for item in filled] == [
+        "verified_open_route", "verified_open_route", "hours_confirmation_required_route",
+    ]
+    assert [item["information_confidence"] for item in filled] == ["verified", "verified", "unknown"]
+    # 등급이 점수보다 먼저다: 더 가까운 'weaker' 가 점수는 높아도 확인된 곳을 앞지르지 못한다.
+    # 같은 등급 안에서는 종전처럼 점수 순이다.
+    assert filled[2]["spot_score"] > filled[1]["spot_score"]
+    assert filled[0]["spot_score"] >= filled[1]["spot_score"]
+
+    # 확인 등급만으로 limit 을 채우면 다음 등급은 데려오지 않는다(종전과 같다).
+    exact = _run(2, True)
+    assert [item["facility"]["id"] for item in exact] == ["verified-a", "verified-b"]
+    assert all(item["eligibility_tier"] == "verified_open_route" for item in exact)
+
+    # 플래그가 없거나 false 면(구 번들) limit 이 남아도 채우지 않는다 — 종전 그대로 확인 등급만.
+    for fill in (None, False):
+        legacy = _run(3, fill)
+        assert [item["facility"]["id"] for item in legacy] == ["verified-a", "verified-b"]
+        assert all(item["eligibility_tier"] == "verified_open_route" for item in legacy)
 
 
 def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):
@@ -1331,15 +1364,26 @@ def test_admin_impact_invalid_since_422(client):
 
 
 def test_admin_impact_aggregation(client):
-    # 수락 추천 3건: 실측(original_wait_time) 1건 + 레거시 근사(incentive_relief×15분) 1건 + 데이터 없음 1건
+    # 재배치 3건(수락 · 원본 ≠ 목적지 · 도착 확인 — 2026-10-31 정의):
+    # 실측(original_wait_time) 1건 + 레거시 근사(incentive_relief×15분) 1건 + 데이터 없음 1건
     accepted_rows = [
-        {"created_at": "2026-07-09T01:00:00+00:00",
+        {"id": "r-1", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-1",
+         "created_at": "2026-07-09T01:00:00+00:00",
          "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},   # 절감 15.0분(실측)
-        {"created_at": "2026-07-09T02:00:00+00:00",
+        {"id": "r-2", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-2",
+         "created_at": "2026-07-09T02:00:00+00:00",
          "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},      # 절감 0.4×15=6.0분(근사)
-        {"created_at": "2026-07-09T03:00:00+00:00", "score_breakdown": {}},    # 절감 산정 불가 — 건수만 집계
+        {"id": "r-3", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-3",
+         "created_at": "2026-07-09T03:00:00+00:00", "score_breakdown": {}},    # 절감 산정 불가 — 건수만 집계
     ]
-    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"recommendations": accepted_rows})):
+    arrivals = [
+        {"recommendation_id": rid, "created_at": "2026-07-09T04:00:00+00:00",
+         "arrival_confirmed_at": "2026-07-09T04:00:00+00:00"}
+        for rid in ("r-1", "r-2", "r-3")
+    ]
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase(
+        {"recommendations": accepted_rows, "recommendation_outcomes": arrivals}
+    )):
         res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
 
     assert res.status_code == 200
@@ -1428,22 +1472,30 @@ def test_admin_metrics_excludes_browse_from_acceptance_denominator(client):
 def test_admin_impact_filters_accepted_and_since(client):
     # 필터 회귀 방지: /impact 의 .eq("accepted",True)·.gte("created_at",since) 가 실제로 동작해
     # accepted=False 행과 since 이전 행이 집계에서 제외되는지 검증한다.
+    # 네 행 모두 '원본 ≠ 목적지 · 도착 확인' 을 갖춰, 필터가 빠지면 재배치로 잘못 세이게 해 둔다.
+    def _moved(rid, accepted, created_at, breakdown):
+        return {"id": rid, "accepted": accepted, "original_facility_id": "f-hot",
+                "recommended_facility_id": f"f-alt-{rid}", "created_at": created_at,
+                "score_breakdown": breakdown}
+
     rows = [
         # 포함(실측): accepted & since 이후 → 절감 15.0분
-        {"accepted": True, "created_at": "2026-07-09T01:00:00+00:00",
-         "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},
+        _moved("r-1", True, "2026-07-09T01:00:00+00:00", {"original_wait_time": 20.0, "wait_time": 5.0}),
         # 포함(근사): accepted & since 이후 → 0.4×15=6.0분
-        {"accepted": True, "created_at": "2026-07-09T02:00:00+00:00",
-         "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},
+        _moved("r-2", True, "2026-07-09T02:00:00+00:00", {"incentive_relief": 0.4, "wait_time": 3.0}),
         # 제외: accepted=False(미수락 추천) — 큰 값이라 잘못 포함되면 즉시 드러난다.
-        {"accepted": False, "created_at": "2026-07-09T04:00:00+00:00",
-         "score_breakdown": {"original_wait_time": 99.0, "wait_time": 1.0}},
+        _moved("r-3", False, "2026-07-09T04:00:00+00:00", {"original_wait_time": 99.0, "wait_time": 1.0}),
         # 제외: since 이전(윈도우 밖) — 역시 큰 값으로 회귀를 노출한다.
-        {"accepted": True, "created_at": "2026-07-08T23:00:00+00:00",
-         "score_breakdown": {"original_wait_time": 88.0, "wait_time": 1.0}},
+        _moved("r-4", True, "2026-07-08T23:00:00+00:00", {"original_wait_time": 88.0, "wait_time": 1.0}),
+    ]
+    # 결과 행도 같은 창(created_at ≥ since)으로 읽힌다 — 결과는 추천 뒤에 생기므로 모두 창 안이다.
+    arrivals = [
+        {"recommendation_id": rid, "created_at": "2026-07-09T05:00:00+00:00",
+         "arrival_confirmed_at": "2026-07-09T05:00:00+00:00"}
+        for rid in ("r-1", "r-2", "r-3", "r-4")
     ]
     with patch("app.routers.admin.supabase_admin",
-               new=FilteringFakeSupabase({"recommendations": rows})):
+               new=FilteringFakeSupabase({"recommendations": rows, "recommendation_outcomes": arrivals})):
         res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
 
     assert res.status_code == 200
@@ -1843,6 +1895,146 @@ def test_report_congestion_rate_limited_429(auth_client):
     assert "Retry-After" in second.headers
 
 
+# ── 게스트(익명 세션) 차단 · IP·시설당 한 계정 (2026-10-30, 보안 진단 '중') ─────────────
+# SessionBootstrap 이 모든 방문자에게 익명 세션을 자동 발급하므로, 게스트 제보가 열려 있으면
+# 세션을 갈아 끼우는 것만으로 사용자 쿨다운이 풀리고 게스트 둘의 맞장구가 corroborated 가 된다.
+# 계정이 있어도 한 단말에서 계정을 돌리면 같은 일이 되므로, 교차검증 창(30분) 동안 IP·시설당 한 계정만 받는다.
+
+_IP_A, _IP_B = "198.51.100.7", "198.51.100.8"
+_REPORT_FACILITY = _facility("f-1", "cafe", 0.0002)
+_REPORT_INSERTED = {
+    "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+    "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+}
+_CONGESTION_URL = "/api/v1/reports/congestion"
+_CONGESTION_BODY = {"facility_id": "f-1", "level": "혼잡"}
+
+
+class _NoWriteSupabase:
+    """게스트 거부는 DB 를 건드리기 전에 끝나야 한다 — 어떤 표·RPC 든 열면 실패."""
+
+    def table(self, name):
+        raise AssertionError(f"게스트 제보가 {name} 표에 닿았다")
+
+    def rpc(self, name, _params):
+        raise AssertionError(f"게스트 제보가 {name} RPC 를 불렀다")
+
+
+def _as_user(user_id: str, *, anonymous: bool = False) -> None:
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": user_id,
+        "email": None if anonymous else f"{user_id}@example.com",
+        "role": "authenticated",
+        "payload": {"is_anonymous": anonymous},
+    }
+
+
+def _post_as(c, user_id: str, ip: str, url: str = _CONGESTION_URL, body: dict | None = None):
+    _as_user(user_id)
+    return c.post(url, json=body or _CONGESTION_BODY, headers={"x-forwarded-for": ip})
+
+
+def _age_report_slots(seconds: float) -> None:
+    """쿨다운 표의 기록을 seconds 만큼 과거로 민다 — 시계를 건드리지 않고 시간 경과를 흉내 낸다."""
+    for store in (reports._last_report_at, reports._last_availability_report_at):
+        for key in store:
+            store[key] -= seconds
+    for store in (reports._last_report_by_ip, reports._last_availability_report_by_ip):
+        for key, (user_id, at) in store.items():
+            store[key] = (user_id, at - seconds)
+
+
+@pytest.fixture
+def report_client():
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin",
+            new=FakeSupabase({"facilities": [_REPORT_FACILITY], "congestion_logs": [_REPORT_INSERTED]}),
+        ):
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.parametrize("path, body", [
+    (_CONGESTION_URL, _CONGESTION_BODY),
+    ("/api/v1/reports/availability", {"facility_id": "f-1", "status": "closed"}),
+])
+def test_reports_reject_guest_session_before_touching_db(path, body):
+    from app.core import authz
+
+    _as_user("guest-1", anonymous=True)
+    try:
+        with TestClient(app) as c, patch("app.routers.reports.supabase_admin", new=_NoWriteSupabase()):
+            res = c.post(path, json=body)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert res.status_code == 403
+    assert "게스트" in res.json()["detail"]
+    # 프로필(users 표) 조회도 하지 않는다 — 조회 장애가 게스트 거부를 503 으로 바꾸지 않게.
+    authz._load_profile.assert_not_awaited()
+
+
+def test_report_congestion_one_account_per_ip_for_the_whole_corroboration_window(report_client):
+    c = report_client
+    assert _post_as(c, "u-a", _IP_A).status_code == 200
+
+    # 같은 IP 의 다른 계정 — XFF 첫 값을 바꿔도 마지막 값(실제 피어)으로 묶인다.
+    blocked = _post_as(c, "u-b", f"10.0.0.9, {_IP_A}")
+    assert blocked.status_code == 429
+    assert 1790 <= int(blocked.headers["Retry-After"]) <= 1800
+
+    # 사용자 쿨다운(5분)이 지나도 교차검증 창(30분) 안이면 여전히 막힌다 — 5분 1초 뒤의 두 번째 계정이
+    # corroborated 를 만들던 구멍(쿨다운 길이로만 걸었을 때)이 닫혔는지 본다.
+    _age_report_slots(6 * 60)
+    assert _post_as(c, "u-b", _IP_A).status_code == 429
+
+    assert _post_as(c, "u-b", _IP_B).status_code == 200  # 다른 IP 의 같은 계정은 통과
+    _age_report_slots(25 * 60)  # u-a 기준 31분 경과 — 창이 닫혔다
+    assert _post_as(c, "u-c", _IP_A).status_code == 200
+
+
+def test_report_congestion_user_cooldown_applies_across_ips(report_client):
+    # IP 를 바꿔도 같은 계정의 5분 쿨다운은 그대로다(IP 규칙과 독립).
+    assert _post_as(report_client, "u-a", _IP_A).status_code == 200
+    again = _post_as(report_client, "u-a", _IP_B)
+    assert again.status_code == 429
+    assert 299 <= int(again.headers["Retry-After"]) <= 300
+
+
+def test_report_congestion_reserves_slot_before_the_write_and_releases_it_on_failure():
+    # 검사와 자리 잡기 사이에 await 가 없어야 동시에 온 두 계정이 함께 통과하지 못한다 — INSERT 시점에
+    # 이미 자리가 잡혀 있는지 본다. 저장이 실패하면 그 자리는 되돌린다(재시도를 막지 않는다).
+    seen: list[bool] = []
+
+    class _FailingInsertTable:
+        def insert(self, _row):
+            return self
+
+        def execute(self):
+            seen.append(
+                reports._last_report_at.get(("u-a", "f-1")) is not None
+                and reports._last_report_by_ip.get((_IP_A, "f-1"), ("",))[0] == "u-a"
+            )
+            raise RuntimeError("supabase down")
+
+    class _FailingInsert(FakeSupabase):
+        def table(self, name):
+            return _FailingInsertTable() if name == "congestion_logs" else super().table(name)
+
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin", new=_FailingInsert({"facilities": [_REPORT_FACILITY]})
+        ):
+            failed = _post_as(c, "u-a", _IP_A)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert failed.status_code == 503
+    assert seen == [True]
+    assert reports._last_report_at == {}
+    assert reports._last_report_by_ip == {}
+
+
 # =========================================================================
 # 9-1. 제보 보상(reward 필드) — 누적 카운트·3배수 쿠폰 발급·다음 보상까지
 # =========================================================================
@@ -1961,6 +2153,42 @@ def test_report_availability_returns_evidence_state(auth_client):
     }
 
 
+def test_report_availability_one_account_per_ip_for_the_whole_corroboration_window():
+    # 영업 상태도 같은 단말에서 계정만 바꿔 '닫힘' 을 맞추지 못한다 — 2명 일치가 곧 60분 추천 제외다.
+    # 사용자 쿨다운(1분)이 지나도 RPC 의 집계 창(최근 30분) 안이면 막힌다.
+    calls: list[str] = []
+
+    class AvailabilitySupabase(FakeSupabase):
+        def rpc(self, _name, params):
+            calls.append(params["p_reporter_user_id"])
+            return FakeTable([{
+                "facility_id": "f-1", "status": "closed", "evidence_tier": "single_report",
+                "corroborating_count": 1, "reported_at": "2026-08-25T03:00:00+00:00",
+                "expires_at": "2026-08-25T04:00:00+00:00",
+            }])
+
+    url = "/api/v1/reports/availability"
+    body = {"facility_id": "f-1", "status": "closed"}
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin",
+            new=AvailabilitySupabase({"facilities": [{"id": "f-1"}]}),
+        ):
+            first = _post_as(c, "u-a", _IP_A, url, body)
+            same_ip = _post_as(c, "u-b", _IP_A, url, body)
+            _age_report_slots(2 * 60)
+            same_ip_later = _post_as(c, "u-b", _IP_A, url, body)
+            other_ip = _post_as(c, "u-b", _IP_B, url, body)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert first.status_code == 200
+    assert same_ip.status_code == 429
+    assert same_ip_later.status_code == 429
+    assert int(same_ip_later.headers["Retry-After"]) > 60
+    assert other_ip.status_code == 200
+    assert calls == ["u-a", "u-b"]  # 막힌 시도는 RPC 까지 가지 않는다
+
+
 # =========================================================================
 # 10. 추천 수락(POST /api/v1/recommendations/accept) — 인증·404·쿠폰 발급
 # =========================================================================
@@ -1989,6 +2217,34 @@ def test_accept_recommendation_issues_coupon(auth_client):
     assert body["coupon_issued"] is True
     assert body["coupon_rate"] == 0.2
     assert body["expires_at"] is not None
+    # 추천 행 id 없이 온 수락(구 번들·핀으로 고른 곳)은 취향을 배우지 않는다 — 화면이 이 값으로 문구를 고른다.
+    assert body["recommendation_id"] is None
+    assert body["updated_vector"] is False
+
+
+def test_accept_without_a_linkable_recommendation_id_keeps_the_legacy_insert(auth_client):
+    # recommendation_id 가 없거나(구 번들) DB 행이 없는 id('mock-rec-id' — 노출 저장 실패분)면 종전 그대로
+    # 원본=추천=그 시설인 수락 행을 새로 넣는다. 404 로 막으면 그 카드의 쿠폰까지 막힌다.
+    # 노출된 추천 행을 갱신하는 새 경로는 tests/routers/test_accept_recommendation_id.py 가 검증한다.
+    db = RejectRecordingSupabase()
+    coupon = AsyncMock(return_value={"coupon_issued": False, "coupon_rate": 0.0, "expires_at": None})
+    with patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=_facility("f-1", "cafe", 0))), \
+         patch("app.routers.recommendations.issue_coupon_if_partner", new=coupon), \
+         patch("app.routers.recommendations.supabase_client", new=db):
+        for body in ({"facility_id": "f-1"}, {"facility_id": "f-1", "recommendation_id": "mock-rec-id"}):
+            res = auth_client.post("/api/v1/recommendations/accept", json=body)
+            assert res.status_code == 200
+            assert res.json()["recommendation_id"] is None
+    legacy_row = {
+        "user_id": AUTH_USER_ID,
+        "original_facility_id": "f-1",
+        "recommended_facility_id": "f-1",
+        "spot_score": 0.0,
+        "score_breakdown": {},
+        "accepted": True,
+    }
+    assert db.inserted == [legacy_row, legacy_row]
+    assert coupon.await_count == 2
 
 
 def test_accept_recommendation_no_partner(auth_client):
@@ -2004,6 +2260,7 @@ def test_accept_recommendation_no_partner(auth_client):
     assert body["coupon_issued"] is False
     assert body["coupon_rate"] == 0.0
     assert body["expires_at"] is None
+    assert body["updated_vector"] is False
 
 
 class RejectRecordingTable(FakeTable):

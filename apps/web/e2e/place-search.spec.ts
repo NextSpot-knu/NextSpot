@@ -202,6 +202,20 @@ test('Kakao results are labelled restaurants & cafés with a Kakao Map source an
   await expect(block.getByRole('link', { name: '카카오맵', exact: true })).toHaveAttribute('href', 'https://place.map.kakao.com/987654');
   // Kakao 에서 찾았으면 관광공사 목록은 묻지 않는다.
   expect(counts.keyword).toBe(0);
+
+  // '대신 갈 곳 보기'(P1-5)는 엄지로 누르는 행동이다 — 탭 높이 44px 이상, 글자 12px 이상, '지도에서 보기' 와 겹치거나
+  // 붙어 있지 않다(예전에는 30px 알약이 4px 간격으로 쌓여 있었다).
+  const instead = block.getByTestId('search-see-instead');
+  await expect(instead).toBeVisible();
+  const insteadBox = await instead.boundingBox();
+  const viewBox = await block.getByRole('button', { name: '지도에서 보기' }).boundingBox();
+  expect(insteadBox && viewBox).toBeTruthy();
+  expect(insteadBox!.height).toBeGreaterThanOrEqual(44);
+  const insteadFont = await instead.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(insteadFont).toBeGreaterThanOrEqual(12);
+  const apart = insteadBox!.y >= viewBox!.y + viewBox!.height + 8
+    || viewBox!.x >= insteadBox!.x + insteadBox!.width + 8;
+  expect(apart, "'대신 갈 곳 보기' 가 '지도에서 보기' 에 붙어 있다").toBe(true);
 });
 
 for (const locale of ['en', 'ja', 'zh'] as const) {

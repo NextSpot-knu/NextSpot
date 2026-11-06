@@ -10,6 +10,7 @@ from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 from app.core.authz import ROLE_ADMIN, require_role
+from app.core.client_ip import client_ip
 from app.core.http_cache import etag_response
 from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
 from app.services import reference_snapshot
@@ -612,16 +613,6 @@ _LIVE_DETAIL_RATE_LIMIT = 10  # IP 당 분당 10회
 _live_detail_hits: dict[str, list[float]] = {}
 
 
-def _live_detail_client_ip(request: Request) -> str:
-    """레이트리밋 키용 클라이언트 IP(search._client_ip 미러 — XFF 는 신뢰 프록시가 덧붙인 마지막 값)."""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
 def _live_detail_rate_limited(ip: str) -> bool:
     """분당 _LIVE_DETAIL_RATE_LIMIT 회 슬라이딩 윈도우(search._check_rate_limit 미러). 초과면 True."""
     now = time.monotonic()
@@ -650,7 +641,7 @@ async def get_infrastructure_live_detail(
     try/except 로 시도한다(events._fetch_festival_detail 관례 — 한쪽 실패가 다른 쪽 값을 버리지
     않는다). 추출은 _enrich_and_transform 과 동일한 extract_* 헬퍼를 재사용한다.
     """
-    ip = _live_detail_client_ip(request)
+    ip = client_ip(request)
     if _live_detail_rate_limited(ip):
         logger.info("live_detail_rate_limited", ip_prefix=ip[:12])
         return {"source": "unavailable"}

@@ -4,7 +4,7 @@
 // "지금 이곳 얼마나 붐비나요?" → 한산/보통/혼잡 3지선다 → 백엔드로 제보.
 //
 // 보안: congestion_logs 는 service_role 만 INSERT 가능(RLS). 그래서 Supabase 직접 insert 가
-//   아니라 FastAPI POST /api/v1/reports/congestion (get_current_user 인증)을 거친다.
+//   아니라 FastAPI POST /api/v1/reports/congestion (계정 로그인 필수 — 게스트 익명 세션은 403)을 거친다.
 //   백엔드가 supabase_admin(service_role) 으로 기록한다.
 //
 // 팔레트: 한지 웜톤 토큰(gold/jade/terracotta/muk/hanji) 사용. 백엔드 다운 시 graceful(에러 토스트).
@@ -125,7 +125,8 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
       // 그 글자가 없으면 인증 안내 대신 "잠시 후 다시" 가 떴다. 타입 가드로 가른다.
       //
       // 서버 detail 은 토스트에 그대로 쓰지 않는다 — 전부 한국어인데 이 화면은 4개 국어다.
-      const friendly = isAuthError(err)
+      // 403 은 게스트(익명 세션)다 — 제보는 계정 로그인부터 받는다(apps/api/app/routers/reports.py '게스트 차단').
+      const friendly = isAuthError(err) || httpStatus(err) === 403
         ? t('report.authError')
         : httpStatus(err) === 429
           ? t('report.cooldownError')

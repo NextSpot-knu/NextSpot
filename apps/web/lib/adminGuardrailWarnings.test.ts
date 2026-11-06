@@ -23,6 +23,20 @@ assert.deepEqual(unknown[0], {
   known: false,
 });
 
+// --- 사실만 말한다 — 일어날지 모르는 일을 약속하지 않고, 낡는 날짜를 적지 않는다(P0-5) --------------
+{
+  const codes = [
+    'trained_false', 'model_refresh_failure', 'untrusted_training_source', 'closed_place_recommended',
+    'ungrounded_numeric_exposure', 'walk_limit_violation', 'active_model_mae_out_of_bounds', 'metrics_truncated',
+  ];
+  for (const w of describeGuardrailWarnings(codes)) {
+    assert.ok(w.known, `${w.code} 문구가 없다`);
+    assert.doesNotMatch(w.text, /자동 승격|승격됩니다|재시도됩니다|예약되었습니다|예약 학습|계속 제공합니다/, `${w.code}: 안심시키는 약속이 남아 있다 — ${w.text}`);
+    assert.doesNotMatch(w.text, /\d{4}[-.]\d{1,2}[-.]\d{1,2}|\d{1,2}\/\d{1,2}|\d{1,2}월 \d{1,2}일/, `${w.code}: 날짜가 박혀 있다 — ${w.text}`);
+  }
+  assert.match(describeGuardrailWarnings(['trained_false'])[0].text, /^학습된 예측 모델 없음/);
+}
+
 // --- 빈/깨진 입력 ------------------------------------------------------------
 assert.deepEqual(describeGuardrailWarnings([]), []);
 assert.deepEqual(describeGuardrailWarnings(null), []);

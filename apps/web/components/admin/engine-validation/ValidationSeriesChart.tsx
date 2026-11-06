@@ -30,12 +30,14 @@ function percent(value: unknown): string {
   return Number.isFinite(n) ? `${Math.round(n * 100)}%` : '—';
 }
 
-export function ValidationSeriesChart({ series }: { series: SeriesPoint[] }) {
-  const rows = chartRows(series);
+// stepMinutes: 이 대상지의 실제 버킷 간격. 30분 주기 대상지에 10분 간격을 대면 모든 점 사이를 '끊김' 으로
+// 읽어 선이 하나도 이어지지 않는다(rehearsalStatus.chartStepMinutes).
+export function ValidationSeriesChart({ series, stepMinutes = 10 }: { series: SeriesPoint[]; stepMinutes?: number }) {
+  const rows = chartRows(series, stepMinutes);
   if (rows.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-hanok-muted text-center px-4">
-        10분 주기로 표본을 수집하는 중입니다 — 수집된 구간부터 곡선이 그려집니다.
+        이 대상지의 대조 표본이 아직 없습니다 — 수집된 구간부터 곡선이 그려집니다.
       </div>
     );
   }

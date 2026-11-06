@@ -3,6 +3,7 @@
 > 작성 기준: 2026-08-20 코드 직접 조사(`8f84803`) → 2026-08-28 RBAC 반영 → 2026-09-04 저장소 정리 반영(경로·개수·인증 갱신)
 > → 2026-09-07 화면↔API 매핑 전수 재확인(§5 표 전체를 `apps/web/app` 코드와 1행씩 대조, §6.1 코스 재계획 · §11 수집 감시 추가)
 > → 2026-09-20 **추정 모드 · 서울 검증** 반영(§5.1 추정 피드 · §5.3 엔진 검증 화면과 기계 엔드포인트 · §9 외부 데이터 2종 · §10 새 표 · §11 서울 10분 수집)
+> → 2026-10-31 **서울 테스트베드 S1·S2·S5·S6 · 게스트 답 그림자 모드(D3)** 반영(§2 `crowd/` · §5.3 실시간 데이터 리허설 · 게스트 답 측정 · §7.1 방문 확인 · §10 구역 표 · §11 서울 수집 주기 · 네트워크 키 보관)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
 > `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
@@ -68,9 +69,11 @@ NextSpot/
 │       ├── app/
 │       │   ├── main.py         # 라우터 23개 등록 + 부팅 워밍업 4단계 (§3.2)
 │       │   ├── core/           # config(env) · authz(역할·소유권) · supabase(JWT·클라이언트) · logging · failure_log · vector
+│       │   │                   #   · client_ip · report_slots(혼잡 1인 1표) · network_key(게스트 답 네트워크 키) — §7.1
 │       │   ├── routers/        # 23개 — HTTP 경계 (§5 표)
-│       │   └── services/       # 도메인 로직 (평면 34개 + 하위 패키지 3)
+│       │   └── services/       # 도메인 로직 (평면 34개 + 하위 패키지 4)
 │       │       ├── spot/       # ★ SPOT 산식 런타임 정본 (score·preference·travel·wait_time)
+│       │       ├── crowd/      # 혼잡 공급원 층(서울 테스트베드 S1·S5) — CrowdObservation · CrowdProvider · seoul_provider · store · telecom_template
 │       │       ├── tourapi/    # 한국관광공사 OpenAPI 클라이언트·변환·인사이트
 │       │       └── batch/      # 적재 스크립트 전용 (localdata · wikimedia · kakao_coordinate · tourism_demand_evaluation)
 │       ├── scripts/            # 12개 배치 — 적재 · 학습 · 품질평가 · 번역 · 태깅 · 보행 그래프
@@ -260,7 +263,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
 | ″ | **추정 모드 피드**(실측·예측이 없는 시설의 '추정' 혼잡) | `GET /congestion/estimates` (공개·5분 캐시, `routers/infrastructures.py`) | `congestion_estimator_service` ← `area_demand_snapshots`(주차 10분) + 관광 집중률 · 웹은 `lib/congestionEstimate.ts` |
 | ″ | 히트맵 + 시간대별 AI 예측 타임슬라이더 | `POST /predict/batch` | `predict_service` |
-| ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` |
+| ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` — 수락은 `recommendation_id` 가 있으면 노출된 그 추천 행을 수락으로 갱신하고 취향 +10%(응답 `updated_vector`), 없으면 예전처럼 원본=추천 행을 넣는다(2026-10-31) |
 | ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
 | ″ | 진행중 여정의 자연어 현장조건 변경 (`ActiveJourneyCard`) | `POST /travel-context/parse` | `travel_context_parser` |
 | ″ | 검색 — 로컬 0건일 때만 외부 조회 | `GET /search/places` (Kakao) | `kakao_place_search_service` |
@@ -268,20 +271,20 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | 추천 사유·비교 설명 (`RecommendationComparison`) | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
 | ″ | 수락 / 거절 / 만족도 피드백 | `POST /feedback` | `feedback_service` `preference_vector_service` |
 | ″ | 자연어 취향 입력 | `POST /preferences/parse` | `preference_nlp_service` |
-| ″ | 현장 좌석·대기 제보 | `POST /reports/availability` | `availability_service` |
+| ″ | 영업 상태 확인(영업 중·닫힘 — 계정 로그인 필수. 게스트 403 · 같은 네트워크 다른 계정 429 면 답은 그 화면에만 적용) | `POST /reports/availability` | `availability_service` |
 | `/course` | 멀티스톱 분산 코스 | `POST /courses/plan` (구 번들은 `POST /courses/recommend`) | 누적 도착시각 기반 SPOT 반복 · 자리마다 현재 위치 기준 후보 재선정 |
 | ″ | 자리 고정·대안 갈아끼우기 | `POST /courses/plan` 의 `pins` | 고정된 자리 뒤를 다시 그리디 (§6.1) |
 | `/waiting` | 스마트 줄서기 보드 — 4유형 섹터별 '도착 시점 대기' 순 | `POST /recommendations/by-type` (유형당 1회) | SPOT `breakdown.waitTime/travelTime` 재사용 (새 예약 백엔드 없음) |
 | `/saved` | 저장한 장소 (목록은 로컬) | `POST /feedback` | `lib/savedFacilities.ts` |
 | `/mypage` | 취향 레이더 · 임팩트 요약 · 실험실 대기 수 | `GET /users/me/vector` `/impact/summary` `/lab/pending/count` | `preference_vector_service` |
 | `/mypage/coupons` | 내 쿠폰함 | `GET /coupons/mine` · `POST /coupons/{id}/use` | `coupon_service` |
-| `/mypage/impact` | 내 여행 임팩트 | `GET /impact/summary` | 수락·혼잡회피·쿠폰 성과 집계 |
+| `/mypage/impact` | 내 여행 임팩트 | `GET /impact/summary` | 길안내 출발(같은 시설·같은 날 1회)·도착 확인(`arrivals_confirmed`)·혼잡회피·쿠폰 — 값이 0 이거나 근거가 없는 타일은 그리지 않는다 |
 | `/mypage/lab` | **거절 실험실** | `GET /lab/pending` · `POST /lab/{id}/reason` · `.../reason/classify` · `.../skip` · `.../hide` | `lab` 라우터 + LLM 분류 |
 | `/mypage/settings` | 회원 탈퇴 | `DELETE /account/me` | `account` 라우터 |
 | `/account/business` | 역할 신청 — 제출·내역·**철회·수정** | `POST /account/verification-requests` · `GET …/mine` · `PATCH …/{id}` · `POST …/{id}/withdraw` | `account` 라우터 (심사는 `/dev` — §5.4) |
 | 추천 카드(전역) | 최적 방문 시각 · 골든아워 배지 | `GET /predict/day` · `/predict/golden-hour` | `predict_service` |
-| 전역 | 혼잡 제보 | `POST /reports/congestion` | `congestion_evidence` |
-| 전역 | 방문 결과 기록 | `PATCH /recommendations/{id}/outcome` | `recommendationOutcomes.ts` (오프라인 큐) |
+| 전역 | 혼잡 제보(계정 로그인 필수 — 게스트는 403) | `POST /reports/congestion` | `congestion_evidence` |
+| 전역 | 방문 결과 기록(체감 혼잡 포함 — 게스트 답은 그림자 저장, 응답 `crowd_answer`, §7.1) | `PATCH /recommendations/{id}/outcome` | `recommendationOutcomes.ts` (오프라인 큐) |
 | 전역 | 사용성 트래킹 | `POST /events/track` | `tracking` (무인증, IP 쿨다운) |
 
 - **`/explore/map` 은 더 이상 화면이 아니다.** 히트맵·예측 타임슬라이더가 `/main` 으로 이식되면서
@@ -329,7 +332,7 @@ SessionBootstrap: 익명 세션 자동 발급
 
 | 기능 | API | 설명 |
 |---|---|---|
-| 내 가게 성적표 | `GET /merchant/stats` | 노출·수락·방문 수치 |
+| 내 가게 성적표 | `GET /merchant/stats?days=7\|30` | 노출(손님 화면에 뜬 추천 카드 `rec_shown` — 기록이 없으면 '추천 목록에 포함된 횟수')·길안내(손님·날짜당 1회)·도착 확인·쿠폰·제보, 직전 기간 비교·표본(`metrics`). 관리자·개발자 계정은 뺀다(`app/core/internal_accounts.py`) |
 | AI 브리핑 | `GET /merchant/briefing` | `merchant_briefing_service` (LLM) |
 | 셀프 타임세일 | `POST /merchant/timesale` · `/timesale/cancel` | 쿠폰율 즉시 상향 → **SPOT w₃에 직결** |
 | 좌석상태 방송 | `POST /merchant/seat-status` | 30분 신선도 내 **실측으로 취급** (`verified` 등급) |
@@ -354,17 +357,18 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
 | ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
 | ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). 대시보드에서 **"24시간 모의 발생"·"주차 실측 기반 추정 적재(수동)" 두 버튼은 2026-09-20 제거**(D6 — 합성 로그로 화면을 채우지 않는다). 백엔드 엔드포인트(`POST /admin/simulate-peak`, `GET/POST /admin/congestion-estimates/parking-derived*`)는 잔존하나 호출하는 화면이 없다 |
-| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **엔진 검증** — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py`) |
+| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **실시간 데이터 리허설**(옛 '엔진 검증', 2026-10-31 S6 — 메뉴에서는 계속 숨김, `AdminSidebar` `HIDDEN_FROM_MENU`) — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py` — 최소 표본 36 버킷 = 10분 대상지 6시간 · 30분 대상지 18시간). 응답에 더해진 `pipeline`(설정·키·원본 표 상태·사람 작업·호출 예산·대상지별 주기/신선도 기준/채움률·구역 표 행 수·마지막 시도)과 `decision_quality`(S4 전에는 `not_evaluated`) — 판정 규칙은 `services/seoul_collection_status.py`: 신선도 기준 `max(30, 2×주기+8)`분(10분 30 · 30분 68), 채움률 분모 = max(창 시작, 그 대상지 첫 버킷)부터 차례였던 버킷 수(`counted_since_at`). 배너는 대상지 하나라도 마지막 시도가 실패면 경고. '가동 중' 문구는 쓰지 않는다 |
 | ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음) |
 | ″ | `GET /admin/engine-validation/seoul/alternatives?origin=` | **권역 대안 패널**(`SeoulAlternativesPanel`) — 홍대(`POI007`)·연남동(`POI073`)·합정역(`POI053`) 시연 권역의 실측 인파 비교("여기가 붐비니 저기로") |
-| ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **분산 효과 정량화** — 절감 대기시간·재배치 건수 |
+| ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **추천 수락 결과** — 재배치 = 수락 · 원본 ≠ 목적지 · 도착 확인. 도착 미확인·같은 장소 수락은 따로 센다. '예상 대기 차이(모델 추정)'는 재배치 건만. 내부 계정 제외, 표본 수를 함께 낸다(2026-10-31) |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
+| (화면 없음) | `GET /admin/metrics/guest-answers?days=` | **게스트 답 그림자 측정**(D3, 2026-10-31) — 게스트 대 계정 사용자·실측 일치율, 공유 네트워크 비율. 숫자만(행·계정·네트워크 키는 나가지 않음), 기간 1~30일(기본 14), 표본 30 미만이면 null + 이유. DB 함수(service_role)는 `20261031130000` |
 | `/admin/infrastructure` | `POST /admin/facilities/{id}/congestion` | 혼잡 수동 입력 (`admin_override` · §7.1) |
 | ″ | `GET /search/ingest-requests?status=pending` · `POST /search/ingest-requests/approve` | **검색 0건 → 승인형 배치 적재** 큐 |
 | ″ | (Supabase anon 직접 조회 — `facilities` 페이지네이션 + `latest_congestion_for_facilities`) | 장소 목록·이상 혼잡 알림 |
 | `/admin/simulator` | `GET /users/me/vector` | SPOT 시뮬레이터 (가중치 슬라이더 — 쓰기 없음) |
 | `/admin/reports` | `GET /admin/metrics?days=28` + Supabase anon `congestion_logs` | 통계 리포트 (요일·카테고리 집계, AI 수락 추이) |
-| `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 |
+| `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 — 최근 30분 관측만 판정에 쓰고, 관측이 없으면 '판정 불가'(`judgement`). 존마다 관측 시각·출처. 경보 기준 0.9(`ANOMALY_LEVEL`과 같음) |
 | `/admin/report` | `GET /admin/metrics/trend?days=30` · `/admin/dashboard/today` · `GET /freshness` | 성과 리포트 — 의회·평가 제출용 인쇄물 |
 | ″ | `GET /admin/reports/estimated?days=` (`estimated_report_service`) | **추정 일별 시계열** — 2026-09-20 신설. 이 글을 쓰는 시점에 웹 호출부는 아직 없다(다른 에이전트가 배선 중) |
 | `/admin/support` | `GET/PATCH /admin/inquiries` | 문의 처리 |
@@ -372,7 +376,7 @@ SessionBootstrap: 익명 세션 자동 발급
 
 관제의 폐루프는 **관제 → 개입(쿠폰) → 효과 측정**으로 닫힌다.
 쿠폰 정책 패널에서 할인율을 올리면 `coupon_rate`가 SPOT 인센티브 항에 즉시 반영되고,
-그 결과가 **같은 대시보드 화면의** `ImpactWidget`("절감 대기시간 · 재배치 건수", `GET /admin/impact`)으로
+그 결과가 **같은 대시보드 화면의** `ImpactWidget`("추천 수락 결과" — 재배치·예상 대기 차이(모델 추정), `GET /admin/impact`)으로
 되돌아온다. 세 패널이 한 화면에 있는 것이 데모 동선의 전제다(`contest/DEMO_SCENARIO.md` §2).
 `/admin/report` 는 그 지표를 인쇄물로 조립하는 별도 화면이고, 파생 불가능한 수치는 지어내지 않고 뺀다.
 
@@ -380,11 +384,17 @@ SessionBootstrap: 익명 세션 자동 발급
 `POST /api/v1/engine-validation/seoul/collect` 는 Supabase pg_cron 이 10분마다 부르는 적재 경로이고
 (§11), `GET /api/v1/engine-validation/seoul/status` 는 키 설정 여부·대상지·추정기 버전
 (`ESTIMATOR_VERSION`)·마지막 수집 결과를 돌려준다. 둘 다 관리자/서비스 토큰이 필요하다(무인증 401).
-수집 대상지는 5곳이고 목적이 갈린다 — **시연 권역** 홍대 관광특구·연남동·합정역(2026-09-20 실측
-실시간 주차장 0·0·0 → 추정치가 만들어지지 않고 서울시 실측 인파만 쓴다)과 **검증 지점** 명동·동대문
-(각 5곳·8곳). 저장은 `seoul_citydata_snapshots` 전용 표이고 `congestion_logs` 와 섞지 않는다.
-⚠️ 2026-09-20 기준 프로덕션에는 마이그레이션 `20260920120000` 이 **아직 적용되지 않았다**(PostgREST 가
-표를 모른다) — 적용 전까지 수집·검증 화면은 `not_migrated` 로 떨어진다.
+수집 대상지는 코드 기본값 9곳이다(2026-10-31 S2 — 그 전 운영은 5곳). **홍대 권역** 홍대 관광특구·연남동·합정역
+(실시간 주차장 0 → 추정치 없이 서울시 실측 인파만), **종로 유산 권역** 경복궁·북촌한옥마을·인사동·창덕궁·종묘,
+**검증 지점** 명동·동대문(주차 각 5곳·8곳). 대상지별 주기는 설정 한 줄 `SEOUL_CITYDATA_TARGETS` 의 `이름@N+P`
+표기로 정한다(10분 버킷 번호 n 이 `n % N == P` 일 때 부름) — 기본은 홍대 권역 매 10분 · 종로 `@3+1` · 명동·동대문 `@3+2`,
+주 720 · 보충 최악 864회/일(한도 1,000). 빈 값은 503 `seoul_targets_missing`, 틀린 표기는 503 `seoul_targets_invalid`.
+조회는 최대 4곳 동시, 조회 마감 45초 · 실행 전체 80초(pg_cron 요청 제한 90초 안). 서울을 부르기 전에 원본 표를
+한 번 확인해 없으면 호출 0회로 `migration_not_applied`.
+저장은 `seoul_citydata_snapshots` 전용 표이고 `congestion_logs` 와 섞지 않는다. 저장에 성공한 대상지는
+`services/crowd/seoul_provider` 로 정규화(`CrowdObservation`, `zone_id` 예: `seoul:POI007`)해 `zone_crowd_snapshots` 에도
+저장한다(이중 저장, `crowd/store`). 구역 표(`20261031120000`)가 아직 없으면 수집은 멈추지 않고 상태에만 남긴다.
+원본 표 `20260920120000` 과 예약 `20260920121000`·`20260920140000` 은 운영에 적용돼 있다(2026-10-31 S0 점검 — 09-20부터 적재).
 
 ### 5.4 개발자 콘솔 (`/dev`)
 
@@ -496,9 +506,22 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 
 | 출처 | 등급 | 경로 |
 |---|---|---|
-| 사용자 혼잡 제보 | `single_report` → 교차검증 시 `corroborated` | `POST /reports/congestion` → `correlate_congestion_report_evidence` |
-| 방문 후 체감 혼잡 | 투영 | `recommendation_outcomes` → `project_outcome_congestion_log` |
+| 사용자 혼잡 제보(계정만 — 게스트 403 · 사용자·시설당 5분 · IP·시설당 30분 한 계정, 2026-10-30) | `single_report` → 교차검증 시 `corroborated` | `POST /reports/congestion` → `correlate_congestion_report_evidence` |
+| 방문 후 체감 혼잡(계정 사용자 · 게스트는 아래) | 투영 | `recommendation_outcomes` → `project_outcome_congestion_log` |
 | 사장님 좌석 방송 | `merchant_report` / `verified` | `POST /merchant/seat-status` |
+
+- **게스트의 방문 후 체감 혼잡은 그림자로만 받는다**(D3, 2026-10-31 `20261031130000`). BEFORE 트리거가
+  `auth.users.is_anonymous` 로 답을 한 번 분류해 `recommendation_outcomes.observed_answer_mode` 에 남긴다
+  (`registered` / `guest_shadow` / `guest_live` — API 값을 믿지 않고, auth 행이 없으면 게스트). `guest_shadow` 는
+  `congestion_logs` 로 투영하지 않으므로 지도·순위·corroborated 어디에도 들어가지 않는다. 계정 사용자 동작은 그대로다.
+- 실시간 스위치 `GUEST_CROWD_ANSWERS_LIVE`(기본 꺼짐)를 켜면 `guest_live` 가 되고, 게스트끼리만의 일치는 서로 다른
+  네트워크 키 2개 이상이거나 ±30분 같은 단계의 verified 실측이 있어야 corroborated 가 된다.
+- **1인 1표**: 같은 IP·같은 장소 30분 한 계정 규칙(10-30 제보 경로)을 **게스트** 방문 답에도 건다(+ 같은 게스트·장소 30분 쿨다운). 등록 사용자 방문 답은 제한 없음 — `app/core/report_slots.py`. 막히면 평가만 저장하고 응답 `crowd_answer` 로 알린다(`not_recorded_shared_network` · `not_recorded_cooldown` · `not_recorded_pending_migration`). 인메모리 IP 표는 창 + 최대 1분 뒤 지운다
+  로 공용화(원본 IP 는 이 프로세스 메모리 표의 키로 최대 30분만 있고 DB·로그에 없다). 막히면 429 대신 평가만 저장하고
+  응답 `crowd_answer` 로 알린다(오프라인 큐가 멈추지 않게).
+- **네트워크 키**: `app/core/network_key.py` 가 IPv4 /24 · IPv6 /64 대역을 서버 비밀값(`NETWORK_HASH_SALT`, 없으면
+  `JWT_SECRET` 에서 파생)으로 HMAC 한 32자만 넘긴다. 게스트 답에만 남고 30일 뒤 pg_cron `nextspot-network-hash-retention`
+  (§11)이 지운다. 측정은 `GET /admin/metrics/guest-answers`(§5.3).
 
 **여기에 더해 관리자 개입 1개** — 수집이 아니라 사람이 슬라이더로 넣는 값이라 따로 센다.
 
@@ -584,7 +607,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 | **Kakao Maps SDK** | 프런트 지도 | — |
 | **LOCALDATA** (행안부) | 인허가 기반 영업상태 검증 | 배치 미실행 |
 | **경주 ITS 공영주차 실시간** | 주변 권역 수요 + **추정 모드의 주차 성분**(0.7 가중) | 수집 중단 → 스냅샷이 낡으면 추정을 **만들지 않는다**(빈칸) |
-| **서울 실시간 도시데이터**(서울시 열린데이터광장, OA-21285, 공공누리 제1유형) | 추정 엔진 **검증**(`/admin/engine-validation`) + 시연. 경주 서비스 화면에는 나오지 않는다 | `SEOUL_OPENDATA_KEY` 없으면 503 `seoul_key_missing` — 수집만 멈추고 서비스는 무관 |
+| **서울 실시간 도시데이터**(서울시 열린데이터광장, OA-21285, 공공누리 제1유형) | 추정 엔진 **검증**·실시간 파이프라인 리허설(`/admin/engine-validation` '실시간 데이터 리허설') + 시연. 경주 서비스 화면에는 나오지 않는다 | `SEOUL_OPENDATA_KEY` 없으면 503 `seoul_key_missing` — 수집만 멈추고 서비스는 무관 |
 | **Wikimedia** | 이미지 보강 | 기본 이미지 |
 | **Upstage Solar** | LLM 보조 | 결정적 경로 (§8) |
 
@@ -616,6 +639,9 @@ users ──┬── user_preference_vectors   (8차원, 수락 +10% / 거절 �
 area_demand_snapshots ─── area_demand_snapshot_lots   (경주 ITS 주차 10분 실측 — AREA_DEMAND_SOURCE≠rpc 면 API 메모리 행렬로도 적재)
 seoul_citydata_snapshots  (서울 실시간 도시데이터 10분 — 실측 인파 정답 + 같은 버킷의 우리 추정 level_est.
                            검증 전용, congestion_logs 와 분리. 마이그레이션 20260920120000)
+zones ──┬── zone_crowd_snapshots      (공급원 무관 정규화 구역 혼잡 — 서울 수집기가 이중 저장. 경주 통신사도 같은 표)
+        └── facility_zones            (시설 → 구역 매핑 — S3 에서 채움)
+                           (20261031120000, RLS 켬 · service_role 전용, 서울 9곳 시드)
 model_registry ──── Storage: recommendation-models (private)
 tourism_concentration_forecasts · tourism_insight_snapshots   (TourAPI 데이터랩)
 admin_ingest_requests   (검색 0건 → 승인형 적재)
@@ -629,7 +655,7 @@ system_settings
 |---|---|
 | `latest_congestion_for_facilities` | 신뢰 등급·출처 필터를 **DB에서 강제** |
 | `promote_recommendation_model` | 모델 활성화 (service_role 전용, 단일 트랜잭션) |
-| `record_recommendation_outcome` / `project_outcome_congestion_log` | 방문 결과 → 혼잡 로그 투영 |
+| `record_recommendation_outcome` / `project_outcome_congestion_log` | 방문 결과 → 혼잡 로그 투영(게스트 답은 `observed_answer_mode` 분류 트리거가 그림자로 남겨 투영하지 않음 — §7.1, `20261031130000`) |
 | `correlate_congestion_report_evidence` | 제보 교차검증 → 등급 승격 |
 | `apply_localdata_sync` | 인허가 데이터 동기화 (임시휴업 보존) |
 | `handle_new_user` / `get_auth_user_role` | 가입 트리거 · RLS 역할 판정 |
@@ -645,7 +671,8 @@ system_settings
 | `train-recommendation-model.yml` | 매주 월 03:00 KST | 모델 학습 → 게이트 검증 → 승격 |
 | `area-demand-alert.yml` | **매시 28분** 예약(GitHub 스케줄러 best-effort — 실측 3~6시간 간격) | 주차 실측 수집이 멈췄는지 감시 — Supabase PostgREST 로 `area_demand_snapshots` 최신 행을 직접 읽는다(35분 넘게 오래되면 `stale`, 읽지 못하면 `api_unreachable`, 200 인데 0행이면 `no_snapshot` — 모두 실패. 새 환경만 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` 로 0행 통과). Supabase 시크릿이 없으면 예전처럼 `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` |
 | `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
-| (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·19·… 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재. URL 은 Vault `nextspot_seoul_citydata_api_url`, 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000` — 2026-09-20 기준 **적용 대기** |
+| (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·39분 — :00·:30 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재(+ `zone_crowd_snapshots` 이중 저장). 어느 대상지를 부를지는 API 설정 `SEOUL_CITYDATA_TARGETS` 의 `이름@N+P` 주기가 정한다(§5.3). URL 은 Vault `nextspot_seoul_citydata_api_url`(호스트 = 싱가포르 Render API), 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000`·보충 예산 `20260920140000` — **둘 다 적용됨**(2026-10-31 S0 점검) |
+| (워크플로 아님) Supabase pg_cron — `nextspot-network-hash-retention` | 매일 03:37 KST(`37 18 * * *` UTC) | 게스트 답 네트워크 키(`recommendation_outcomes.observed_network_hash` · `congestion_logs.reporter_network_hash`)를 30일 지나면 NULL 로 지운다(답은 남는다). 마이그레이션 `20261031130000` — 원격 적용 대기 |
 | `warmup.yml` (API Keep-Warm) | 10분 예약(best-effort — 실측 몇 시간 간격) | `/api/v1/warmup`(무인증 캐시 예열 — P3 배치 A 의 보행 목적지 사전 스냅 포함)·`/health` 호출 |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
 | `deploy-verify.yml` (API Deploy Verify) | 수동(main 푸시 트리거는 Render Auto-Deploy 'On Commit' 확인 뒤 — 'After CI Checks Pass' 면 서로 기다려 배포가 막힌다) | main 에서 apps/api 를 마지막으로 바꾼 커밋(시험·문서·`[skip render]` 제외)이 운영 `/health` 의 `deploy.commit`(Render `RENDER_GIT_COMMIT` 앞 12자리)이거나 그 조상인지 30초마다 25분 확인 — 아니면 실패. Render 는 빌드 실패·Build Filters 건너뜀 때 옛 배포를 조용히 계속 돌린다(10-12) |

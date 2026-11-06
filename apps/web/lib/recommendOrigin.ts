@@ -3,6 +3,9 @@
 // 예전에는 대기 보드가 어느 카드를 누르든 지역 중심(REGION.center) 좌표만 넘겼다. 그래서 첨성대를 눌러도 피자집을
 // 눌러도 같은 황리단길 카페·식당이 '대안' 으로 나왔고, '도보 2분' 도 지역 중심에서 잰 값이었다. 이제는 누른 장소의
 // 좌표와 종류를 넘겨, 그 장소 둘레의 **같은 종류** 대안을 그 장소에서 걷는 시간으로 보여 준다.
+//
+// 지도(/main)에서 핀·검색으로 연 장소의 '대신 갈 곳 보기'(P1-5)도 같은 주소를 쓴다 — 가려던 붐비는 곳 대신 고를
+// 곳이 이 서비스의 핵심 동작인데, 예전에는 그 입구가 대기 보드 상위 8곳에만 있었다.
 
 import { REGION } from './region';
 import type { CongestionKey } from './congestionScale';
@@ -26,7 +29,13 @@ export function candidateTypesFor(type: string | null | undefined): PlaceKind[] 
 }
 
 export interface RecommendOriginRow {
-  facilityId: string;
+  /**
+   * 우리 DB 시설 id. 카카오 장소 검색 결과처럼 아직 적재되지 않은 장소면 없다 — 그때는 이름과 종류로 묻는다
+   * (대안 화면이 원래 장소 없이 같은 종류를 그 둘레에서 찾는다).
+   */
+  facilityId?: string | null;
+  /** 시설 id 가 없을 때만 주소에 싣는다(머리글의 '{장소} 대신'). */
+  name?: string | null;
   type: string;
   /** 옛 보드 캐시 행에는 없다 — 그때는 지역 중심으로 묻는다(오늘의 동작). */
   latitude?: number | null;
@@ -34,24 +43,73 @@ export interface RecommendOriginRow {
 }
 
 /**
- * 대기 보드 카드 → 대안 화면 주소. 좌표가 둘 다 숫자일 때만 그 좌표, 아니면 지역 중심.
- * 'from=waiting' 은 좌표가 있을 때만 붙인다 — 그 표시가 머리글을 '{장소}에서 걸어서 갈 수 있는 곳' 으로 바꾸는데,
- * 옛 캐시 행(좌표 없음)은 지역 중심에서 잰 걷는 시간이라 그 장소에서 걷는다고 말할 수 없다.
+ * 대안 화면에 들어온 길.
+ *  · 'waiting' — 대기 보드 카드. 걷는 시간은 **그 장소에서** 잰다.
+ *  · 'pick'    — 지도 핀·검색으로 고른 장소의 '대신 갈 곳 보기'(P1-5). 내 위치를 알면 **내 위치에서** 잰다.
  */
-export function buildRecommendHref(row: RecommendOriginRow): string {
-  const hasCoords =
-    typeof row.latitude === 'number' && Number.isFinite(row.latitude)
-    && typeof row.longitude === 'number' && Number.isFinite(row.longitude);
-  const lat = hasCoords ? (row.latitude as number) : REGION.center.lat;
-  const lng = hasCoords ? (row.longitude as number) : REGION.center.lng;
-  const params = new URLSearchParams({
-    facilityId: row.facilityId,
-    lat: String(lat),
-    lng: String(lng),
-    type: row.type,
-  });
-  if (hasCoords) params.set('from', 'waiting');
+export type RecommendEntry = 'waiting' | 'pick';
+
+export interface RecommendHrefOptions {
+  from?: RecommendEntry;
+  /** 'pick' 에서만 쓰는 지금 내 위치. 모르면 null — 그때는 그 장소에서 잰다. */
+  user?: { lat: number; lng: number } | null;
+}
+
+function validPoint(lat: unknown, lng: unknown): lat is number {
+  return typeof lat === 'number' && Number.isFinite(lat) && typeof lng === 'number' && Number.isFinite(lng);
+}
+
+/**
+ * 대안 화면 주소. 걷는 시간을 어디서 잴지가 주소의 lat/lng 다.
+ *  · 대기 보드(기본): 좌표가 둘 다 숫자일 때만 그 장소, 아니면 지역 중심. 'from=waiting' 은 좌표가 있을 때만 붙인다 —
+ *    그 표시가 머리글을 '{장소}에서 걸어서 갈 수 있는 곳' 으로 바꾸는데, 옛 캐시 행(좌표 없음)은 지역 중심에서 잰
+ *    걷는 시간이라 그 장소에서 걷는다고 말할 수 없다.
+ *  · 고른 장소('pick'): 내 위치를 알면 내 위치(대안 카드의 '도보 N분' 이 지도 카드처럼 나에게서 잰 값이 된다).
+ *    모르면 그 장소 좌표로 묻고 'walk=place' 를 붙인다 — 지역 중심에서 잰 걷는 시간을 내 거리처럼 보이지 않게,
+ *    머리글이 '{장소}에서 걸어서 갈 수 있는 곳' 으로 그 기준을 말한다.
+ */
+export function buildRecommendHref(row: RecommendOriginRow, options: RecommendHrefOptions = {}): string {
+  const from = options.from ?? 'waiting';
+  const placeKnown = validPoint(row.latitude, row.longitude);
+  const user = from === 'pick' && options.user && validPoint(options.user.lat, options.user.lng) ? options.user : null;
+  const lat = user ? user.lat : placeKnown ? (row.latitude as number) : REGION.center.lat;
+  const lng = user ? user.lng : placeKnown ? (row.longitude as number) : REGION.center.lng;
+  const params = new URLSearchParams();
+  if (row.facilityId) params.set('facilityId', row.facilityId);
+  else if (row.name) params.set('name', row.name);
+  params.set('lat', String(lat));
+  params.set('lng', String(lng));
+  params.set('type', row.type);
+  if (from === 'pick') {
+    params.set('from', 'pick');
+    if (!user && placeKnown) params.set('walk', 'place');
+  } else if (placeKnown) {
+    params.set('from', 'waiting');
+  }
   return `/explore/recommend?${params.toString()}`;
+}
+
+/** 대안 화면이 주소에서 읽는 들어온 길 — 머리글이 걷는 시간의 기준(그 장소인가)을 이것으로 정한다. */
+export function readRecommendEntry(params: { get(name: string): string | null }): {
+  from: RecommendEntry | null;
+  walkFromPlace: boolean;
+} {
+  const raw = params.get('from');
+  const from: RecommendEntry | null = raw === 'waiting' || raw === 'pick' ? raw : null;
+  return { from, walkFromPlace: from === 'waiting' || (from === 'pick' && params.get('walk') === 'place') };
+}
+
+/**
+ * 같은 종류로 물었는데 비어 종류 없이 다시 물은 결과에 **다른 종류가 섞였는가**(P1-5). 그때만 '같은 종류가 없어
+ * 다른 종류를 보여 드려요' 한 줄을 띄운다 — 카페를 눌렀는데 말없이 식당이 오면 고장으로 읽힌다. 종류를 묻지 않은
+ * 화면(옛 링크·공유 링크)은 비교할 기준이 없어 말하지 않는다.
+ */
+export function showsOtherKinds(
+  candidateTypes: readonly string[],
+  results: readonly { facility: { type: string } }[],
+): boolean {
+  if (candidateTypes.length === 0) return false;
+  return results.some((item) => !candidateTypes.includes(item.facility.type));
 }
 
 /** 원래 장소의 congestion_logs 한 줄(최신순으로 온다). */

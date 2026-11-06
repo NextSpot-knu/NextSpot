@@ -14,6 +14,18 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
+from app.core.client_ip import client_ip
+from app.core.config import settings
+from app.core.network_key import network_key_hash
+from app.core.report_slots import (
+    CONGESTION_VOTES_BY_IP,
+    CORROBORATION_WINDOW_SEC,
+    GUEST_ANSWER_LAST_BY_USER,
+    GUEST_ANSWER_VOTES_BY_IP,
+    release_report_slot,
+    reserve_report_slot,
+    shared_ip_retry_after,
+)
 from app.core.failure_log import record_failure
 from app.core.response_cache import (
     ResponseCache,
@@ -62,9 +74,9 @@ from app.services.travel_context import (
     RECOMMENDATION_ELIGIBILITY_LABELS,
     TravelContext,
     facility_matches_context,
-    keep_best_eligibility_tier,
     open_status_at_arrival,
     recommendation_eligibility_tier,
+    select_eligibility_tiers,
 )
 from app.services.tourism_area_prior_service import attach_tourism_area_priors
 from app.services.tourism_related_service import attach_related_destination_priors
@@ -112,6 +124,10 @@ class RecommendRequest(BaseModel):
     discovery_theme: Literal[
         "silla_core", "night_heritage", "hanok_cafe", "indoor_history", "gyochon_walk"
     ] | None = None
+    # 영업 확인 등급이 카드 수보다 적을 때 다음 등급(영업 미확인)에서 채울지. 채운 카드는 확인된 곳 뒤에 서야
+    # 하는데, 배포된 구 번들은 응답을 점수로 다시 줄 세워 eligibility_tier 를 보지 않는다 — 그래서 등급 순으로
+    # 그리는 새 번들만 true 를 보내고, 없거나 false 면 종전처럼 가장 강한 등급만 돌려준다.
+    fill_weaker_tiers: bool = False
 
 class RecommendItem(BaseModel):
     recommendation_id: str
@@ -127,6 +143,10 @@ class RecommendItem(BaseModel):
     # none=근거 없음(혼잡 정보 준비 중 — 0.0/0.5 를 실측처럼 팔지 않는다).
     congestion_level: float | None = None
     congestion_source: Literal["measured", "predicted", "none"] = "none"
+    # predicted 의 출처 — model = 학습된 모델의 예측, industry_baseline = 업종의 일반적인 시간대 곡선
+    # (spot/industry_baseline.py — 이 가게를 잰 값도, 학습한 값도 아니다). 화면은 industry_baseline 에
+    # '%'·'AI' 를 붙이지 않는다. predicted 가 아니면 None. 추가만 한 필드라 구 번들은 모르고 지나간다.
+    congestion_prediction_basis: Literal["model", "industry_baseline"] | None = None
     congestion_log_source: str | None = None   # measured 일 때 원 로그 source(user_report/seed/…)
     congestion_is_stale: bool | None = None    # measured 일 때 로그 나이>24h
     congestion_timestamp: str | None = None    # measured 일 때 로그 시각
@@ -396,6 +416,8 @@ async def resolve_congestion_evidence(
         return {
             "level": predicted, "source": "predicted", "log_source": None,
             "evidence_tier": None, "is_stale": None, "timestamp": None,
+            # 아래 업종 시간대 곡선도 source 는 'predicted' 다 — 화면·사유가 둘을 가를 수 있게 출처를 단다.
+            "prediction_basis": "model",
         }
     return {
         "level": None, "source": "none", "log_source": None,
@@ -464,8 +486,11 @@ async def build_candidate_evidence(
                 "level": baseline,
                 "source": "predicted",
                 # 예측은 언제나 '지금' 을 말할 자격이 있다(congestion_evidence.evidence_is_current
-                # 규약과 동일). 화면은 이 값을 '예측 · 지금' 으로 칠하고, 사유도 예측 문구를 쓴다.
+                # 규약과 동일). 화면은 이 값을 '예측 · 지금' 으로 칠한다.
                 "is_current": True,
+                # 학습된 모델의 예측이 아니라 업종 시간대 곡선이다. 사유 문장은 이 값에 '%'·'AI' 를 붙이지
+                # 않고(reason_service), 응답 congestion_prediction_basis 로 화면도 같은 구분을 받는다.
+                "prediction_basis": "industry_baseline",
             }
     return evidence
 
@@ -488,6 +513,9 @@ def _reason_congestion_ctx(item: dict) -> dict:
         return {
             "candidate_congestion": item["candidate_congestion"],
             "congestion_source": evidence["source"],
+            # 업종 시간대 곡선이면 사유가 숫자 대신 시간대 말로 쓴다(reason_service._build_template).
+            "congestion_prediction_basis": evidence.get("prediction_basis"),
+            "facility_type": item["facility"].get("type"),
         }
     return {"candidate_congestion": None, "congestion_source": "none"}
 
@@ -502,6 +530,29 @@ async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) ->
         user_vector = get_category_average_vector(preferred_categories)
         await preference_vector_service.upsert_user_vector(user_id, user_vector)
     return user_vector
+
+
+# /recommendations 가 돌려주는 카드 수. 영업 등급을 채우는 기준(select_eligibility_tiers 의 limit)도 이 수다.
+_MAIN_RECOMMENDATION_LIMIT = 5
+
+
+def _nearest_route_first(candidate: tuple) -> tuple[float, str]:
+    """약한 등급에서 채울 때 채점까지 데려올 순서 — 도보 시간이 짧은 순(같으면 id 로 결정적)."""
+    facility, route = candidate[0], candidate[1]
+    return (float(route.duration_min), str(facility.get("id")))
+
+
+def _eligibility_label(tier: int | None) -> str | None:
+    return RECOMMENDATION_ELIGIBILITY_LABELS[tier] if tier is not None else None
+
+
+def _eligibility_tier_counts(candidates: list[tuple]) -> dict[str, int]:
+    """로그용 — 채점한 후보가 영업 근거 등급마다 몇 곳인지(채움이 얼마나 자주 일어나는지 보려고)."""
+    counts: dict[str, int] = {}
+    for candidate in candidates:
+        label = RECOMMENDATION_ELIGIBILITY_LABELS[candidate[-1]]
+        counts[label] = counts.get(label, 0) + 1
+    return counts
 
 
 # --- Endpoints ---
@@ -573,18 +624,19 @@ async def get_recommendations(
         )
         if tier is not None:
             tiered_candidates.append((facility, route, tier))
-    selected_tier = keep_best_eligibility_tier(tiered_candidates)
-    candidates = [(facility, route) for facility, route, _ in selected_tier]
-    eligibility_tier = selected_tier[0][2] if selected_tier else None
+    # 요청이 청하면(fill_weaker_tiers) 영업 확인 등급이 카드 수보다 적을 때 다음 등급(영업 미확인)에서 채운다 —
+    # 정렬은 등급이 먼저라 확인된 곳이 언제나 앞이고, 채운 카드는 자기 등급을 단다. 청하지 않으면(구 번들)
+    # 종전처럼 가장 강한 등급만이다(travel_context.select_eligibility_tiers).
+    candidates = select_eligibility_tiers(
+        tiered_candidates, _MAIN_RECOMMENDATION_LIMIT,
+        fill_weaker=req.fill_weaker_tiers, fill_order=_nearest_route_first,
+    )
 
     logger.info(
         "candidates_filtered",
         count=len(candidates),
         max_walk_minutes=max_walk_minutes,
-        eligibility_tier=(
-            RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
-            if eligibility_tier is not None else None
-        ),
+        eligibility_tiers=_eligibility_tier_counts(candidates),
     )
 
     # 사용자 선호 벡터는 요청당 1개뿐이므로 여기서 1회만 조회한다. (없으면 Cold Start 벡터 생성 후 1회 업서트)
@@ -595,7 +647,7 @@ async def get_recommendations(
     #    개별 쿼리 팬아웃(N+1, 스레드풀 고갈 위험)을 제거한다.
     # 추정 묶음(5분 캐시)은 혼잡 로그 조회와 겹쳐 받는다 — 추천 지연을 더하지 않는다.
     congestion_by_id, estimates = await asyncio.gather(
-        fetch_congestion_map([req.original_facility_id, *[f["id"] for f, _ in candidates]]),
+        fetch_congestion_map([req.original_facility_id, *[f["id"] for f, _, _ in candidates]]),
         load_current_estimates(),
     )
     model_ready = get_model_info()["trained"]
@@ -615,7 +667,7 @@ async def get_recommendations(
             facility_features=original_infra.get("features"),
         )
 
-    async def _score_candidate(f: dict, route) -> dict:
+    async def _score_candidate(f: dict, route, eligibility_tier: int) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
         # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
         evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates, now=now)
@@ -651,25 +703,27 @@ async def get_recommendations(
             "distance_m": route.distance_m,
             "candidate_congestion": candidate_congestion,
             "congestion_evidence": evidence,
+            "eligibility_tier": eligibility_tier,
         }
 
     recommendation_results = list(
-        await asyncio.gather(*[_score_candidate(f, route) for f, route in candidates])
+        await asyncio.gather(*[_score_candidate(f, route, tier) for f, route, tier in candidates])
     )
 
     # 같은 요청에서 실제로 비교 가능한 후보만 상대 수요 순위·중앙값 차이를 계산한다.
     # 모든 후보가 같은 권역 신호를 받으면 distinguishable=false가 되어 혼잡 대안이라고 주장하지 않는다.
     annotate_relative_demand(recommendation_results)
 
-    # 4. 근거 등급 → 스코어 내림차순 정렬 및 상위 5개 선별.
-    #    등급을 먼저 보는 이유는 spot/ranking.py 주석 참조 — 모드마다 시간비용 공식이 달라서
+    # 4. 영업 근거 등급 → 혼잡 근거 등급 → 스코어 내림차순 정렬 및 상위 5개 선별.
+    #    영업 등급이 맨 앞인 이유: 채운 미확인 후보가 점수로 확인된 곳을 앞지르면 안 된다.
+    #    혼잡 근거 등급을 그다음에 보는 이유는 spot/ranking.py 주석 참조 — 모드마다 시간비용 공식이 달라서
     #    근거가 없는 후보가 구조적으로 최소 비용을 받는다. 같은 등급 안에서만 점수로 겨룬다.
-    recommendation_results.sort(key=lambda x: spot_ranking_sort_key(
+    recommendation_results.sort(key=lambda x: (x["eligibility_tier"], *spot_ranking_sort_key(
         x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
         x["breakdown"].get("ranking_congestion"),
-    ))
+    )))
     # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
-    top_n = recommendation_results[:5]
+    top_n = recommendation_results[:_MAIN_RECOMMENDATION_LIMIT]
     await _attach_delayed_area_actions(top_n, now=now)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
@@ -704,10 +758,8 @@ async def get_recommendations(
                 facility,
                 datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0)),
             ),
-            "eligibility_tier": (
-                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
-                if eligibility_tier is not None else None
-            ),
+            # 카드마다 자기 등급 — 확인 등급이 모자라 채운 카드는 '영업 확인 필요' 등급으로 남는다.
+            "eligibility_tier": _eligibility_label(item["eligibility_tier"]),
             "congestion": {
                 "level": evidence["level"], "source": evidence["source"],
                 "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
@@ -715,6 +767,8 @@ async def get_recommendations(
                 # 사용자가 이 값을 '지금' 으로 봤는지. 이 칸을 읽는 집계는 source 만 세므로 영향이
                 # 없고, 나중에 "낡은 실측이 몇 번 노출됐나" 를 되짚을 수 있게 스냅샷에 남긴다.
                 "is_current": evidence.get("is_current"),
+                # predicted 의 출처(model / industry_baseline) — 업종 곡선 노출을 모델 예측과 섞어 세지 않게.
+                "prediction_basis": evidence.get("prediction_basis"),
             },
             # 사용자가 본 추정(있으면). 'congestion' 칸과 섞지 않는다 — 그 칸을 읽는 집계는
             # 계속 '근거 없음' 으로 센다. 학습은 congestion_logs 만 읽으므로 여기 닿지 않는다.
@@ -790,6 +844,7 @@ async def get_recommendations(
             reason_source=reason_source,
             congestion_level=evidence["level"],
             congestion_source=evidence["source"],
+            congestion_prediction_basis=evidence.get("prediction_basis"),
             congestion_log_source=evidence["log_source"],
             congestion_is_stale=evidence["is_stale"],
             congestion_timestamp=evidence["timestamp"],
@@ -800,11 +855,8 @@ async def get_recommendations(
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
-            eligibility_tier=(
-                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
-                if eligibility_tier is not None else None
-            ),
+            information_confidence=("verified" if item["eligibility_tier"] in {0, 1} else "unknown"),
+            eligibility_tier=_eligibility_label(item["eligibility_tier"]),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
@@ -895,6 +947,8 @@ class RecommendByTypeRequest(BaseModel):
     # 시각이 이 값이 된다(parse_assumed_time). 없거나 형식 오류면 무시하고 서버 현재 시각을 쓴다
     # — 기본 동작 불변, 잘못된 입력에도 500 없이 조용히 무시.
     assumed_at: str | None = None
+    # RecommendRequest.fill_weaker_tiers 와 같은 뜻 — 없거나 false 면 가장 강한 영업 등급만(구 번들 보호).
+    fill_weaker_tiers: bool = False
 
 
 # by-type 응답 캐시(180초). 판정·점수·라벨은 하나도 건드리지 않는다 — **같은 질문에 같은
@@ -922,6 +976,7 @@ def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
       · context — facility_matches_context(카테고리·실내·접근성·방문제외)와
         max_walk_minutes 를 통해 후보 자격과 반경을 모두 바꾼다.
       · 가정 시각 버킷 — 도착 영업여부·도착시점 혼잡·SPOT 채점의 기준 '지금'.
+      · fill_weaker_tiers — 영업 미확인 등급으로 채울지(구 번들과 새 번들이 같은 키를 나누면 서로의 답을 받는다).
     """
     return (
         req.user_id,
@@ -932,6 +987,7 @@ def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
         tuple(sorted(set(req.exclude_ids or ()))),
         model_signature(req.context),
         assumed_time_bucket(parse_assumed_time(req.assumed_at)),
+        bool(req.fill_weaker_tiers),
     )
 
 
@@ -1017,10 +1073,14 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
         )
         if tier is not None:
             tiered_candidate_routes.append((facility, route, tier))
-    candidate_routes = keep_best_eligibility_tier(tiered_candidate_routes)
+    # /recommendations 와 같은 규칙 — 요청이 청하고 확인 등급이 limit 보다 적을 때만 다음 등급에서 채운다.
+    candidate_routes = select_eligibility_tiers(
+        tiered_candidate_routes, req.limit,
+        fill_weaker=req.fill_weaker_tiers, fill_order=_nearest_route_first,
+    )
     candidates = [facility for facility, _, _ in candidate_routes]
     route_by_id = {facility["id"]: route for facility, route, _ in candidate_routes}
-    eligibility_tier = candidate_routes[0][2] if candidate_routes else None
+    tier_by_id = {facility["id"]: tier for facility, _, tier in candidate_routes}
     if not candidates:
         return []
 
@@ -1065,16 +1125,17 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             "distance_m": route.distance_m,
             "candidate_congestion": cong,
             "congestion_evidence": evidence,
+            "eligibility_tier": tier_by_id[f["id"]],
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
     annotate_relative_demand(scored)
-    # get_recommendations 와 **같은 정렬 키**를 쓴다. 한쪽만 등급 정렬이면 같은 시설이
-    # 목록 화면과 종류별 화면에서 다른 자리에 놓인다.
-    scored.sort(key=lambda x: spot_ranking_sort_key(
+    # get_recommendations 와 **같은 정렬 키**를 쓴다(영업 등급 → 혼잡 근거 등급 → 점수). 한쪽만 등급
+    # 정렬이면 같은 시설이 목록 화면과 종류별 화면에서 다른 자리에 놓인다.
+    scored.sort(key=lambda x: (x["eligibility_tier"], *spot_ranking_sort_key(
         x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
         x["breakdown"].get("ranking_congestion"),
-    ))
+    )))
     top = scored[: max(1, req.limit)]
     await _attach_delayed_area_actions(top, now=now)
 
@@ -1106,6 +1167,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
                 "level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"],
                 "evidence_tier": evidence.get("evidence_tier"), "log_source": evidence.get("log_source"),
                 "is_current": evidence.get("is_current"),  # 위 /recommendations 스냅샷과 같은 뜻.
+                "prediction_basis": evidence.get("prediction_basis"),
             },
             "congestion_estimate": evidence.get("estimate"),
             "max_walk_minutes": max_walk_minutes,
@@ -1114,10 +1176,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             "open_status_at_arrival": open_status_at_arrival(
                 facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            "eligibility_tier": (
-                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
-                if eligibility_tier is not None else None
-            ),
+            "eligibility_tier": _eligibility_label(item["eligibility_tier"]),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
                 "operating_hours": facility.get("operating_hours"),
@@ -1157,6 +1216,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             reason_source=reasons[idx][1],
             congestion_level=item["congestion_evidence"]["level"],
             congestion_source=item["congestion_evidence"]["source"],
+            congestion_prediction_basis=item["congestion_evidence"].get("prediction_basis"),
             congestion_log_source=item["congestion_evidence"]["log_source"],
             congestion_is_stale=item["congestion_evidence"]["is_stale"],
             congestion_timestamp=item["congestion_evidence"]["timestamp"],
@@ -1167,11 +1227,8 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
-            eligibility_tier=(
-                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
-                if eligibility_tier is not None else None
-            ),
+            information_confidence=("verified" if item["eligibility_tier"] in {0, 1} else "unknown"),
+            eligibility_tier=_eligibility_label(item["eligibility_tier"]),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
@@ -1298,21 +1355,6 @@ _VOICE_LLM_RATE_LIMIT = 5  # IP당 분당 LLM 보조 해석 상한
 _voice_llm_hits: dict[str, list[float]] = {}
 
 
-def _voice_client_ip(request: Request) -> str:
-    """레이트리밋 키용 클라이언트 IP.
-
-    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
-    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다(Codex 리뷰 P1). 신뢰 프록시(Render 엣지)가
-    마지막에 덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다. 프록시 없는 로컬은 소켓 피어.
-    """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
 def _voice_llm_allowed(ip: str) -> bool:
     """분당 상한 내면 True(호출 1회 소비), 초과면 False — 초과 시 타임스탬프 미기록(윈도우 밀림 방지)."""
     now = time.monotonic()
@@ -1353,7 +1395,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         pass
     # 1) 백엔드: 의도 분류 + 한국어 응답 + search_query(선호를 구체 메뉴로 확장)(역할 분리의 '대화' 쪽).
     #    llm_gate: 무인증 유료 호출 레이트리밋 — LLM 이 실제로 필요할 때만 카운트를 소비한다.
-    ip = _voice_client_ip(request)
+    ip = client_ip(request)
     result = await interpret_turn(
         req.utterance, type_ko, req.current_name, candidates,
         llm_gate=lambda: _voice_llm_allowed(ip),
@@ -1429,12 +1471,16 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
     )
 
 
-# --- 추천 수락(원클릭) — 원본 없이 특정 시설을 '가겠다'고 확정하는 경로 ---
-# 지도/카드에서 대안 장소로 바로 이동을 확정할 때 쓴다(추천 이력이 없어도 동작).
-# submit_feedback('accepted')는 사전에 생성된 recommendation_id 를 요구하지만, 이 경로는
-# facility_id 만으로 수락을 기록하고 제휴 시설이면 쿠폰을 발급한다(발급 규칙은 피드백 경로와 동일).
+# --- 추천 수락(원클릭) — 메인 카드의 '바로 갈래요' ---
+# 카드가 받은 추천 행 id(recommendation_id)를 함께 보내면 **그 행**을 수락으로 표시한다 — /feedback 의
+# accepted_visit_intent 와 같은 효과(결정 행 1개 · 취향 벡터 +10% 1회 · 쿠폰)이고 새 행을 만들지 않는다.
+# 예전에는 늘 원본=추천=그 시설인 새 행을 넣어, 같은 노출이 두 번 기록되고 '재배치' 가 부풀었으며 취향도
+# 배우지 않았다. id 가 없으면(구 번들 · 추천 이력 없이 핀으로 고른 곳) 종전처럼 수락 행을 새로 넣는다.
 class AcceptRequest(BaseModel):
     facility_id: str = Field(..., description="수락(방문 확정)할 시설 id")
+    recommendation_id: str | None = Field(
+        None, max_length=64, description="카드가 받은 추천 행 id(있으면 그 행을 수락으로 표시)"
+    )
 
 
 class RejectRequest(BaseModel):
@@ -1496,6 +1542,22 @@ async def reject_recommendation(
     }
 
 
+def _linkable_recommendation_id(raw: str | None) -> str | None:
+    """수락을 이을 추천 행 id. UUID 가 아니면(저장 실패분 'mock-rec-id' 등 — DB 행이 없다) None.
+
+    None 이면 종전 경로(수락 행 새로 넣기)로 간다. 404 로 막으면 그 카드의 쿠폰까지 막힌다 — 행이 없는 것은
+    사용자 잘못이 아니라 노출 저장이 실패한 것이다.
+    """
+    if not raw:
+        return None
+    try:
+        uuid.UUID(str(raw))
+    except (ValueError, TypeError, AttributeError):
+        logger.info("accept_recommendation_id_unlinkable", recommendation_id=str(raw)[:64])
+        return None
+    return str(raw)
+
+
 @router.post("/recommendations/accept")
 async def accept_recommendation(
     req: AcceptRequest,
@@ -1503,16 +1565,23 @@ async def accept_recommendation(
 ):
     """특정 시설 방문을 수락 확정하고 제휴 시설이면 쿠폰을 발급한다.
 
-    흐름: 인증 → 시설 존재 검증(404) → recommendations 수락 이력 기록(best-effort) →
-    issue_coupon_if_partner(제휴면 발급, coupon_rate 0 이면 발급 없이 issued=False).
-    응답: {"success": True, "coupon_issued": bool, "coupon_rate": float, "expires_at": str|None}
+    흐름: 인증 → 시설 존재 검증(404) →
+      · recommendation_id 있음: 소유 확인(404·403 — /feedback 과 같은 가드) → 시설 일치 확인(409) →
+        그 추천 행에 수락 결정 기록 + accepted=true(best-effort) → 쿠폰 → 취향 벡터 +10%(행당 1회)
+      · 없음: recommendations 수락 행 새로 기록(best-effort, 종전과 같다) → 쿠폰
+    응답: {"success": True, "coupon_issued": bool, "coupon_rate": float, "expires_at": str|None,
+           "recommendation_id": str|None(수락으로 표시한 추천 행), "updated_vector": bool(이번에 취향을 배웠나)}
     """
     user_id = current_user["id"]
 
     # 1. 시설 존재 검증(없으면 404 — fetch_facility 가 던진다). coupon_rate 포함 시설 dict 확보.
     facility = await fetch_facility(req.facility_id)
 
-    # 2. 수락 이력 기록 — /admin/impact 의 분산 relocations 집계에 반영된다.
+    recommendation_id = _linkable_recommendation_id(req.recommendation_id)
+    if recommendation_id is not None:
+        return await _accept_shown_recommendation(recommendation_id, facility, current_user)
+
+    # 2. (구 번들·추천 이력 없음) 수락 이력 기록 — 종전과 같다.
     #    원본이 없는 직접 수락이라 original=recommended=facility_id, spot_score 는 스키마 NOT NULL 기본값 0.0.
     #    이력 저장 실패가 쿠폰 발급(사용자 가치)을 막지 않도록 best-effort(예외 로깅 후 진행).
     try:
@@ -1532,7 +1601,75 @@ async def accept_recommendation(
     # 3. 제휴 시설이면 쿠폰 발급(피드백 경로와 동일 규칙 — 멱등 upsert·만료 7일).
     result = await issue_coupon_if_partner(supabase_client, user_id, facility)
     logger.info("recommendation_accepted", user_id=user_id, facility_id=req.facility_id, coupon_issued=result["coupon_issued"])
-    return {"success": True, **result}
+    # 이 경로는 취향을 배우지 않는다(이을 추천 행이 없다) — 화면이 '취향에 반영' 을 말할지 이 값으로 고른다.
+    return {"success": True, **result, "recommendation_id": None, "updated_vector": False}
+
+
+async def _accept_shown_recommendation(recommendation_id: str, facility: dict, current_user: dict) -> dict:
+    """노출된 추천 행을 수락으로 표시한다 — /feedback accepted_visit_intent 와 같은 효과, 새 행 없음.
+
+    /feedback 을 함께 불러도 두 번 세지 않는다: 결정 행은 추천당 1개(record_decision 멱등)이고 취향 학습
+    슬롯도 행당 1회이며, accepted=true·쿠폰 upsert 도 다시 해도 같은 결과다.
+    """
+    user_id = current_user["id"]
+    # 소유권 가드(비-UUID·없는 행 404, 남의 행 403) — /feedback · /outcome 과 같은 함수.
+    recommendation, _joined_facility = await resolve_feedback_target(recommendation_id, current_user)
+    if str(recommendation.get("recommended_facility_id")) != str(facility["id"]):
+        # 다른 장소의 추천 행을 수락으로 바꾸면 분산 지표가 없던 이동을 센다 — 고치지 않고 거절한다.
+        raise HTTPException(status_code=409, detail="추천 기록의 장소와 수락한 장소가 다릅니다.")
+
+    # 결정 기록이 실패해도 쿠폰(사용자 가치)은 막지 않는다 — 종전 수락 경로와 같은 best-effort.
+    decision = None
+    try:
+        decision = await feedback_service.record_decision(
+            supabase_client,
+            user_id=user_id,
+            recommendation_id=recommendation_id,
+            action=feedback_service.ACTION_ACCEPTED_VISIT_INTENT,
+        )
+        await asyncio.to_thread(
+            supabase_client.table("recommendations")
+            .update({"accepted": True})
+            .eq("id", recommendation_id)
+            .execute
+        )
+    except Exception as e:
+        logger.warning(
+            "accept_decision_persist_failed",
+            user_id=user_id, recommendation_id=recommendation_id, error=str(e),
+        )
+
+    result = await issue_coupon_if_partner(supabase_client, user_id, facility)
+
+    # 취향 벡터 — 서비스가 학습 슬롯을 선점해 준 경우에만(행당 생애 1회, /feedback 과 같은 규칙).
+    updated_vector = False
+    if decision is not None and decision["should_learn_vector"]:
+        try:
+            updated_vector = await apply_feedback_vector_learning(
+                user_id=user_id, facility=facility, vector_action=VECTOR_ACTION_REINFORCE
+            )
+        except Exception as e:
+            # 슬롯은 이미 선점됐다 — 재시도로 두 번 배우는 것보다 이번 학습을 잃는 편을 택한다(feedback_service 참조).
+            logger.warning(
+                "accept_vector_learning_failed",
+                user_id=user_id, recommendation_id=recommendation_id, error=str(e),
+            )
+
+    logger.info(
+        "recommendation_accepted",
+        user_id=user_id,
+        facility_id=facility["id"],
+        recommendation_id=recommendation_id,
+        coupon_issued=result["coupon_issued"],
+        decision_created=decision["created"] if decision is not None else None,
+        updated_vector=updated_vector,
+    )
+    return {
+        "success": True,
+        **result,
+        "recommendation_id": recommendation_id,
+        "updated_vector": updated_vector,
+    }
 
 
 #: preference_vector_service.adjust_user_vector_on_feedback 가 이해하는 **legacy** 액션 문자열.
@@ -1617,38 +1754,150 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
     return recommendation, facility
 
 
+# 방문 확인 체감 혼잡 답의 처리 결과(응답 crowd_answer). 앞의 셋은 DB recommendation_outcomes.observed_answer_mode 와 같다.
+#   registered   계정 사용자 — 예전처럼 congestion_logs(user_report)로 옮겨져 지도·교차검증에 들어간다. 언제나 기록한다.
+#   guest_shadow 게스트 — 저장만(그림자 모드). 지도·추천·corroborated 에 들어가지 않는다(20261031130000 트리거).
+#   guest_live   게스트 — GUEST_CROWD_ANSWERS_LIVE 로 실시간 반영(교차검증은 네트워크·실측 조건이 붙는다).
+#   not_recorded_shared_network     (게스트) 같은 IP·같은 장소에서 30분 안에 다른 계정이 이미 답·제보했다.
+#   not_recorded_cooldown           (게스트) 같은 게스트가 같은 장소에 30분 안에 이미 답했다(추천을 돌려 표를 쌓지 못하게).
+#   not_recorded_pending_migration  (게스트) DB 에 20261031130000 이 아직 없다 — 그림자로 분류할 수 없어 답을 버린다(닫힌 쪽 실패).
+#   not_recorded_* 이면 평가(좋았어요/별로였어요)만 저장하고 답은 버린다. 409/429 로 거절하지 않는다 — 웹 방문 결과 큐가 멈추지 않게.
+_CROWD_ANSWER_SHARED_NETWORK = "not_recorded_shared_network"
+_CROWD_ANSWER_COOLDOWN = "not_recorded_cooldown"
+_CROWD_ANSWER_PENDING_MIGRATION = "not_recorded_pending_migration"
+# 같은 게스트·같은 장소의 답은 교차검증 창(30분)에 한 번. 실시간을 켜면 한 게스트가 추천을 돌려 단건 관측을 쌓는 것을 막는다.
+_GUEST_ANSWER_COOLDOWN_SEC = CORROBORATION_WINDOW_SEC
+# 응답에서 빼는 열 — 네트워크 키는 측정·교차검증용이라 클라이언트에 돌려줄 이유가 없다.
+_OUTCOME_PRIVATE_FIELDS = ("observed_network_hash",)
+
+
+def _is_missing_rpc_signature(message: str) -> bool:
+    """PostgREST 가 새 인자를 가진 RPC 를 못 찾았는가(마이그레이션 20261031130000 미적용 또는 스키마 캐시 미갱신)."""
+    return "PGRST202" in message or "Could not find the function" in message
+
+
+async def _call_outcome_rpc(params: dict, extra: dict, *, is_guest: bool) -> tuple[object, bool]:
+    """방문 결과 RPC 호출 → (결과, 구 DB 였는가).
+
+    새 인자(network_hash·guest_answer_live)를 모르는 구 DB 면 옛 인자로 한 번 더 부른다. 그 DB 에는 게스트 판정·그림자
+    분류가 없어 게스트 답이 그대로 실시간 user_report 가 된다 — 그래서 **게스트면 답을 빼고**(평가만) 부른다(닫힌 쪽 실패).
+    계정 사용자는 예전 그대로 답까지 기록한다.
+    """
+    try:
+        result = await asyncio.to_thread(
+            supabase_client.rpc("record_recommendation_outcome", {**params, **extra}).execute
+        )
+        return result, False
+    except Exception as exc:
+        if not _is_missing_rpc_signature(str(exc)):
+            raise
+    logger.warning("recommendation_outcome_rpc_legacy_signature", hint="apply migration 20261031130000")
+    legacy = {**params, "p_observed_congestion": None} if is_guest else params
+    result = await asyncio.to_thread(supabase_client.rpc("record_recommendation_outcome", legacy).execute)
+    return result, True
+
+
+def _reserve_guest_answer(user_id: str, ip: str, facility_id: str) -> tuple[tuple | None, str | None]:
+    """게스트 답의 1인 1표 · 쿨다운을 검사하고 자리를 잡는다 → (되돌리기 토큰, 버린 이유).
+
+    계정 사용자의 실시간 표(CONGESTION_VOTES_BY_IP)는 읽기만 한다 — 게스트 답이 계정 사용자의 제보를 막지 않게.
+    """
+    if shared_ip_retry_after(CONGESTION_VOTES_BY_IP, user_id=user_id, ip=ip, facility_id=facility_id) is not None:
+        return None, _CROWD_ANSWER_SHARED_NETWORK
+    try:
+        token = reserve_report_slot(
+            ip_store=GUEST_ANSWER_VOTES_BY_IP,
+            user_store=GUEST_ANSWER_LAST_BY_USER,
+            user_id=user_id,
+            ip=ip,
+            facility_id=facility_id,
+            cooldown_sec=_GUEST_ANSWER_COOLDOWN_SEC,
+            cooldown_detail=_CROWD_ANSWER_COOLDOWN,
+        )
+    except HTTPException as blocked:
+        reason = _CROWD_ANSWER_COOLDOWN if blocked.detail == _CROWD_ANSWER_COOLDOWN else _CROWD_ANSWER_SHARED_NETWORK
+        return None, reason
+    return token, None
+
+
 @router.patch("/recommendations/{recommendation_id}/outcome")
 async def record_recommendation_outcome(
     recommendation_id: str,
     req: RecommendationOutcomeRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    """추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장)."""
-    await resolve_feedback_target(recommendation_id, current_user)
+    """추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장).
+
+    체감 혼잡(observed_congestion)은 게스트도 답할 수 있다. 게스트 답은 기본으로 그림자 모드다 — 저장만 하고
+    실시간 혼잡 판정에는 넣지 않는다(DB 가 auth.users.is_anonymous 로 판정, GUEST_CROWD_ANSWERS_LIVE 로 켠다).
+    계정 사용자의 답은 예전 그대로 언제나 기록한다(IP 규칙을 걸지도, 자리를 잡지도 않는다).
+    게스트 답에만 1인 1표가 걸린다: 같은 IP·같은 장소는 30분에 한 계정(계정 사용자의 실시간 표는 읽기만 하고 자리는 게스트
+    전용 표에 잡는다), 같은 게스트·같은 장소는 30분에 한 번. 막히면 평가만 저장하고 crowd_answer 로 이유를 알린다.
+    """
+    recommendation, _facility = await resolve_feedback_target(recommendation_id, current_user)
+    observed = req.observed_congestion
+    # 게스트 판정은 검증된 JWT 의 is_anonymous 다. 방금 계정을 연결해(linkIdentity·이메일 전환) JWT 는 아직 익명인데 DB 는
+    # 계정 사용자인 짧은 순간이 있다(L1). 그때 이 요청은 게스트 규칙(IP·쿨다운 제한, 네트워크 키 계산)을 한 번 더 받을 뿐이고,
+    # DB 분류 트리거가 registered 로 정하고 네트워크 키를 지운다 — 더 엄격한 쪽으로만 어긋나므로 따로 다루지 않는다.
+    is_guest = bool((current_user.get("payload") or {}).get("is_anonymous"))
+    dropped: str | None = None
+    network_hash: str | None = None
+    slot = None
+    if observed is not None and is_guest:
+        ip = client_ip(request)
+        facility_id = str(recommendation.get("recommended_facility_id") or "")
+        if facility_id:
+            slot, dropped = _reserve_guest_answer(current_user["id"], ip, facility_id)
+        if dropped is not None:
+            observed = None
+            logger.info("outcome_guest_answer_not_recorded", recommendation_id=recommendation_id, reason=dropped)
+        else:
+            # 게스트 답에만 대역 해시를 남긴다(원본 IP 는 저장하지 않는다). 계정 사용자 답은 DB 트리거도 지운다.
+            network_hash = network_key_hash(ip)
+
+    params = {
+        "p_recommendation_id": recommendation_id,
+        "p_user_id": current_user["id"],
+        "p_stage": req.stage,
+        "p_rating": req.rating,
+        "p_observed_congestion": observed,
+    }
+    extra = {
+        "p_network_hash": network_hash,
+        "p_guest_answer_live": bool(settings.GUEST_CROWD_ANSWERS_LIVE) and observed is not None,
+    }
     try:
-        result = await asyncio.to_thread(
-            supabase_client.rpc("record_recommendation_outcome", {
-                "p_recommendation_id": recommendation_id,
-                "p_user_id": current_user["id"],
-                "p_stage": req.stage,
-                "p_rating": req.rating,
-                "p_observed_congestion": req.observed_congestion,
-            }).execute
-        )
+        result, legacy_db = await _call_outcome_rpc(params, extra, is_guest=is_guest)
     except Exception as exc:
+        if slot is not None:
+            release_report_slot(slot)
         message = str(exc)
         if "must be recorded first" in message or "cannot be changed" in message:
             raise HTTPException(status_code=409, detail="방문 결과 단계 순서가 올바르지 않습니다.")
         logger.error("recommendation_outcome_failed", recommendation_id=recommendation_id, error=message)
         raise HTTPException(status_code=500, detail="방문 결과 저장에 실패했습니다.")
-    if req.observed_congestion is not None:
-        # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
-        # 옮긴다 — 지도에 보이는 쓰기다.
-        reference_snapshot.mark_dirty("congestion")
+    if legacy_db and is_guest and observed is not None:
+        # 구 DB 에서는 게스트 답을 빼고 저장했다 — 잡은 자리를 돌려주고 '기록 안 됨' 으로 알린다.
+        if slot is not None:
+            release_report_slot(slot)
+        observed = None
+        dropped = _CROWD_ANSWER_PENDING_MIGRATION
+
     row = result.data
     if isinstance(row, list):
         row = row[0] if row else None
-    return {"success": True, "outcome": row}
+    crowd_answer: str | None = dropped
+    if isinstance(row, dict):
+        # 이미 받은 답이 DB 에 있으면(큐 재전송 등) 그 분류가 답이다 — 이번 요청에서 버린 이유보다 우선한다.
+        if row.get("observed_congestion") and row.get("observed_answer_mode"):
+            crowd_answer = row["observed_answer_mode"]
+        row = {k: v for k, v in row.items() if k not in _OUTCOME_PRIVATE_FIELDS}
+    if observed is not None and crowd_answer != "guest_shadow":
+        # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
+        # 옮긴다 — 지도에 보이는 쓰기다. 게스트 그림자 답은 옮기지 않으므로 스냅샷을 흔들지 않는다.
+        reference_snapshot.mark_dirty("congestion")
+    return {"success": True, "outcome": row, "crowd_answer": crowd_answer}
 
 
 @router.post("/feedback")

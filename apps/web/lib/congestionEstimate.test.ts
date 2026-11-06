@@ -14,6 +14,7 @@ import {
   LAST_OBSERVED_MAX_AGE_MS,
   congestionDisplay,
   displayableEstimate,
+  isBaselinePrediction,
   estimateRadiusKm,
   estimatesFromFeed,
   MEASUREMENT_NOW_WINDOW_MS,
@@ -386,5 +387,28 @@ const raw = {
   assert.match(recommendPage, /congestionLogSource: 'user_report',[\s\S]{0,600}?congestionIsCurrent: true/,
     '로컬 제보 낙관적 갱신이 congestionIsCurrent 를 덮어쓰지 않는다');
 }
+
+// 업종 시간대 기준선은 'AI 예측' 이 아니다(P0-5 d) — 모델 표식(scoringMode 'model')이 없는 'predicted' 는 기준선.
+assert.equal(isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'area_stats_rules' }), true);
+assert.equal(isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'degraded_rules' }), true);
+assert.equal(isBaselinePrediction({ congestionSource: 'predicted' }), true, '표식이 없으면(구 서버) AI 라고 말하지 않는다');
+assert.equal(isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'model' }), false, '학습 모델 예측은 모델 이름을 그대로 쓴다');
+assert.equal(isBaselinePrediction({ congestionSource: 'measured', scoringMode: 'measured_rules' }), false);
+assert.equal(isBaselinePrediction({ congestionSource: 'none' }), false);
+// 서버 표식(congestionPredictionBasis)이 있으면 그것만 따른다 — scoringMode 짐작은 필드를 모르는 구 서버용이다.
+assert.equal(
+  isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'measured_rules', congestionPredictionBasis: 'model' }),
+  false,
+  '서버가 모델 예측이라고 말하면 점수 공식과 상관없이 모델 예측이다',
+);
+assert.equal(
+  isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'model', congestionPredictionBasis: 'industry_baseline' }),
+  true,
+  '서버가 업종 기준선이라고 말하면 AI 예측으로 칠하지 않는다',
+);
+assert.equal(isBaselinePrediction({ congestionSource: 'predicted', scoringMode: 'model', congestionPredictionBasis: null }), false,
+  '표식이 비어 있으면 종전 짐작(scoringMode)으로 돌아간다');
+assert.equal(isBaselinePrediction({ congestionSource: 'measured', congestionPredictionBasis: 'industry_baseline' }), false,
+  "'predicted' 가 아니면 기준선이 아니다");
 
 console.log('congestionEstimate tests passed');

@@ -266,3 +266,33 @@ def test_summarize_groups_by_place_name():
     places = m.summarize(rows)
     assert [place["area_nm"] for place in places] == ["홍대 관광특구", "연남동"]
     assert places[0]["row_count"] == 2
+
+
+# --- 대상지별 주기(S2)와 지표의 가정 -------------------------------------------------
+
+
+def test_twenty_minute_cadence_never_pairs_and_says_why():
+    # 20분 주기: 버킷 0, 2, 4, … — t+30분(3버킷 뒤)은 늘 차례가 아니다. '쌓이면 판정' 이 아니라 '영원히 없음'.
+    rows = [_row(i, "보통", 5000, 0.5) for i in range(0, 120, 2)]
+    mae = _metric(m.summarize_place(rows), "forecast_mae_30m")
+    assert mae["n"] == 0 and mae["status"] == m.STATUS_INSUFFICIENT
+    assert "30분을 나누지 않으면" in mae["reason"]
+
+
+def test_pairs_without_estimate_say_the_estimate_is_missing():
+    rows = [_row(i, "보통", 5000, None) for i in range(10)]
+    mae = _metric(m.summarize_place(rows), "forecast_mae_30m")
+    assert mae["n"] == 0 and "추정값이 없다" in mae["reason"]
+
+
+def test_thirty_minute_cadence_still_pairs():
+    rows = [_row(i, "보통", 5000 + (i % 7) * 100, 0.5) for i in range(0, 150, 3)]
+    mae = _metric(m.summarize_place(rows), "forecast_mae_30m")
+    assert mae["n"] == 49 and mae["reason"] is None
+
+
+def test_median_bucket_gap_follows_the_cadence_not_the_gaps():
+    # 30분 주기 + 수집 누락 한 번(60분 간격) — 중앙값은 주기(30분)에 붙는다.
+    rows = [_row(i, "보통", 5000, 0.5) for i in (0, 3, 6, 12, 15, 18)]
+    assert m.summarize_place(rows)["median_bucket_gap_minutes"] == 30.0
+    assert m.summarize_place([_row(0, "보통", 5000, 0.5)])["median_bucket_gap_minutes"] is None

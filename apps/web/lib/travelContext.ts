@@ -1,7 +1,12 @@
 import { getVisitHistory } from '@/lib/visits';
+import { parseAvailability } from '@/lib/restDate';
 
 export type PlaceCategory = 'restaurant' | 'cafe' | 'attraction' | 'culture';
-export type RequiredAttribute = 'indoor' | 'accessible';
+/**
+ * 꼭 맞아야 하는 조건. 'accessible' 은 휠체어(무장애 확인), 'stroller' 는 유모차(P1-6) — 예전에는 한 칩
+ * '휠체어·유모차' 가 휠체어 판정 하나로 둘을 대신 말했다. 서버(services/travel_context.py)가 같은 값을 받는다.
+ */
+export type RequiredAttribute = 'indoor' | 'accessible' | 'stroller';
 
 /** 온보딩 음식 취향. v1 의 `food` 필드를 그대로 되살린 값이라 라벨 문자열을 쓴다 —
  *  아래 CUISINE_INTENT 가 검색 의도 문자열로 옮긴다. */
@@ -52,13 +57,46 @@ export const EMPTY_TRAVEL_CONTEXT: TravelContext = {
 
 const WALKING_SPEED_M_PER_MIN = 66.67;
 
+/**
+ * 실내로 보는 문화시설 분류(TourAPI cat3) — 비 오는 날 '실내만' 이 박물관을 빼던 문제(평가 T5). 서버
+ * apps/api/app/services/tourapi/transform.py INDOOR_CULTURE_CAT3 와 **같은 목록**이다(서버 facility_is_indoor_eligible 의
+ * 미러 — 둘이 다르면 지도 칩의 후보 수와 서버 추천이 어긋난다). 공연장(야외 공연장이 같은 분류)·문화전수시설(마당이
+ * 딸린 곳)·어학당·학교는 넣지 않는다. 분류가 빈 문화시설과 관광지는 실내 근거가 없는 것으로 둔다(fail-closed).
+ */
+const INDOOR_CULTURE_CAT3 = new Set([
+  'A02060100', // 박물관
+  'A02060200', // 기념관
+  'A02060300', // 전시관
+  'A02060400', // 컨벤션센터
+  'A02060500', // 미술관/화랑
+  'A02060700', // 문화원
+  'A02060800', // 외국문화원
+  'A02060900', // 도서관
+  'A02061000', // 대형서점
+  'A02061200', // 영화관
+]);
+
 export function isIndoorEligible(facility: {
   type: string; features?: Record<string, unknown> | null;
 }): boolean {
   const features = facility.features ?? {};
   if (features.indoor === false || features.indoor_verified === false) return false;
   if (features.indoor === true || features.indoor_verified === true) return true;
+  if (facility.type === 'culture' && INDOOR_CULTURE_CAT3.has(String(features.cat3 ?? ''))) return true;
   return facility.type === 'restaurant' || facility.type === 'cafe';
+}
+
+/**
+ * 유모차 조건 — 서버 facility_is_stroller_friendly 의 미러. features.stroller(밤 적재가 원문을 읽어 적는 칸, 또는 사람이
+ * 고친 값)가 있으면 그 값을, 없으면 TourAPI '유모차 대여 정보'(chk_babycarriage)가 분명히 '가능' 일 때만 참이다.
+ * 비었거나 읽을 수 없는 문구는 '아니다'(fail-closed). 휠체어 근거(barrier_free)는 섞지 않는다 — 뜻이 다른 정보다.
+ * apiClient 를 거친 시설은 키가 camelCase 다.
+ */
+export function isStrollerFriendly(facility: { features?: Record<string, unknown> | null }): boolean {
+  const features = facility.features ?? {};
+  if (typeof features.stroller === 'boolean') return features.stroller;
+  const raw = features.chk_babycarriage ?? features.chkBabycarriage;
+  return parseAvailability(typeof raw === 'string' ? raw : null) === true;
 }
 
 export function matchesTravelContext(facility: {
@@ -75,6 +113,8 @@ export function matchesTravelContext(facility: {
   for (const attribute of context.requiredAttributes) {
     if (attribute === 'accessible') {
       if ((facility.barrierFree ?? facility.barrier_free) !== true && features.accessible_verified !== true) return false;
+    } else if (attribute === 'stroller') {
+      if (!isStrollerFriendly(facility)) return false;
     } else if (!isIndoorEligible(facility)) {
       return false;
     }

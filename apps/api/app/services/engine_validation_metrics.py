@@ -43,7 +43,10 @@ SAFE_GRADES = (0, 1)  # 여유·보통 — 붐빔을 여기로 보이면 위험 
 # 추정 등급 경계. 저장소 혼잡 경계(0.75 = 혼잡)와 같은 간격이다.
 ESTIMATE_GRADE_EDGES: tuple[float, float, float] = (0.25, 0.50, 0.75)
 
-# 판정 최소 표본(10분 버킷 36개 = 6시간). 이보다 적으면 한 시간대의 우연이 비율을 좌우한다.
+# 판정 최소 표본 — **버킷 수**다(10분 주기면 36개 = 6시간). 이보다 적으면 한 시간대의 우연이 비율을 좌우한다.
+# 대상지별 주기(S2)가 들어온 뒤로 36개가 덮는 시간은 주기마다 다르다(20분 = 12시간 · 30분 = 18시간). 개수 기준을
+# 그대로 두는 이유: 성긴 주기의 버킷끼리는 덜 붙어 있어 표본 하나의 정보가 줄지 않는다. 대신 대상지 요약에
+# 실제 간격(`median_bucket_gap_minutes`)을 실어 화면이 '36개 = 몇 시간' 을 사실대로 말하게 한다.
 MIN_SAMPLES = 36
 # 위험 오분류는 분모가 '실측 붐빔' 버킷뿐이라 드물다. 36을 요구하면 한 달 내내 판정이 안 날 수 있어
 # 12(= 붐빔 2시간)로 따로 둔다. 이 크기에서는 한 번만 놓쳐도 8%라 5% 기준을 넘는다 — 관대한 기준이 아니다.
@@ -445,6 +448,18 @@ def forecast_metrics(points: list[Point], normalization: dict[str, Any]) -> tupl
     n = len(ours_errors)
     ours_mae = sum(ours_errors) / n if n else None
     persistence_mae = sum(persistence_errors) / n if n else None
+    # 짝이 하나도 없을 때 '표본 0개 — 쌓이면 판정' 이라고만 쓰면 기다리면 될 것처럼 읽힌다. 주기가 30분을
+    # 나누지 않으면(예: 20분 — t 와 t+30 이 서로 다른 차례) **영원히** 짝이 생기지 않으므로 이유를 가른다.
+    mae_reason = None
+    if n == 0 and points:
+        has_partner = any(point.bucket_at + FORECAST_HORIZON in by_bucket for point in points)
+        if not has_partner:
+            mae_reason = (
+                "t+30분 버킷이 한 번도 없다 — 이 대상지의 수집 주기가 30분을 나누지 않으면(예: 20분) "
+                "짝이 생기지 않아 이 지표는 판정할 수 없다"
+            )
+        else:
+            mae_reason = "t 와 t+30분 실측 짝은 있지만 그 시각의 추정값이 없다 — 실시간 주차 신호가 없는 대상지다"
     # 통과 기준은 '지속 모델보다 낮을 것'. _metric 의 lte 판정에 지속 모델 MAE 를 기준값으로 넘기되,
     # 같으면 이긴 것이 아니므로 아래에서 엄격 비교로 다시 판정한다.
     mae_metric = _metric(
@@ -460,6 +475,7 @@ def forecast_metrics(points: list[Point], normalization: dict[str, Any]) -> tupl
             "t 의 추정을 t+30분 예측으로 보고 t+30분 정규화 실측과의 평균 절대 오차. "
             "기준선 = 지속 모델(t 의 정규화 실측을 그대로 유지). 지속 모델보다 낮아야 통과"
         ),
+        reason=mae_reason,
         extra={"baseline_label": "지속 모델", "baseline_mae": None if persistence_mae is None else round(persistence_mae, 4)},
     )
     if mae_metric["status"] in (STATUS_PASS, STATUS_FAIL):
@@ -551,6 +567,20 @@ def _latest_version_rows(rows: list[dict[str, Any]]) -> tuple[str | None, list[d
     return (str(version) if version is not None else None), kept, len(rows) - len(kept)
 
 
+def median_bucket_gap_minutes(points: list[Point]) -> float | None:
+    """연속한 버킷 사이 간격의 중앙값(분). 수집 누락이 섞여도 중앙값은 주기에 붙는다. 버킷이 2개 미만이면 None."""
+    gaps = sorted(
+        (later.bucket_at - earlier.bucket_at).total_seconds() / 60.0
+        for earlier, later in zip(points, points[1:])
+        if later.bucket_at > earlier.bucket_at
+    )
+    if not gaps:
+        return None
+    middle = len(gaps) // 2
+    value = gaps[middle] if len(gaps) % 2 else (gaps[middle - 1] + gaps[middle]) / 2
+    return round(value, 1)
+
+
 def summarize_place(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """한 대상지의 행 → 지표·혼동표·시계열·기간 요약(최신 추정기 버전 행만)."""
     all_versions = sorted({str(row["estimator_version"]) for row in rows if row.get("estimator_version")})
@@ -575,6 +605,8 @@ def summarize_place(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "first_observed_at": _iso(min(observed)) if observed else None,
         "last_observed_at": _iso(max(observed)) if observed else None,
         "hours_covered": round((last - first).total_seconds() / 3600.0, 2) if first and last else 0.0,
+        # 실제 버킷 간격(분) — 최소 표본 36개가 몇 시간인지, 시계열의 '끊김' 을 어디서 볼지 이 값으로 정한다.
+        "median_bucket_gap_minutes": median_bucket_gap_minutes(points),
         "days_covered": len(days),
         "kst_dates": days,
         "estimator_version": version,

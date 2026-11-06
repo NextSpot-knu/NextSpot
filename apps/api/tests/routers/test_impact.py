@@ -124,6 +124,7 @@ def test_impact_summary_empty_new_user(auth_client):
     body = res.json()
     assert body == {
         "accepted": 0,
+        "arrivals_confirmed": 0,
         "congestion_avoided": 0,
         "coupons_issued": 0,
         "coupons_used": 0,
@@ -161,3 +162,121 @@ def test_impact_summary_counts_every_recommendation(auth_client):
     assert body["accepted"] == 1123, f"수락 건수가 캡에서 잘렸다: {body['accepted']}건만 세었다"
     assert body["congestion_avoided"] == 1123
     assert body["wait_saved_minutes"] == 1123 * 10
+
+
+# =========================================================================
+# 같은 날 같은 곳은 한 번 — 한 번의 결정이 여러 번으로 세어지지 않는다(P0-5 b)
+# =========================================================================
+
+def _accept(row_id: str, facility: str, created_at: str, breakdown: dict | None = None, accepted: bool = True) -> dict:
+    return {
+        "id": row_id,
+        "accepted": accepted,
+        "score_breakdown": breakdown if breakdown is not None else {},
+        "recommended_facility_id": facility,
+        "created_at": created_at,
+    }
+
+
+def test_impact_summary_counts_a_place_once_per_kst_day(auth_client):
+    """예전 /main '바로 갈래요' 는 누를 때마다(도보·자동차·영업 확인 뒤) 수락 행을 새로 넣었다 — 한 번으로 센다."""
+    recommendations = [
+        # 같은 곳 · 같은 날 세 번(도보 → 자동차 → 다시 도보) — 한 번.
+        _accept("r1", "f-cafe", "2026-10-30T03:00:00+00:00"),
+        _accept("r2", "f-cafe", "2026-10-30T03:01:00+00:00"),
+        _accept("r3", "f-cafe", "2026-10-30T03:05:00Z"),
+        # 같은 곳이라도 다음 날이면 다시 한 번.
+        _accept("r4", "f-cafe", "2026-10-31T03:00:00+00:00"),
+        # KST 날짜로 가른다 — 14:30Z(=10-30 23:30 KST)와 15:30Z(=10-31 00:30 KST)는 다른 날이다.
+        _accept("r5", "f-museum", "2026-10-30T14:30:00+00:00"),
+        _accept("r6", "f-museum", "2026-10-30T15:30:00+00:00"),
+        # 수락하지 않은 행은 세지 않는다.
+        _accept("r7", "f-park", "2026-10-30T05:00:00+00:00", accepted=False),
+    ]
+    with patch.object(impact, "supabase_admin", FakeSupabase({"recommendations": recommendations, "user_coupons": []})):
+        res = auth_client.get("/api/v1/impact/summary")
+
+    assert res.status_code == 200, res.text
+    assert res.json()["accepted"] == 4  # f-cafe 10-30 · f-cafe 10-31 · f-museum 10-30 · f-museum 10-31
+
+
+def test_impact_summary_merges_evidence_within_one_trip(auth_client):
+    """같은 출발로 묶인 행 중 근거가 있는 행의 값을 한 번만 쓴다 — 빈 직접수락 행이 근거를 지우거나 두 번 세지 않는다."""
+    recommendations = [
+        _accept("r1", "f-a", "2026-10-30T03:00:00Z",
+                {"incentive_relief": 0.3, "original_wait_time": 25.0, "wait_time": 10.0}),
+        _accept("r2", "f-a", "2026-10-30T03:02:00Z", {}),
+        _accept("r3", "f-a", "2026-10-30T03:03:00Z",
+                {"incentive_relief": 0.3, "original_wait_time": 25.0, "wait_time": 10.0}),
+    ]
+    with patch.object(impact, "supabase_admin", FakeSupabase({"recommendations": recommendations, "user_coupons": []})):
+        body = auth_client.get("/api/v1/impact/summary").json()
+
+    assert body["accepted"] == 1
+    assert body["congestion_avoided"] == 1
+    assert body["wait_saved_minutes"] == 15, "같은 출발의 대기 차이를 두 번 더했다"
+
+
+def test_impact_summary_has_no_wait_or_relief_without_evidence(auth_client):
+    """원본 대기·혼잡 비교가 없는 수락(직접수락·by-type)만 있으면 '줄인 예상 대기'·'혼잡 회피' 는 0 — 화면은 그리지 않는다."""
+    recommendations = [
+        _accept("r1", "f-a", "2026-10-30T03:00:00Z", {}),
+        _accept("r2", "f-b", "2026-10-30T04:00:00Z", {"wait_time": 5.0, "incentive_relief": None}),
+    ]
+    with patch.object(impact, "supabase_admin", FakeSupabase({"recommendations": recommendations, "user_coupons": []})):
+        body = auth_client.get("/api/v1/impact/summary").json()
+
+    assert body["accepted"] == 2
+    assert body["congestion_avoided"] == 0
+    assert body["wait_saved_minutes"] == 0
+
+
+# =========================================================================
+# 도착 확인 — recommendation_outcomes.arrival_confirmed_at, 같은 규칙으로 한 번씩
+# =========================================================================
+
+def test_impact_summary_counts_confirmed_arrivals(auth_client):
+    recommendations = [
+        _accept("r1", "f-cafe", "2026-10-30T03:00:00Z"),
+        _accept("r2", "f-cafe", "2026-10-30T03:01:00Z"),
+        # 예전 /main 경로: 도착은 노출된 by-type 행(수락 표시 없음)에 붙고, 수락은 새 행에 들어갔다 — 도착은 그대로 센다.
+        _accept("r3", "f-museum", "2026-10-30T05:00:00Z", accepted=False),
+        _accept("r4", "f-park", "2026-10-30T06:00:00Z"),
+    ]
+    outcomes = [
+        {"recommendation_id": "r1", "arrival_confirmed_at": "2026-10-30T03:20:00Z"},
+        # 같은 곳 · 같은 날의 두 번째 도착은 한 번으로.
+        {"recommendation_id": "r2", "arrival_confirmed_at": "2026-10-30T03:25:00Z"},
+        {"recommendation_id": "r3", "arrival_confirmed_at": "2026-10-30T05:30:00Z"},
+        # 길안내만 시작하고 도착은 확인하지 않았다 — 세지 않는다.
+        {"recommendation_id": "r4", "arrival_confirmed_at": None},
+        # 추천 행을 못 찾는 도착(다른 경로로 지워진 추천)도 그 추천 하나로 센다.
+        {"recommendation_id": "r-gone", "arrival_confirmed_at": "2026-10-29T03:00:00Z"},
+    ]
+    fake = FakeSupabase({"recommendations": recommendations, "user_coupons": [], "recommendation_outcomes": outcomes})
+    with patch.object(impact, "supabase_admin", fake):
+        body = auth_client.get("/api/v1/impact/summary").json()
+
+    assert body["arrivals_confirmed"] == 3  # f-cafe · f-museum · r-gone
+    assert body["accepted"] == 2  # f-cafe · f-park
+
+
+class _OutcomesDownSupabase(FakeSupabase):
+    """recommendation_outcomes 조회만 실패하는 DB(마이그레이션 전 환경·일시 장애)."""
+
+    def table(self, name: str):
+        if name == "recommendation_outcomes":
+            raise RuntimeError("relation recommendation_outcomes does not exist")
+        return super().table(name)
+
+
+def test_impact_summary_unknown_arrivals_are_null_not_zero(auth_client):
+    """도착 조회만 실패하면 화면 전체를 실패시키지 않되, 도착을 0 으로 지어내지 않는다(None)."""
+    recommendations = [_accept("r1", "f-a", "2026-10-30T03:00:00Z")]
+    with patch.object(impact, "supabase_admin", _OutcomesDownSupabase({"recommendations": recommendations, "user_coupons": []})):
+        res = auth_client.get("/api/v1/impact/summary")
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["arrivals_confirmed"] is None
+    assert body["accepted"] == 1

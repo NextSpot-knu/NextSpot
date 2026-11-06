@@ -45,6 +45,28 @@ def test_core_event_with_bounded_properties_is_stored(monkeypatch):
     assert recorder.rows[0]["event"] == "context_applied"
 
 
+def test_stroller_condition_is_accepted_alongside_the_other_two(monkeypatch):
+    # 웹이 '유모차' 를 휠체어와 다른 조건(stroller)으로 보낸다 — 세 조건을 한꺼번에 골라도 받는다.
+    client, recorder = _client(monkeypatch)
+    response = client.post("/api/v1/events/track", json={
+        "event": "context_applied",
+        "props": {"required_attributes": ["indoor", "accessible", "stroller"]},
+    })
+    assert response.status_code == 204
+    assert recorder.rows[0]["props"]["required_attributes"] == ["indoor", "accessible", "stroller"]
+
+
+def test_unknown_or_too_many_conditions_are_still_rejected(monkeypatch):
+    client, recorder = _client(monkeypatch)
+    for attributes in (["wheelchair"], ["indoor", "accessible", "stroller", "indoor"], "stroller"):
+        tracking._last_track_at.clear()
+        response = client.post("/api/v1/events/track", json={
+            "event": "context_applied", "props": {"required_attributes": attributes},
+        })
+        assert response.status_code == 422, attributes
+    assert recorder.rows == []
+
+
 def test_coordinates_and_natural_language_are_rejected(monkeypatch):
     client, recorder = _client(monkeypatch)
     for props in ({"latitude": 35.8}, {"text": "비가 와서 가까운 곳"}, {"query": "raw request"}):

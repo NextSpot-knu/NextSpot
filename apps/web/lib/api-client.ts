@@ -9,6 +9,13 @@ import type { Locale } from "./i18n/config";
 import { ensureAnonymousSession } from "./anonymousSession";
 import { uniqueSyntheticRecommendationIds } from "./recommendationIds";
 import { ttlPromiseCache } from "./ttlPromiseCache";
+import {
+  asksForStroller,
+  keepStrollerFriendly,
+  markServerSkipsStroller,
+  serverSkipsStroller,
+  withoutStrollerContext,
+} from "./strollerSupport";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -159,10 +166,10 @@ export function prefetchDemoHotPaths(): void {
       }
       const assumedAt = assumedAtIsoForPreset(getStoredAssumedPreset());
       const loc = { lat: REGION.center.lat, lng: REGION.center.lng };
-      // /waiting 보드 미러 — BOARD_TYPES · PER_TYPE_LIMIT(8) · 45s 타임아웃 동일.
+      // /waiting 보드 미러 — BOARD_TYPES · PER_TYPE_LIMIT(8) · 45s 타임아웃 · 등급 채우기 끔(보드와 같은 캐시 키).
       for (const type of ["restaurant", "cafe", "attraction", "culture"]) {
         try {
-          await recommendByType(type, loc, [], 8, undefined, undefined, undefined, 45000, assumedAt);
+          await recommendByType(type, loc, [], 8, undefined, undefined, undefined, 45000, assumedAt, false);
         } catch { /* 프리페치 실패 무시 — 실제 탭 진입 시 정상 경로가 처리 */ }
       }
       // /course 기본 요청 미러(핀·시퀀스 없음) — 콜드 첫 생성(~40s)을 심사위원 클릭 전에 치른다.
@@ -175,7 +182,8 @@ export function prefetchDemoHotPaths(): void {
         };
         if (assumedAt) body.assumedAt = assumedAt;
         try {
-          await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
+          // 유모차 조건을 모르는 옛 API 면 빼고 데운다(결과는 쓰지 않는다 — 캐시만 데운다).
+          await postWithTravelContext("/api/v1/courses/plan", body, { timeoutMs: 60000 });
         } catch { /* 무시 */ }
       }
     } catch { /* 세션 실패 등 — 프리페치는 어떤 경우에도 조용히 포기 */ }
@@ -360,6 +368,55 @@ export const apiClient = {
   getFreshness: (): Promise<FreshnessResponse> =>
     request("/api/v1/freshness", { method: "GET" }),
 };
+
+/**
+ * 여행 조건(context)을 싣는 POST — 유모차 조건('stroller')의 배포 시차 가드를 한 곳에서 건다(lib/strollerSupport).
+ *
+ * 옛 API 는 그 값을 422 로 거절한다. 이 세션에서 이미 확인했으면 처음부터 빼고 보내고, 처음 만나면 빼고 한 번만 다시
+ * 보낸다(통하면 세션에 표시). 빼고 보냈으면 strollerDropped=true — 호출부가 같은 판정으로 결과를 거른다.
+ * 빼고 보낸 요청도 422 면 422 의 원인이 유모차가 아니었다: 표시하지 않고 처음 오류를 던진다. 그 밖의 실패(503·429·
+ * 타임아웃·네트워크·취소)는 **그 실패를 그대로** 던진다 — 처음 422 로 덮으면 호출부의 일시 오류 재시도(getRecommendations
+ * 의 503·429 재시도)가 돌지 않고, 취소(AbortError)도 진짜 실패처럼 보인다. 이때도 세션 표시는 하지 않는다(빼면 통하는지
+ * 아직 모른다 — 다음 시도가 다시 확인한다).
+ */
+export async function postWithTravelContext<T>(
+  path: string,
+  body: Record<string, unknown> & { context?: unknown },
+  options?: Omit<RequestOptions, "method" | "body">,
+): Promise<{ data: T; strollerDropped: boolean }> {
+  const asked = asksForStroller(body.context);
+  if (asked && serverSkipsStroller()) {
+    return { data: await apiClient.post(path, withoutStrollerContext(body), options), strollerDropped: true };
+  }
+  try {
+    return { data: await apiClient.post(path, body, options), strollerDropped: false };
+  } catch (err) {
+    if (!asked || httpStatus(err) !== 422) throw err;
+    let data: T;
+    try {
+      data = await apiClient.post(path, withoutStrollerContext(body), options);
+    } catch (retryErr) {
+      throw httpStatus(retryErr) === 422 ? err : retryErr;
+    }
+    markServerSkipsStroller();
+    return { data, strollerDropped: true };
+  }
+}
+
+/**
+ * 영업 근거가 약한 등급으로 채워 달라고 청할지(P1-4 fill_weaker_tiers) — 요청한 종류가 **전부 음식점·카페일 때만**.
+ *
+ * 채우면 서버는 (등급, SPOT) 순으로 주고, 채운 카드는 도착 영업이 '미확인'(openStatusAtArrival needs_confirmation)이다.
+ * 화면이 그런 카드를 다루는 길은 음식점·카페에만 있다: 카드에 '출발 전에 카카오맵에서 영업시간을 먼저 보여 드려요'
+ * (card.checkHoursKakaoHint)를 달고, 길안내를 누르면 카카오맵 영업시간과 '영업 중인가요?' 질문이 먼저 뜬다(지도 카드
+ * RecommendationCard · 대안 화면 /explore/recommend). '영업시간 미확인' 칩은 어느 화면에도 그리지 않는다(계획 A4 —
+ * e2e card-facts · judge-copy 가 잠근다). 그래서 관광지·문화시설을 채우면 미확인 카드가 확인된 카드 뒤에 아무 표시 없이
+ * 섞인다 — 그 종류와 종류를 정하지 않은 요청은 종전처럼 가장 강한 등급만 받는다. 서버가 채우려는 것도 주로 영업시간이 빈
+ * 카카오·LocalData 음식점·카페다(services/travel_context.select_eligibility_tiers).
+ */
+export function fillsWeakerTiersFor(types: readonly string[]): boolean {
+  return types.length > 0 && types.every((type) => type === "restaurant" || type === "cafe");
+}
 
 export async function mergeGuestData(guestToken: string): Promise<void> {
   await apiClient.post("/api/v1/account/merge-guest", { guestToken });
@@ -607,6 +664,10 @@ export interface RecommendationResponse {
   // predicted=학습된 모델의 AI 예측, none=근거 없음(혼잡 정보 준비 중). 구버전 응답엔 없음.
   congestionLevel?: number | null;
   congestionSource?: "measured" | "predicted" | "none";
+  // predicted 의 출처(서버 판정) — model = 학습된 모델 예측, industry_baseline = 업종의 일반적인 시간대 곡선(이 장소를
+  // 잰 값도, 학습한 값도 아니다 — 화면은 '%'·'AI' 를 붙이지 않는다). predicted 가 아니면 null, 구 서버 응답엔 없다
+  // (그때만 lib/congestionEstimate.isBaselinePrediction 이 scoringMode 로 짐작한다).
+  congestionPredictionBasis?: "model" | "industry_baseline" | null;
   congestionLogSource?: string | null; // measured 일 때 원 로그 source(user_report/seed/simulated/…)
   congestionIsStale?: boolean | null;  // measured 일 때 로그 나이>24h
   congestionTimestamp?: string | null;
@@ -695,23 +756,29 @@ export async function getRecommendations(
     preferenceIntent: options?.preferenceIntent ?? null,
     candidateTypes: options?.candidateTypes ?? [],
     discoveryTheme: options?.discoveryTheme ?? null,
+    // 영업이 확인된 곳이 모자라면 다음 영업 근거 등급에서 채워 달라(P1-4) — 음식점·카페만 청한 요청에서만(fillsWeakerTiersFor
+    // 주석: 화면이 미확인 영업을 다루는 길이 그 종류에만 있다). 이 필드를 모르는 옛 API 는 무시한다(가장 강한 등급만).
+    fillWeakerTiers: fillsWeakerTiersFor(options?.candidateTypes ?? []),
   };
   // 타임아웃 45s: POI 상세의 대안 추천은 재시작 직후 콜드 백엔드에서 기본 10s 를 넘겨
   // 서버가 성공하는데 클라가 먼저 끊었다(2026-09-21 라이브 재현 — waiting 45s·course 60s 와 동일 계열).
   const reqOpts = { signal: options?.signal, timeoutMs: 45000 };
-  let res: RecommendationResponse[];
+  const send = () => postWithTravelContext<RecommendationResponse[]>("/api/v1/recommendations", body, reqOpts);
+  let result: { data: RecommendationResponse[]; strollerDropped: boolean };
   try {
-    res = await apiClient.post("/api/v1/recommendations", body, reqOpts);
+    result = await send();
   } catch (err) {
     const st = httpStatus(err);
     // 콜드/재시작 직후 일시 503·429 — 2초 뒤 딱 한 번 조용히 재시도(스톰 아님). 호출자 취소 시 제외.
     if ((st === 503 || st === 429) && !options?.signal?.aborted) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      res = await apiClient.post("/api/v1/recommendations", body, reqOpts);
+      result = await send();
     } else {
       throw err;
     }
   }
+  // 서버가 유모차 조건을 몰라 빼고 물었으면 같은 판정으로 거른다(lib/strollerSupport).
+  const res = result.strollerDropped ? keepStrollerFriendly(result.data) : result.data;
   dispatchReasonSourceDebug(res);
   return uniqueSyntheticRecommendationIds(res);
 }
@@ -821,16 +888,22 @@ export async function fetchLabPendingCount(): Promise<number> {
   return data.count;
 }
 
-/** 거절 이유 응답 → reason_status='answered' + 학습 정확히 1회 적용. */
+/**
+ * 거절 이유 응답 → reason_status='answered' + 학습 정확히 1회 적용.
+ * updatedVector = 서버가 이 답으로 취향 프로필을 실제로 움직였는가(lab.py 의 updated_vector). 화면은 이 값이 true 일
+ * 때만 '취향 프로필에 반영했어요' 라고 말한다 — 이유 코드로 짐작하면 학습이 건너뛰어진 경우(이미 반영된 행·종류를
+ * 모르는 시설)에도 반영했다고 말하게 된다. 값이 없으면(구 서버) false — 모르면 반영했다고 하지 않는다.
+ */
 export async function answerLabReason(
   feedbackId: string,
   reasonCode: string,
   reasonNote?: string
-): Promise<void> {
-  await apiClient.post(`/api/v1/lab/${feedbackId}/reason`, {
+): Promise<{ updatedVector: boolean }> {
+  const data: { updatedVector?: boolean } | null = await apiClient.post(`/api/v1/lab/${feedbackId}/reason`, {
     reasonCode,
     reasonNote
   });
+  return { updatedVector: data?.updatedVector === true };
 }
 
 /**
@@ -841,15 +914,20 @@ export async function answerLabReason(
 export async function classifyLabReason(
   feedbackId: string,
   text: string
-): Promise<{ resolved: boolean }> {
-  const data: { resolved?: boolean; llmStatus?: "llm" | "llm_failed" | "disabled" } = await apiClient.post(
+): Promise<{ resolved: boolean; updatedVector: boolean }> {
+  const data: {
+    resolved?: boolean;
+    updatedVector?: boolean;
+    llmStatus?: "llm" | "llm_failed" | "disabled";
+  } = await apiClient.post(
     `/api/v1/lab/${feedbackId}/reason/classify`,
     { text }
   );
   if (data.llmStatus) {
     dispatchLlmDebug({ feature: "lab", status: data.llmStatus });
   }
-  return { resolved: data.resolved === true };
+  // updatedVector 는 answerLabReason 과 같은 뜻이다(서버가 취향 프로필을 실제로 움직였을 때만 true).
+  return { resolved: data.resolved === true, updatedVector: data.updatedVector === true };
 }
 
 /** 이유 응답 건너뛰기 → reason_status='skipped'. */
@@ -881,11 +959,15 @@ export async function recommendByType(
   // 데모 '가정 시각'(UTC ISO, assumedAtIsoForPreset 결과). null/미지정이면 서버 현재 시각을 쓴다
   // (기본 동작 불변). 있으면 백엔드가 이 시각 기준으로 도착 영업여부·혼잡·채점을 계산한다.
   assumedAt?: string | null,
+  // 영업이 확인된 곳이 limit 보다 모자라면 다음 영업 근거 등급에서 채워 달라(P1-4). 기본은 음식점·카페 요청만
+  // (fillsWeakerTiersFor — 지도 카드·대안 화면이 그 종류의 미확인 영업을 카카오맵 영업시간 확인으로 다룬다).
+  // 대기 보드·여정 갈아타기는 false 를 넘긴다(대기 짧은 순으로 다시 세우거나, 카드 없이 곧장 길안내를 연다). 옛 API 는 이 필드를 무시한다.
+  fillWeakerTiers: boolean = fillsWeakerTiersFor([facilityType]),
 ): Promise<RecommendationResponse[]> {
   const session = await ensureAnonymousSession();
   const userId = session?.user?.id;
   if (!userId) throw new AuthError();
-  const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations/by-type", {
+  const { data, strollerDropped } = await postWithTravelContext<RecommendationResponse[]>("/api/v1/recommendations/by-type", {
     userId,
     facilityType,
     userLat: userLocation.lat,
@@ -895,7 +977,10 @@ export async function recommendByType(
     context,
     preferenceIntent,
     assumedAt: assumedAt ?? null,
+    fillWeakerTiers,
   }, { signal, timeoutMs });
+  // 서버가 유모차 조건을 몰라 빼고 물었으면 같은 판정으로 거른다(lib/strollerSupport).
+  const res = strollerDropped ? keepStrollerFriendly(data) : data;
   dispatchReasonSourceDebug(res);
   return uniqueSyntheticRecommendationIds(res);
 }

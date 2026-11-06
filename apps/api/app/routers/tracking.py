@@ -18,6 +18,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.core.client_ip import client_ip
 from app.core.supabase import supabase_admin
 
 logger = structlog.get_logger()
@@ -42,7 +43,8 @@ _EVENT_PROPS: dict[str, set[str]] = {
     "voice_tool_executed": {"tool", "status", "facility_type", "max_walk_minutes"},
 }
 _FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
-_ATTRIBUTES = {"indoor", "accessible"}
+# travel_context.VALID_ATTRIBUTES 와 같은 집합 — 유모차(stroller)는 휠체어(accessible)와 다른 조건이다.
+_ATTRIBUTES = {"indoor", "accessible", "stroller"}
 # 음성 명령 이름·결과. apps/web/lib/voice/voiceCommands.ts 의 VoiceAppCommand 와 같은 집합이어야 한다.
 _VOICE_TOOLS = {"set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board"}
 _VOICE_STATUSES = {"applied", "no_match"}
@@ -64,7 +66,8 @@ def _validate_product_event(event: str, props: dict) -> None:
         raise HTTPException(status_code=422, detail="categories 값이 올바르지 않습니다.")
     attributes = props.get("required_attributes")
     if attributes is not None and (
-        not isinstance(attributes, list) or len(attributes) > 2 or any(v not in _ATTRIBUTES for v in attributes)
+        not isinstance(attributes, list) or len(attributes) > len(_ATTRIBUTES)
+        or any(v not in _ATTRIBUTES for v in attributes)
     ):
         raise HTTPException(status_code=422, detail="required_attributes 값이 올바르지 않습니다.")
     if "max_walk_minutes" in props and props["max_walk_minutes"] not in {None, 5, 10, 20}:
@@ -99,22 +102,6 @@ class TrackRequest(BaseModel):
     props: dict = Field(default_factory=dict, description="부가 속성(<=1KB)")
 
 
-def _client_ip(request: Request) -> str:
-    """클라이언트 IP — 프록시(X-Forwarded-For) 우선, 없으면 소켓 피어. 쿨다운 키로만 쓴다.
-
-    **마지막** 항목을 쓴다. 프록시는 XFF 에 덧붙이므로 첫 항목은 클라이언트가 임의로 써 보낼
-    수 있고, 그걸 키로 쓰면 매 요청 다른 값을 넣어 쿨다운을 통째로 우회하면서 _last_track_at
-    을 무한히 키운다. search.py:_client_ip · recommendations.py:_voice_client_ip 가 이미 같은
-    이유로 마지막 항목을 쓴다 — 여기만 빠져 있었다.
-    """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
 @router.post("/track", status_code=status.HTTP_204_NO_CONTENT)
 async def track_event(req: TrackRequest, request: Request):
     """익명 분석 이벤트 1건 적재 → 204. props 과대(422)·IP 쿨다운(조용히 드롭, 204)."""
@@ -125,7 +112,7 @@ async def track_event(req: TrackRequest, request: Request):
         raise HTTPException(status_code=422, detail="props 는 1KB 를 초과할 수 없습니다.")
 
     # IP 쿨다운 — 초과 요청은 적재하지 않고 조용히 204(트래킹 손실 허용).
-    ip = _client_ip(request)
+    ip = client_ip(request)
     now_mono = time.monotonic()
     cooldown_key = f"{ip}:{req.event}"
     last_at = _last_track_at.get(cooldown_key)

@@ -13,8 +13,9 @@ import { createPublicClient } from "@/lib/supabase";
  *
  * 관광객 로그인 UI 없이 모든 방문자에게 '진짜' per-device 세션을 만들어 준다. 마운트 시 현재 세션을
  * 확인하고, 없으면 Supabase 익명 로그인(signInAnonymously)을 1회 시도한다. 성공하면 개인화 필수
- * 엔드포인트(/recommendations, /courses/recommend, /coupons/*, /reports/congestion, /users/me/vector)가
- * 실제 JWT 로 동작하고, 저장/쿠폰/리포트가 이어진다. 세션은 lib/supabase.ts 의 persistSession 으로
+ * 엔드포인트(/recommendations, /courses/recommend, /coupons/*, /users/me/vector)가 실제 JWT 로 동작하고,
+ * 저장/쿠폰이 이어진다. 혼잡·영업 제보(/reports/*)는 예외다 — 익명 세션은 403, 계정 로그인부터 받는다
+ * (apps/api/app/routers/reports.py '게스트 차단'). 세션은 lib/supabase.ts 의 persistSession 으로
  * localStorage 에 지속돼 새로고침·재방문에도 같은 사용자로 유지된다.
  *
  * 그레이스풀 폴백: typeof window 가드 + try/catch 로 완전히 감싼다. 프로젝트에서 익명 로그인이

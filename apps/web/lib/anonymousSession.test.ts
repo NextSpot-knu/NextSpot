@@ -92,9 +92,62 @@ async function backoffAfterRefusal() {
   assert.equal(limited.retryInMs(), 5000);
 }
 
+// D3 (나): Turnstile 사이트 키가 있으면 익명 로그인에 사람 확인 토큰을 붙인다. 확인이 실패하면(null·예외)
+// 토큰 없이 한 번 시도한다 — 대시보드 CAPTCHA 가 꺼져 있으면 통과, 켜져 있으면 거절돼 재시도 창으로 간다.
+// 세션이 이미 있으면 확인 자체를 하지 않는다(재방문자에게 Cloudflare 를 부르지 않는다).
+async function captchaTokenIsPassedAndFailureFallsBack() {
+  let session: Session | null = null;
+  const seen: Array<string | undefined> = [];
+  let tokenCalls = 0;
+  let next: 'token' | 'null' | 'throw' = 'token';
+  const auth = {
+    async getSession() {
+      return { data: { session } };
+    },
+    async signInAnonymously(credentials?: { options?: { captchaToken?: string } }) {
+      seen.push(credentials?.options?.captchaToken);
+      return { data: { session: guest }, error: null };
+    },
+  };
+  const withCaptcha = createAnonymousSessionEnsurer(() => auth, Date.now, async () => {
+    tokenCalls += 1;
+    if (next === 'throw') throw new Error('turnstile script blocked');
+    return next === 'token' ? 'tok-1' : null;
+  });
+
+  assert.equal((await withCaptcha())?.user.id, 'guest');
+  assert.deepEqual(seen, ['tok-1']);
+  next = 'null';
+  await withCaptcha();
+  next = 'throw';
+  await withCaptcha();
+  assert.deepEqual(seen, ['tok-1', undefined, undefined], 'a failed challenge still tries without a token');
+  assert.equal(tokenCalls, 3);
+
+  session = member;
+  assert.equal((await withCaptcha())?.user.id, 'member');
+  assert.equal(tokenCalls, 3, 'no challenge when a session already exists');
+
+  // 사이트 키가 없으면(공급자 없음) 오늘과 같다 — 인자 없이 부른다.
+  session = null;
+  const plainSeen: unknown[] = [];
+  const plain = createAnonymousSessionEnsurer(() => ({
+    async getSession() {
+      return { data: { session: null } };
+    },
+    async signInAnonymously(...args: unknown[]) {
+      plainSeen.push(args.length);
+      return { data: { session: guest }, error: null };
+    },
+  }));
+  await plain();
+  assert.deepEqual(plainSeen, [0]);
+}
+
 async function run() {
   await sharedPromiseAndNoPermanentCache();
   await backoffAfterRefusal();
+  await captchaTokenIsPassedAndFailureFallsBack();
   console.log('anonymous session tests passed');
 }
 

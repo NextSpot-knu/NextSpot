@@ -7,7 +7,7 @@ import { track } from '@/lib/analytics';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { displayWalkingMinutes } from '@/lib/recommender';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
-import { congestionDisplay } from '@/lib/congestionEstimate';
+import { congestionDisplay, isBaselinePrediction } from '@/lib/congestionEstimate';
 import { congestionKey } from '@/lib/congestionScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 
@@ -110,6 +110,10 @@ export default function RecommendationComparison({ recommendations }: { recommen
           const display = congestionDisplay(r);
           if (display.mode === 'estimated' && display.estimate) {
             return t('card.estimateLevel', { label: t(`congestion.${congestionKey(display.estimate.level, busyAt)}`) });
+          }
+          // 업종 시간대 기준선(P0-5 d)은 이 장소를 잰 값도 모델 예측도 아니다 — '85%' 처럼 퍼센트로 팔지 않고 등급만.
+          if (display.mode === 'predicted' && display.level != null && isBaselinePrediction(r)) {
+            return t('card.baselineLevel', { label: t(`congestion.${congestionKey(display.level, busyAt)}`) });
           }
           return display.level == null ? '—' : `${Math.round(display.level * 100)}%`;
         })} />

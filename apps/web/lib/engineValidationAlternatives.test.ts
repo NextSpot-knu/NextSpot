@@ -97,13 +97,19 @@ function alternatives(over: Partial<AlternativesResponse> = {}): AlternativesRes
 
 // --- 상태 배너 --------------------------------------------------------------------
 {
+  // 표가 없거나 행이 없으면 '가동 중' 이 아니다(§6 S6).
   const notMigrated = describeAlternativesState(alternatives({ state: 'not_migrated' }));
-  assert.match(notMigrated.title, /서울 실시간 도시데이터 연동 가동 중/);
-  assert.doesNotMatch(notMigrated.detail, /20260920120000|\.sql/, '마이그레이션 파일명을 화면에 내보내지 않는다');
-  assert.equal(describeAlternativesState(alternatives({ state: 'empty' })).tone, 'info');
-  const stale = describeAlternativesState(alternatives({ state: 'stale', latest_age_minutes: 95 }));
+  assert.equal(notMigrated.tone, 'error');
+  assert.match(notMigrated.title, /수집 표가 없습니다/);
+  assert.doesNotMatch(notMigrated.title + notMigrated.detail, /가동 중/);
+  const empty = describeAlternativesState(alternatives({ state: 'empty' }));
+  assert.equal(empty.tone, 'warn');
+  assert.doesNotMatch(empty.title + empty.detail, /가동 중/);
+  const stale = describeAlternativesState(alternatives({ state: 'stale', latest_age_minutes: 95, stale_after_minutes: 45 }));
   assert.equal(stale.tone, 'warn');
   assert.match(stale.title, /최근 관측 기준/);
+  assert.match(stale.detail, /신선도 기준\(45분/, '서버가 주기로 정한 기준을 그대로 말한다');
+  assert.doesNotMatch(stale.detail, /수집 주기는 10분/, '주기를 10분으로 단정하지 않는다');
   const ready = describeAlternativesState(alternatives());
   assert.equal(ready.tone, 'ok');
   assert.match(ready.detail, /서울시가 잰 실측값/, '실측만으로 돈다는 사실을 항상 말한다');
@@ -257,12 +263,18 @@ function calibration(over: Partial<CalibrationResponse> = {}): CalibrationRespon
   assert.equal(describeQualityDelta(null, 0.3, true), '비교 준비 중');
 }
 
+function calibrationPanelSource(): string {
+  return readFileSync(join(WEB, 'components/admin/engine-validation/SeoulCalibrationPanel.tsx'), 'utf8');
+}
+
 // --- 화면 배선 --------------------------------------------------------------------
 // 두 블록이 실제로 페이지에 붙어 있어야 하고, 혼잡 신호의 출처 문구가 살아 있어야 한다.
 {
   const page = readFileSync(join(WEB, 'app/admin/engine-validation/page.tsx'), 'utf8');
   assert.match(page, /<SeoulAlternativesPanel \/>/);
-  assert.match(page, /<SeoulCalibrationPanel \/>/);
+  // 보정 패널은 요약의 대상지별 주기를 받아 '관문을 채우는 속도' 를 주기로 말한다.
+  assert.match(page, /<SeoulCalibrationPanel targets=\{pipeline\?\.targets \?\? \[\]\} \/>/);
+  assert.match(calibrationPanelSource(), /calibrationPace/);
   assert.match(page, /경주 ITS 공영주차 실시간 점유율을 혼잡 신호로 활용합니다/);
 
   const panel = readFileSync(join(WEB, 'components/admin/engine-validation/SeoulAlternativesPanel.tsx'), 'utf8');

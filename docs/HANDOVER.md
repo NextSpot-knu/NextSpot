@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다.
 - **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
 - **2026-10-24 KST main `9cf767c..49c2067`(PR #22, 웹·스키마·문서) + 표 적용.** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). CI 4잡 green · Vercel 프로덕션 반영. 표는 10-24 Supabase MCP(`apply_migration`, PM 지시)로 적용 + `NOTIFY pgrst` — 확인: RLS on · anon INSERT 201 · anon SELECT 거부(42501) · 목록 밖 이벤트 400 · 보관 예약 `23 18 * * *`(cron 4→5개), 검증 행은 지움. API 무변경.
 - **2026-10-22 KST main 갱신 예정(e2e·문서 — `test/night-e2e-1022`, PR #21).** 밤 23시 이후에만 깨지던 e2e 두 원인(PR #13 에서 테스트 수정만 분리 — `4a37ab4`·`c678db4`). 웹·API 무변경.
@@ -57,11 +58,11 @@
 
 ## 우선순위
 
-1. **심사 기간 운영 유지** — 1차 심사자료는 09-21 제출 끝. 1차 기능 심사는 10월 중(날짜 미공지 — 심사위원이 라이브 URL 에
-   혼자 들어와 심사 계정으로 로그인, TourAPI 호출 이력도 본다) · 10-21 본선 발표 · 10-28 발표 심사 · 11-05 시상(PM 안내 기준 —
-   저장소 문서에는 없다). 세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 푸시는 KST 밤에만.
-   데모 전 체크리스트는 [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) §0.
-2. **사람 작업 대기** 처리 — 특히 `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
+1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
+   작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
+   경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 끝 — **S3·S4 는 사용자가 ultracode 로 직접**. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
+   세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
+2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
 4. **PR #13 `fix/llm-rate-limits-1009` 병합** — "알려진 이슈" ③ 의 구현 + 밤 e2e 수정. CI green(`c678db4`), KST 밤 PM 병합만 남음("사람 작업 대기" 맨 위).
 5. 심사 뒤: "알려진 이슈" ①·② 결정 · 보안 진단 상·중 항목 · `ingest.yml` 리포트 artifact 보존 ·
@@ -72,6 +73,29 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
+- [ ] **(10-31c ① · API 배포 전) Render `SEOUL_CITYDATA_TARGETS` 정리** — `nextspot-t2ib` 환경변수에 옛 5곳 값이 있으면 **지운다**(코드 기본값 9곳·주기 포함을 쓴다) 또는 새 값으로 바꾼다. 빈 값으로 두면 503 `seoul_targets_missing` 으로 서울 수집이 멈춘다. 표기는 `DEPLOY_AND_ENV.md` §2.
+- [ ] **(10-31c ②) `20261031120000_crowd_zones.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(서울 S1 구역 표) — 확인 `select count(*) from public.zones;` → 9. 적용 전에도 수집은 돌고 정규화 표 이중 저장만 상태에 '표 없음'으로 남는다.
+- [ ] **(10-31c ③ · API 배포 전) 종로 4곳 대상지명 확인** — 이름이 서울 API 와 글자까지 같아야 수집된다. 한 곳에 1회씩(일 한도 4회 사용, 로컬 `apps/api/.env` 필요):
+```powershell
+cd D:\NextSpot\apps\api; $env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -c "import asyncio, httpx; from app.core.config import settings; from app.services import seoul_citydata_service as s
+async def main():
+    async with httpx.AsyncClient(timeout=10) as c:
+        for n in ['경복궁','북촌한옥마을','인사동','창덕궁·종묘']:
+            try:
+                d = s.parse_citydata(await s.fetch_citydata(c, settings.SEOUL_OPENDATA_KEY.strip(), n), n)
+                print(n, 'OK', d['area_cd'], d['congest_lvl'], d['observed_at'])
+            except s.SeoulCitydataError as e:
+                print(n, 'FAIL', e.code, e.upstream_code)
+asyncio.run(main())"
+```
+  기대: OK 4줄(POI008 · POI066 · POI078 · POI012). `FAIL seoul_area_mismatch` 면 이름이 다르다 → `config.py` 기본값 · `SEOUL_ZONES` · 마이그레이션 시드를 함께 고친다.
+- [ ] **(10-31c ④) `20261031130000_guest_crowd_answer_shadow.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(D3 그림자 모드) — API 배포 직후. 확인은 아래 "마이그레이션 확인" 20번과 그 아래 두 쿼리(`observed_%` 열 · cron 잡 `nextspot-network-hash-retention`). 같은 김에 Render 에 전용 `NETWORK_HASH_SALT`(강한 무작위 값)를 넣는 것을 권한다 — 없으면 `JWT_SECRET` 에서 파생해 동작은 하지만 용도가 다른 비밀에 묶인다.
+- [ ] **(10-31c ⑤) Turnstile 켜기** — Cloudflare Invisible 위젯 → Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + 웹 배포 → Supabase Auth CAPTCHA(Turnstile 비밀 키 — 이곳에만) → 익명 로그인 IP 한도 낮추기(지금 300/h — 10-06 상향, 기본 30/h). **CAPTCHA 는 모든 로그인 경로에 토큰을 싣는 웹(D3 보안 수정)이 main 에 배포된 뒤에만 켠다 — 그 전에 켜면 이메일 로그인·가입·비밀번호 재설정이 막힌다**(Supabase CAPTCHA 는 프로젝트 전체에 걸린다). 켠 뒤 게스트→회원 전환·OAuth 콜백이 되는지 한 번 확인.
+- [ ] **(10-31c ⑥) 개인정보처리방침 + 앱 안 개인정보 안내 — 출시 전 전문가 확인** — 게스트 방문 확인 답에 네트워크 대역 해시를 남긴다(목적: 악용 방지·답 품질, 보관 30일, 원본 IP 는 서버 메모리에만 최대 30분). Turnstile 을 켜면 Cloudflare 를 제3자 처리자로 적는다. 앱 안 안내(`/mypage/privacy` '부정 이용 방지' 절, 4로케일, 갱신일 2026-10-31)는 넣었다 — 법률 검토는 따로 필요하다.
+- [ ] **(10-31c ⑦ · ④ 적용 2주 뒤) 게스트 답 실시간 전환 결정** — `GET /api/v1/admin/metrics/guest-answers?days=14` 의 일치율·공유 네트워크 비율을 보고 정한다. 켜기 전에 운영 로그로 `client_ip`(XFF 마지막 값)가 Render 뒤에서 실제 손님 IP 인지 확인한다(프록시 hop 이 붙으면 전원이 한 IP — "보안 진단" 중 항목과 같은 관측). 켜려면 Render `GUEST_CROWD_ANSWERS_LIVE=true`(재시작) **와** 웹 문구 `visit.guestCongestionNote`(4로케일) 변경을 함께.
+- [ ] **(10-31c ⑧) '인사동·익선동' → '인사동' 확인(사용자)** — 서울시 공식 목록에 한 곳으로 없어 인사동(POI078)만 넣었다(익선동은 POI116). 익선동을 `@3+1` 로 10번째에 더해도 주 768 · 최악 912회/일로 한도 안이다(`SEOUL_TESTBED_PLAN.md` §6 S2).
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
@@ -123,31 +147,6 @@
 - [ ] **폰 스모크(390px)** — 09-29 반영분(P0b 웹·사진 출처 · 대기 보드 27건): `/waiting` 4로케일(사진 없는 장소 표지·야간 18시 이후 색·줄 단위 자르기) · `/explore/recommend` 사진 대체 · 관제 장소 표 검색. 실시 기록이 없다.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
-- [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
-      표는 생겼고 Render 배포·인증키도 들어갔으며 API 엔드포인트도 살아 있다(401 = 인증 필요, 404 아님).
-      남은 후보는 **수집 URL 시크릿 미설정**이 가장 유력하다. SQL Editor 에서 순서대로:
-      ```sql
-      -- 1) 잡이 걸려 있나
-      select jobname, schedule, active from cron.job where jobname like 'nextspot-seoul%';
-      -- 2) URL 시크릿이 있나(없으면 3번을 실행한다)
-      select name from vault.decrypted_secrets where name like 'nextspot_seoul%';
-      -- 3) 수집 URL 연결(한 번만)
-      select public.configure_seoul_citydata_collection(
-        'https://nextspot-api.onrender.com/api/v1/engine-validation/seoul/collect');
-      -- 4) 지금 한 번 호출
-      select public.request_seoul_citydata_collection(false);
-      -- 5) 결과 확인(10초쯤 뒤)
-      select status_code, left(content, 300) from net._http_response order by created desc limit 3;
-      select area_nm, bucket_at, congest_lvl, live_lot_count, level_est
-        from public.seoul_citydata_snapshots order by bucket_at desc limit 10;
-      ```
-      5번이 200 이고 표에 행이 생기면 이후는 10분마다 자동이다. 401 이면 Vault 의 서비스 토큰이
-      Render 의 값과 다른 것이고, 503 `seoul_key_missing` 이면 Render 환경변수가 아직 반영되지 않은 것이다.
-- [ ] **`20260920140000_seoul_citydata_retry_budget.sql` 적용** — 인증키 일 한도가 **1,000회**로 확인됐다(사용자).
-      대상지 5곳 · 주 호출 10분 주기 = 하루 720회라 정상일 때는 맞지만, 주 호출이 계속 실패하는 날에는
-      보충 호출(현재 10분 주기)이 720회를 더 써 한도를 넘긴다. 이 마이그레이션이 보충만 시간당 2회로 줄여
-      최악의 날도 960회로 묶는다. 주 호출 주기는 그대로 둔다(검증 지표가 10분 버킷 위에 있다).
-
 - [ ] **`ADMIN_API_TOKEN` 회전** — 구 값은 한때 `NEXT_PUBLIC_`으로 번들에 실렸던 값이라 공개된 것으로 취급.
       순서(서버는 단일 값만 비교하므로 Render 변경과 Vault 갱신 사이엔 수집이 실패한다 — 둘을 같은 10분 슬롯 안에 처리):
       새 값 생성 → Render에 `SERVICE_API_TOKEN` 추가(그 순간부터 이것만 유효, 기존 `ADMIN_API_TOKEN`은 둔다) →
@@ -185,7 +184,11 @@
   관광공사 집중률은 지점별 기준선 대비 상대값이라 "100 = 만석"이 아니다. 사용자에게 보이는 숫자가 바뀌는 문제라 데이터를 놓고 결정.
 - ② **developer의 좌석 방송이 `verified`로 학습에 들어간다** — 소유자가 아닌 사람의 방송은 `single_report`로 낮추는 안.
 - ③ **인증 없는·게스트 LLM/쓰기 경로에 유량 제한이 없다** — 순서는 아래 "보안 진단"대로: `travel-context/parse`·
-  `preferences/parse`(상) → `/reports/*`(중) → `/voice/turn`·`events/track`·`search/ingest-request`.
+  `preferences/parse`(상) → `/voice/turn`·`events/track`·`search/ingest-request`. (`/reports/*` 는 2026-10-30 게스트 차단 + IP 쿨다운.)
+- **일요일 휴무 오판(버그, 10-31 재현) — `yunseong` 에서 고침(`9f3c77f` · `9b65fbe`, 아래 2026-10-31b), main 반영 전까지 운영은 그대로** — "매주 월요일 휴무"처럼 요일이 적힌 휴무 문구의 가게가 일요일마다 `closed_confirmed` 가 된다(운영 정규식이 '요일'의 '일'에 걸린다).
+  웹(`lib/restDate.ts`)도 같은 판정이라 **API·웹을 함께** 반영해야 고쳐진다(API 먼저 — 옛 API 는 새 웹의 `stroller` 요청을 거절한다). 상세는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §7 P0-1.
+- **게스트 차단 빈틈 — `yunseong` 에서 그림자 모드로 막음(`c1daf72`, 아래 2026-10-31c), main 반영 + `20261031130000` 적용 전까지 운영은 그대로** — 방문 확인의 체감 혼잡(`PATCH /recommendations/{id}/outcome` 의 `observed_congestion`)은 아직 게스트를 받는다.
+  DB 트리거가 `user_report` 로 옮겨 계정 둘이 일치하면 corroborated 가 된다(`20260820123000:83-95`). 같은 문서 P0-2 · D3. `c1daf72` 보안 검토 지적은 후속 커밋에서 고쳤다(모든 로그인 경로 CAPTCHA 토큰 · 옛 RPC 폴백은 게스트 평가만 · 등록 사용자 방문 답은 예전처럼 제한 없음 · 게스트 30분 쿨다운 · 앱 안 개인정보 안내).
 - **main 의 e2e 가 KST 23:29 이후 CI 에서 실패한다(PR #13 병합 전까지)** — e2e 고정 장소가 '하루 종일'을 `'00:00~23:59'` 로 적어, 앱의 '도착 뒤 30분 안 마감 제외'(`lib/restDate.ts` `isRecommendationOpen`)에 밤마다 걸린다. 앱 버그가 아니라 시험 고정값 문제. 고침은 #13 의 `c678db4`(`'24시간'`). 그 전에 밤 main CI 가 빨가면 rec-card·category-chips·doc-crosswalk 음성부터 의심.
 - 스테이징이 없다 — **실 DB는 읽기만**, 쓰기 검증은 로컬 대역으로(08-28에 실 DB에 가짜 verified 3행을 쓴 전례).
 - 프로필 캐시가 프로세스 내부(30초) — 워커 1개라 지금은 무해, `--workers N`을 붙이면 공유 무효화 필요.
@@ -205,12 +208,10 @@
   `POST /preferences/parse`(익명 JWT 허용, 제한 없음)는 요청마다 Upstage 호출을 낼 수 있다. 일일 예산은 검색 재작성에만 있다
   (`config.py` `SEARCH_REWRITE_DAILY_BUDGET`). 조치: `routers/search.py`의 `_check_rate_limit`를 두 경로에 재사용 +
   `services/llm_client.py`에 전역 일일 예산 + `preferences/parse`는 `is_anonymous` 거부.
-- **중 — 게스트가 혼잡 근거를 오염시킬 수 있다.** `/reports/congestion`·`/reports/availability`가 `is_anonymous`를 검사하지
-  않고 쿨다운 키가 (user, facility)라 새 익명 세션마다 우회된다. 두 게스트가 맞장구치면 `corroborated`가 된다.
-  조치: `routers/account.py`처럼 비익명 요구 + IP 키 쿨다운.
-- **중 — X-Forwarded-For 해석 방향 미검증.** 세 리미터(`search.py`·`tracking.py`의 `_client_ip`, `recommendations.py`의 `_voice_client_ip`)가
-  마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를
-  1회 로깅해 모양을 확인한 뒤 `CF-Connecting-IP`/`True-Client-IP` 우선으로 통일.
+- **중 — X-Forwarded-For 해석 방향 미검증.** 모든 IP 리미터(검색·추적·음성·실시간 상세, 2026-10-30 부터 제보 쿨다운도)가
+  `app/core/client_ip.py` 한 함수로 마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS — 제보는 같은 장소 30분에
+  한 계정만), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를 1회 로깅해 모양을 확인한 뒤 그 함수에서
+  `CF-Connecting-IP`/`True-Client-IP` 우선으로 바꾼다.
 - **중 — 토큰 회전·CORS**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전과 `ALLOWED_ORIGINS`(현재 와일드카드 — 제3자 페이지가
   방문자 브라우저로 비인증 쓰기·LLM 경로를 두드릴 수 있어 IP 제한이 무력화된다).
 - **하** — `bvr_insert_own` RLS에 `document_path` 접두 검사가 없다(API만 검사) → 마이그레이션에
@@ -267,15 +268,72 @@ with checks(seq, migration, applied) as (values
                    where n.nspname = 'public' and p.proname = 'set_merchant_photo')),
   (18, '20261024100000_usage_summary', exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                    where n.nspname = 'public' and p.proname = 'usage_summary')
-      and not has_function_privilege('anon', 'public.usage_summary(integer)', 'EXECUTE'))
+      and not has_function_privilege('anon', 'public.usage_summary(integer)', 'EXECUTE')),
+  (19, '20261031120000_crowd_zones', to_regclass('public.zones') is not null
+      and to_regclass('public.zone_crowd_snapshots') is not null and to_regclass('public.facility_zones') is not null),
+  (20, '20261031130000_guest_crowd_answer_shadow', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='recommendation_outcomes' and column_name='observed_answer_mode')
+      and exists (select 1 from cron.job where jobname='nextspot-network-hash-retention'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
 ```
 
+19·20번은 따로도 본다. 19 — `select count(*) from public.zones;` = 9, 수집이 돈 뒤 `select zone_id, count(*) from public.zone_crowd_snapshots group by 1;`.
+20 — `select column_name from information_schema.columns where table_name='recommendation_outcomes' and column_name like 'observed_%';`(`observed_answer_mode`·`observed_at`·`observed_network_hash` 가 보여야 한다) · `select jobname from cron.job where jobname='nextspot-network-hash-retention';` 1행.
+
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-10-31c — 서울 테스트베드 S1·S2·S5·S6 + 게스트 답 그림자 모드(D3) + 문서 답변
+
+- 도구·브랜치: Claude Code / `yunseong`(`4c31b0b` 위, main 미반영)
+- 커밋: `47ee20c`..`c1daf72`(12건 — 문서 `47ee20c`·`ef04eef`·`45f5dc9`·`eb3a88b` · 서울 `b6cb50a`·`20096dd`·`c534783`·`65a45ff`·`4052f68`·`22ecc1d`·`8c0de61` · D3 `c1daf72`) + 이 기록(문서)
+- 한 것: 상세는 커밋 본문 · [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 진행표 · [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §7.
+  - 문서 답: 두 계획 문서에 사용자가 단 답·질문(A1·A2·A6·A3·A3', S0 A~E 결과)에 답하고 반영했다. D6 확정(도착 확인 때 쿠폰), D3 은 '받되 2주 그림자 모드 뒤 실시간 여부 결정'. S0 은 사용자 SQL 로 끝났다(5곳 09-20부터 10분, `140000` 적용).
+  - 서울: S1 공급원 층 `services/crowd/` + 구역 표 `20261031120000` + 수집기 이중 저장 · S2 9곳(종로 4곳, '인사동'만 — 확인 필요) · 주기 재설계(홍대 권역 10분 · 종로/검증 30분, 주 720 · 최악 864회/일, 동시 조회 4, 조회 45초·실행 80초 마감) · S5 [`CROWD_DATA_CONTRACT.md`](./CROWD_DATA_CONTRACT.md)·통신사 어댑터 틀·합성 격자·계약 테스트 · S6 관리자 '실시간 데이터 리허설'(`pipeline`·`decision_quality`).
+  - D3: 게스트 방문 확인 답은 `guest_shadow`(DB 트리거가 `is_anonymous` 로 분류) · 게스트 방문 답에 1인 1표(등록 사용자는 제한 없음) · 네트워크 키(대역 HMAC, 30일 pg_cron) · 측정 `GET /admin/metrics/guest-answers` · 스위치 `GUEST_CROWD_ANSWERS_LIVE`(꺼짐) · Turnstile 기반(키 있을 때만). 구현마다 렌즈가 다른 독립 검토를 돌렸고 `c534783`·`4052f68`·`22ecc1d`·`8c0de61` 이 그 수정이다.
+- 검증: 마지막 `c1daf72` 에서 api ruff · pytest 3267 · OpenAPI(추가만) · build_reset(추가만) · web lint(0 error)·typecheck·test 118·build · check-docs. 마이그레이션은 PGlite 시나리오만(실 Supabase 미시험). **커밋 메시지 정정**: `c534783` 의 'pytest 3221' 은 S6 변경이 함께 있던 트리에서 센 값이다. 같은 커밋의 '조회 최악 85초 → 35초' 에서 실제 이전 기본값은 버킷당 6곳(75초)이었고, 35초는 `4052f68` 이 마감(조회 45초 · 실행 80초)으로 다시 고쳤다.
+- 다음·미결: main 반영은 오늘 밤 KST(API 먼저 → 웹, 마이그레이션은 API 배포 직후 — 위 "배포 상태"). **S3(엔진 연결)·S4(재생 평가)는 사용자가 ultracode 로 직접** 한다. D3 실시간 전환은 `130000` 적용 2주 뒤 측정으로 정한다. `c1daf72` 보안 검토 지적은 후속 커밋에서 고쳤다. 실시간 전환 전 결정할 것: 게스트+계정 혼합 일치의 약점(L3), 버린 시도의 측정 누락(L7), DB 동작의 CI 검증(L8). S5 남은 결정: 분위수 기준('평소 대비'·'절대 붐빔') · 잠정 임계값.
+- 사람 작업: "사람 작업 대기" 10-31c ①~⑧(Render 서울 대상지 변수 · 마이그레이션 2개 · 종로 이름 확인 · Turnstile · 처리방침 · 2주 뒤 전환 결정 · 인사동 확인). 해결된 '서울 수집 0건'·`140000` 적용 줄은 지웠다(S0 확인).
+
+## 2026-10-31b — 승인 없이 할 수 있는 개선안 착수(관제·사장님·추천·영업시간) · 모두의 창업 로컬 트랙 1R 정정
+
+- 도구·브랜치: Claude Code / `yunseong`(`e5703d6` 위, main 미반영)
+- 커밋: `a648898` · `fe80cda` · `cfbb1fe` · `9f3c77f` · `5af16c7` · `7a94335` · `97bc930` · `9b65fbe` · 이 기록(9건)
+- 한 것: 사용자 지시로 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) 개선안 중 결정·사람 작업이 필요 없는 것을 네 에이전트(추천 코어 · 관광객 웹 · 관제 · 사장님)로 나눠 구현하고, 렌즈가 다른 검토 에이전트로 거듭 검증했다. 항목별 상태·후속은 §7.
+  - 관제: 운영 화면의 시나리오 값 제거 · 근거 없으면 안전 '판정 불가' · 효과 지표 재정의 · 관리자·개발자 계정 제외. 사장님: 성적표(노출·도착·길안내 정의, 직전 기간 대비, 7/30일, 세일 비용 안내).
+  - 추천·관광객: 일요일 휴무 오판 수정 + 웹·API 공용 판정표 · 확인 등급이 모자라면 다음 등급으로 채움(음식점·카페 요청만, A4) · 수락 기록 · '대신 갈 곳 보기' · 유모차 분리 · 임팩트 정리. 영업시간 해석은 운영 대비 나빠진 날 154 → 0(정답지), 보류 세트 꼭 고칠 1건까지 6차에 걸쳐 고쳤다.
+  - 문서: 공모전 우수상 · 실서비스 창업 방향 · [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) 재작성(경주 통신사 데이터로 공급원만 바꾸는 구조). 모두의 창업은 사용자 정정으로 **로컬 트랙 1라운드**로 고치고 수상·상용화 선정 취소 조항이 1R 에도 걸린다고 정리했다.
+  **동작 변경(공개)**: 효과 지표·임팩트·사장님 노출 숫자가 전보다 작다(정의가 엄격해짐, 의도). 웹이 `stroller` 를 보내므로 **API 먼저 배포**해야 한다(옛 API 는 422 — 웹이 한 번 빼고 다시 보내긴 한다).
+- 검증: api ruff · pytest 3028 · OpenAPI 스냅샷(필드 삭제 없음) · web lint(0 error)·typecheck·test 117·build · check-docs · 스키마 파리티. CI e2e 는 `5af16c7` 에서 사장님 화면 key 중복으로 2건 실패 → `97bc930` 에서 고침(로컬 CI 조건 42건 통과).
+- 다음·미결: main 반영은 사용자 지시 뒤 KST 밤, **API(Render 수동 배포) 먼저 · 웹 바로 뒤**. 보류: P0-2(D3) · P0-6(D8) · P1-3(서울 — Q1~Q8 답 받음, Q2·Q6 수정안 확인과 S0 A~D 결과 뒤 S1) · P2·P3. 후속 목록은 §7.
+- 사람 작업: 모두의 창업 조항 서면 확인(위 "사람 작업 대기" 첫 줄 — 로컬 트랙 2R 마감 · 사업자등록 의무 확인 포함).
+
+## 2026-10-31 — 제품 평가·다음 작업 계획 + 서울 테스트베드 이해 정리(검토 대기)
+
+- 도구·브랜치: Claude Code / `yunseong`(`e8b64ed` 위)
+- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
+- 한 것: 사용자 요청으로 공모전 이후 할 일을 정리했다.
+  - 평가 기준: 2026 공고문 원본 배점(가점 2종·PT 상위 5팀 포함)에 다른 대회(범정부 공공데이터·AI 창업, 병무청 합동, 서울시 빅데이터, 예비관광벤처, 혁신제품)와 품질 프레임워크(Nielsen·ISO 25010·KRDS·KWCAG·UNWTO·ETIS)를 더했다.
+  - 평가: 관광객·사장님·기관·공통 관점을 각각 다른 검토 에이전트가 코드 근거로 채점했고, 핵심 주장은 메인 세션이 다시 확인했다.
+  - 결과: [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md)(평균 관광객 2.6 · 사장님 2.1 · 기관 2.0 · 공통 3.0, Phase 0~3, 결정 D1~D7).
+  - 서울 건은 문서·코드만 읽고 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(검토 대기)로 정리했다. 요지: 지금까지는 추정기 검증이고, '분산 알고리즘 유효성'은 새 평가 층(분산 결정 재생)이 필요하다. 질문 10개가 있다.
+  - 색인의 `CONGESTION_ENGINE_PLAN.md` '초안' 표기를 바로잡았다.
+- 검증: check-docs. 일요일 휴무 오판은 `open_status_at_arrival` 직접 실행으로 재현했다(위 "알려진 이슈").
+- 다음·미결: 사용자 검토 뒤 Phase 0(일요일 휴무 버그 · 게스트 방문 확인 체감 혼잡 · 운영 시나리오 값 제거 · 안전 '판정 불가' · 문구 정리)부터.
+- 사람 작업: Phase 0-7 의 세 건(`JWT_SECRET` 시크릿 · Render Deploy Hook · 서울 수집 점검 SQL)은 이미 "사람 작업 대기"에 있는 항목이다.
+
+## 2026-10-30 — 게스트(익명 세션) 혼잡·영업 제보 차단 + IP·시설당 한 계정
+
+- 도구·브랜치: Claude Code / `yunseong`(main `168f979` 위)
+- 커밋: 이 기록 포함 1건(API·웹·API 테스트·문서, 스키마 무변경)
+- 한 것: 보안 진단 '중 — 게스트가 혼잡 근거를 오염'(사용자 결정: 완전 차단). `POST /reports/congestion`·`/reports/availability` 가 새 가드 `authz.get_registered_user`(JWT `is_anonymous`, DB 안 읽음)로 게스트를 403. 계정 여러 개를 한 단말에서 돌려 '두 사람의 일치' 를 꾸미지 못하게 **IP·시설당 한 계정 30분**(DB 교차검증 창과 같은 길이)을 더했다 — 처음엔 IP 쪽도 쿨다운 길이(5분·1분)로 걸었는데, 리뷰 에이전트가 '두 번째 계정이 5분 1초 뒤에 보내면 그대로 corroborated' 임을 짚어 바꿨다. 같은 리뷰로 검사→기록 사이 await 경합(동시 두 계정이 함께 통과)도 닫았다(`_reserve_report_slot` 이 await 없이 자리를 잡고, 저장 실패면 되돌린다). 네 라우터에 복제돼 있던 XFF 해석은 `app/core/client_ip.py` 하나로. 웹: 혼잡 제보 403 → '로그인 후 제보할 수 있어요'(기존 키). 영업 상태 확인이 403(게스트)·429(같은 네트워크 다른 계정)면 답을 서버에 남기지 않고 그 화면에서만 수락·제외를 잇는다(`RecommendationCard` · `explore/recommend` — 영업시간 미확인 가게의 '바로 갈래요' 가 막히지 않는다).
+  **동작 변경(공개)**: 게스트는 혼잡을 제보할 수 없고 '방문객 n분 전' 칩·제보 쿠폰 보상은 계정 사용자 제보로만 채워진다. 같은 와이파이·같은 공인 IP(통신사 CGNAT 포함)의 두 번째 계정은 같은 장소를 30분 동안 제보할 수 없다(혼잡 → '잠시 후 다시', 영업 → 그 화면에만 적용). 로그인 사용자의 제보에서 역할 조회가 빠졌다(전보다 DB 읽기 1회 적음).
+- 검증: api ruff · pytest 2497 · 새 테스트 6건(게스트 403 두 경로가 DB·프로필 조회 전에 끝남 · 30분 창이 사용자 쿨다운 뒤에도 유지되고 닫히면 풀림(두 경로) · IP 를 바꿔도 사용자 쿨다운 유지 · INSERT 시점에 자리가 이미 잡혀 있고 실패하면 되돌림) · OpenAPI 스냅샷은 두 경로 설명 문구만 · web lint(0 error)·typecheck·test·build · check-docs.
+- 다음·미결: main 반영은 사용자 확인 뒤 KST 밤(API 변경 — Render 자동 배포가 안 되므로 반영 뒤 Manual Deploy 또는 Deploy Hook, "사람 작업 대기" 첫 줄). XFF 방향 관측(보안 진단 '중')은 그대로 — Render 가 hop 을 덧붙인다면 IP 규칙이 '전원 한 키' 가 되어 한 장소를 30분에 한 계정만 제보하게 된다(관측 전 위험). IPv6 는 /64 안에서 주소를 바꿔 IP 규칙을 피할 수 있다(정규화 미구현). 영업 확인 안내문(`card.hoursCheckPrivacy` '…만 기록해요')은 게스트에게는 기록하지 않는 경우라 과소가 아닌 과대 진술 — 문구는 그대로 뒀다.
+- 사람 작업: 없음(위 배포 항목은 기존 줄).
 
 ## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
 
@@ -313,61 +371,6 @@ from checks order by seq;
 - 운영: 오리건 `nextspot-api` 정지(PM, 10-22 저녁 — 503 확인). 정지 뒤 수집 버킷 11:30Z 가 들어온 것을 `area-demand-alert` 수동 실행(age 6.1분)으로 확인 — pg_cron 은 싱가포르로 간다. 싱가포르 `/health` healthy.
 - 검증: 실패했던 e2e 15건(테마·로케일 포함) 로컬 통과 · web lint(0 error)·typecheck·test(110파일). PR #19 CI(리눅스) e2e 518 통과 — 10-20 부터 리눅스 글꼴에서만 72px 로 실패하던 768 태블릿 ja 지도 띠도 미리보기 한 줄 줄임으로 통과.
 - 다음·미결: `render.yaml` 의 오리건 서비스 정의 정리(Blueprint 동기화가 정지된 서비스를 되살리지 않게 — 별도 결정) 
-- 사람 작업: 없음.
-
-## 2026-10-21e — 탭 전환의 중복 테마 갱신 제거
-
-- 도구·브랜치: Codex / `fix/card-detail-and-grants-1021`.
-- 커밋: 이 기록 포함 1건(웹·문서).
-- 한 것: 탭을 바꿀 때마다 같은 `light` 값을 HTML 테마 속성에 다시 쓰던 동작을 확인하고, 값이 바뀔 때만 기록하도록 수정했다.
-- 검증: 실서비스 브라우저에서 전환 5회 모두 속성 변경 → 수정한 로컬 브라우저에서 0회. web lint·typecheck·test(110파일)·build·문서 검사.
-- 다음·미결: 배포 후 사용자 기기에서 글꼴 깜빡임 재확인. 실제 글꼴 재로드는 PC Chrome에서 재현되지 않았다.
-- 사람 작업: 없음.
-
-## 2026-10-21d — 추천 카드 상세 배치·Supabase 새 테이블 권한
-
-- 도구·브랜치: Codex / `fix/card-detail-and-grants-1021`(main `7dba684` 위).
-- 커밋: 이 기록 포함 1건(웹·스키마·문서).
-- 한 것: 카드 상세의 대표메뉴 → 운영시간·휴무일(같은 행) → 소개 → 주소·전화번호(같은 행) 순서로 배치. 기존 전화 연결·실시간 갱신 표시 유지. 서울 검증 표에 API `service_role` GRANT를 명시하고 이후 public 테이블의 역할별 권한 선언을 배포 문서에 기록.
-- 검증: web lint·typecheck·test(110파일)·build, 스키마 재생성·문서 검사.
-- 다음·미결: Vercel 배포와 라이브 화면 확인. SQL의 원격 적용 여부는 별도 확인.
-- 사람 작업: 없음.
-
-## 2026-10-21c — 음식점 추천의 메뉴·이동 시간·선택 버튼을 첫 화면에
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `ca60e7a` 위)
-- 커밋: `4ae4274` · `2f1d119` · `24de2ab` + 이 기록 포함 1건(웹·문서만)
-- 한 것: 음식점 추천 문장에 실제 메뉴(없으면 음식 종류)와 도보 시간, 확인된 대기 시간이 있으면 식사까지 예상 시간을 표시. 모바일 미리보기의 출발·도착 시각과 세 선택 버튼 문구를 정리하고, 메뉴명은 카드·미리보기 모두 줄바꿈해 끝까지 표시. '일단 킵하고' 뒤에서 버튼 문구 줄바꿈(동작 무변경). 4개 언어 동기화.
-- 검증: 첫 커밋은 web lint·typecheck·test·build·관련 e2e·check-docs 통과. 이번 문구·표시 변경은 web build·check-docs만 실행(PM 지시: 간단한 UI는 테스트 생략).
-- 다음·미결: Vercel 배포·라이브 화면 확인. 메뉴 원자료가 없는 가게에는 카카오 음식 종류만 표시.
-- 사람 작업: 없음.
-
-## 2026-10-21b — 추천 카드의 메뉴 표시 강조
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `8d4b56b` 위)
-- 커밋: 이 기록 포함 1건(웹·문서만)
-- 한 것: 추천 카드 전체와 휴대폰 미리보기의 메뉴·음식 종류에 금빛 배경과 테두리, 진한 글자와 큰 아이콘을 적용해 한눈에 읽히게 했다. 메뉴 데이터·순서·접근성 이름은 유지.
-- 검증: web build · check-docs. 간단한 UI 변경이라 테스트는 실행하지 않음(PM 지시).
-- 다음·미결: Vercel 배포·라이브 카드 확인.
-- 사람 작업: 없음.
-
-## 2026-10-21 — 1366×650 지도 추천 카드의 상세 펼치기 노출
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `ee5bf19` 위)
-- 커밋: 이 기록 포함 1건(웹 CSS·문서만, API·스키마 무변경)
-- 한 것: 짧은 데스크톱 추천 패널에서 내부 내용 간격을 8→4px로 줄여, 카드의 ‘상세 정보 펼치기’가 스크롤 아래에 가려지지 않고 첫 화면에 보이게 했다. 시간대 표시·지도·운영 링크는 변경하지 않았다.
-- 검증: 현재 작업본 별도 서버(3101)에서 1366×650 및 1536×730의 해당 E2E 각 2건 통과 · web build 통과.
-- 다음·미결: main 반영 뒤 Vercel 배포 상태 확인. 다른 E2E 실패 항목은 이번 범위 밖.
-- 사람 작업: 없음.
-
-## 2026-10-19c — 데스크톱 왼쪽 바를 떠 있는 유리 캡슐 셋으로(iOS 26 탭 바처럼) · /main 지도가 바 뒤까지
-
-- 도구·브랜치: Claude Code / `feat/floating-rail-1019`(main 위)
-- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경, Render 재시작 없음)
-- 한 것: PM "iOS 탭처럼 바를 다 잡아먹지 않고 플로팅" → 계획 승인(캡슐 별도 · /main 만 지도 확장 · 폰은 다음 단계). 왼쪽 레일(76px 흰 막대, 폭 차지)을 fixed 유리 캡슐 셋(마스코트 · 탭 5 · 콘솔 2 + 서비스 소개)으로. 선택 탭은 하얀 유리 알약. nav 는 `pointer-events-none`(빈 곳은 밑을 누른다). `/main` 은 폭을 차지하지 않아 지도가 왼쪽 끝까지, 다른 페이지는 투명 여백 `--rail-gutter`(100px).
-  **동작 변경(공개)**: /main 검색·툴바·예측 줄 시작 ≈ +8px(`--rail-gutter` 100px · 지도 가시영역 왼쪽 여백 `DESKTOP_RAIL_GUTTER_PX`) · 다른 페이지 본문 시작 +24px(76 → 100px) · 지도 왼쪽 가장자리 마커가 캡슐 뒤에 가려질 수 있다 · 콘솔 캡슐은 바닥에서 40px 띄워 Kakao 로고를 가리지 않는다.
-- 검증: web typecheck · e2e `console-entries` · `fixed-overlays`(캡슐 순서 탭 → 콘솔 → 서비스 소개, 창 안, 라벨이 nav 밖으로 안 나감). 나머지 e2e 는 푸시 뒤 CI.
-- 다음·미결: 휴대폰 아래 바도 같은 방식으로 띄울지(`--tourist-nav-clearance` 사용처 25곳이라 따로) · 화면 확인은 PM 이 라이브에서.
 - 사람 작업: 없음.
 
 ## 기록 규칙

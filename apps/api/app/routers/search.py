@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, require_role
+from app.core.client_ip import client_ip
 from app.core.supabase import supabase_admin
 from app.services import kakao_place_search_service, llm_client, reference_snapshot, search_rewrite_service
 from app.services.tourapi import client as tourapi
@@ -71,22 +72,6 @@ _search_hits: dict[str, list[float]] = {}
 _place_search_hits: dict[str, list[float]] = {}
 _ingest_hits: dict[str, list[float]] = {}
 _rewrite_hits: dict[str, list[float]] = {}
-
-
-def _client_ip(request: Request) -> str:
-    """레이트리밋 키용 클라이언트 IP.
-
-    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
-    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다. 신뢰 프록시(Render 엣지)가 마지막에
-    덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다(recommendations._voice_client_ip 미러,
-    §-14 백로그 'XFF 첫 값' 정리). 프록시 없는 로컬은 소켓 피어.
-    """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
 
 
 def _check_rate_limit(store: dict[str, list[float]], ip: str, limit: int) -> Optional[int]:
@@ -309,7 +294,7 @@ async def search_keyword_endpoint(
     정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —
     원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.
     """
-    ip = _client_ip(request)
+    ip = client_ip(request)
     _rate_limit_or_429(
         _search_hits, ip, _SEARCH_RATE_LIMIT,
         "검색 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
@@ -343,7 +328,7 @@ async def search_places_endpoint(
     q: str = Query(..., min_length=1, max_length=100, description="장소·메뉴·업종 검색어"),
 ):
     """장소·메뉴·업종으로 경주 카페/식당을 검색한다. 좌표는 같은 Kakao 레코드만 쓴다."""
-    ip = _client_ip(request)
+    ip = client_ip(request)
     _rate_limit_or_429(
         _place_search_hits, ip, _PLACE_SEARCH_RATE_LIMIT,
         "검색 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
@@ -374,7 +359,7 @@ async def create_ingest_request(req: IngestRequestCreate, request: Request):
     무인증 + IP 당 분당 3회 제한. contentid 가 이미 요청돼 있으면(UNIQUE) 조용히 무시한다
     (ignore_duplicates=True — 상태와 무관하게 재요청이 기존 행을 덮어쓰지 않는다).
     """
-    ip = _client_ip(request)
+    ip = client_ip(request)
     _rate_limit_or_429(
         _ingest_hits, ip, _INGEST_RATE_LIMIT,
         "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",

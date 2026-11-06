@@ -6,7 +6,7 @@ import { adminApi } from '@/lib/admin-api';
 import { useCountUp } from '@/lib/useCountUp';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
-import { SCENARIO_BADGE, basisSubline, scenarioKpis, type KpiBasis, type LoopSamples } from '@/lib/adminPredictedView';
+import { MIN_RATE_SAMPLES, hasEnoughSamples } from '@/lib/adminLoopMetrics';
 
 // 서버가 보내는 영문 키를 화면 말로 바꾸는 사전. **매핑에 없는 키는 줄에서 뺀다** —
 // 원문 그대로 내보내면 `degraded_rules 12` 같은 내부 코드가 관제 화면에 그대로 찍힌다.
@@ -67,7 +67,8 @@ interface TrustResponse {
   model: { trained: boolean; version: string | null; real_data_count: number; mae: number | null };
   registry: { training_started_at: string; training_ended_at: string; source_composition: Record<string, number>; metrics: { baseline_improvement?: number; per_type_mae?: Record<string, number> } } | null;
   funnel: { exposures: number; navigations: number; arrivals: number; positive_ratings: number; verified_visit_success_rate: number };
-  top3_evidence: { coverage_rate: number; fresh_rate: number; fresh_trusted_measured_rate: number; operating_hours_rate: number };
+  /** count = 비율의 분모(창 안 Top 3 추천 수) — 옛 서버면 없을 수 있다. */
+  top3_evidence: { count?: number; coverage_rate: number; fresh_rate: number; fresh_trusted_measured_rate: number; operating_hours_rate: number };
   collection: {
     observations: number;
     trusted_observations: number;
@@ -102,44 +103,20 @@ function AnimatedKpiValue({ value }: { value: string | number }) {
   return <>{pctMatch ? `${animated.toFixed(decimals)}%` : animated}</>;
 }
 
-export function ModelTrustPanel({
-  loopBasis = 'measured',
-  onMeasuredSamples,
-}: {
-  /** 추천 고리 공동 판정(페이지의 resolveLoopBasis) — 'scenario' 일 때만 시나리오 깔때기. null = 판정 전. 기본은 실측. */
-  loopBasis?: KpiBasis | null;
-  /** 깔때기 창(지난 30일 노출)의 실측 표본 수를 페이지에 알린다(실패·모양 불일치면 'failed'). */
-  onMeasuredSamples?: (samples: LoopSamples) => void;
-} = {}) {
+/** 깔때기·근거 타일 한 칸 — note 는 값 아래 작은 글씨(표본 수 등). */
+type TrustTile = { label: string; value: string | number; note?: string };
+
+export function ModelTrustPanel() {
   const [data, setData] = useState<TrustResponse | null>(null);
-  const [failed, setFailed] = useState(false);
-  // 응답 도착 시각(ms) — 시나리오 깔때기의 시각 입력. 렌더 중 시계를 읽지 않아 같은 응답은 같은 숫자다.
-  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
     adminApi.get('/api/v1/admin/model-trust').then((value: TrustResponse) => {
-      if (active) {
-        setData(value);
-        setLoadedAt(Date.now());
-      }
+      if (active) setData(value);
     }).catch(() => {
-      // 헤더 상태 배지가 별도로 장애를 알린다. 여기서는 공동 판정에서 이 패널을 빼도록 표시만 한다.
-      if (active) setFailed(true);
+      // 헤더 상태 배지가 별도로 장애를 알린다 — 부가 정보 패널은 조용히 빠진다(아래 모양 가드와 같은 처리).
     });
     return () => { active = false; };
   }, []);
-  // 페이지에 깔때기 창의 표본 수를 알린다. 조회 실패·모양 불일치(아래에서 패널이 통째로 빠진다)는 'failed'.
-  useEffect(() => {
-    if (!onMeasuredSamples) return;
-    if (failed) {
-      onMeasuredSamples('failed');
-      return;
-    }
-    if (!data) return;
-    const exposures = data.funnel?.exposures;
-    const shapeOk = !!(data.funnel && data.guardrails && data.collection && data.top3_evidence);
-    onMeasuredSamples(shapeOk && typeof exposures === 'number' && Number.isFinite(exposures) ? exposures : 'failed');
-  }, [data, failed, onMeasuredSamples]);
   // `!data` 만 보면 부족하다. **응답이 오긴 왔는데 모양이 다른 경우**가 이 가드를 그대로
   // 통과해 아래 `data.guardrails.warnings` 에서 터졌고, 그러면 이 패널 하나가 아니라
   // **관리자 대시보드 전체가 에러 바운더리로 떨어졌다**(브라우저에서 재현: 화면에 남는 것은
@@ -166,38 +143,35 @@ export function ModelTrustPanel({
   const estimatedObservations = Object.entries(data.collection.by_source)
     .filter(([key]) => key in ESTIMATED_LOG_SOURCES)
     .reduce((sum, [, value]) => sum + (value || 0), 0);
-  // 깔때기 전환(2026-09-22 PM 결정, 2026-09-26 공동 판정): 창은 **지난 30일 노출**(서버 model-trust 기본
-  // days=30)이다. 추천 고리 네 패널(수락률·DAU·분산 효과·깔때기)이 모두 실측 5건 미만일 때만(loopBasis ===
-  // 'scenario') 네 단계 타일을 시나리오 깔때기(lib/adminPredictedView.scenarioKpis — 도입 목표 패턴의 하루
-  // 총량 × KST 진행률)로 채우고 '시나리오' 배지를 단다. 하나라도 실측 5건 이상이면 실측 타일 그대로다 —
-  // 수락률 타일이 실측 '5,000건 중 0건' 인데 여기만 시나리오 길찾기 384건이면 두 숫자가 서로를 거짓으로 만든다.
-  // 판정 전(null)에는 숫자 자리를 '—' 로 둔다. Top 3 근거율 세 카드는 서버 비율 그대로다.
-  const pending = loopBasis === null;
-  const scenario = loopBasis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
-  const scenarioLine = scenario ? basisSubline({ basis: 'scenario', measuredCount: funnel.exposures, unit: '건' }) : null;
-  const funnelCards = (pending
-    ? ([['추천 노출', '—'], ['길찾기', '—'], ['방문 확인', '—'], ['긍정 평가', '—']] as const)
-    : scenario
-    ? ([
-        ['추천 노출', scenario.funnel.offered], ['길찾기', scenario.funnel.navigated], ['방문 확인', scenario.funnel.arrived],
-        ['긍정 평가', scenario.funnel.positive],
-        ['안내 후 방문 전환', scenario.funnel.navigated > 0 ? `${((scenario.funnel.arrived / scenario.funnel.navigated) * 100).toFixed(1)}%` : '0.0%'],
-      ] as const)
-    : ([
-        ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
-        ['긍정 평가', funnel.positive_ratings],
-        // '노출→긍정' 복합 비율은 싣지 않는다: 노출에는 화면에 스친 수동 노출(프리페치 포함)이
-        // 섞여 있어 구성상 낮게 나오는 지표다 — 단계 절대값 타일이 이미 깔때기 전체를 말하고,
-        // 여기서는 인접 타일 두 개(길찾기·방문 확인)로 정의가 자명한 단계 전환율만 싣는다.
-        ['안내 후 방문 전환', funnel.navigations > 0 ? `${((funnel.arrivals / funnel.navigations) * 100).toFixed(1)}%` : '0.0%'],
-      ] as const)
-  ).filter(([, value]) => value !== '0.0%');
-  const evidenceCards = ([
-    ['Top 3 혼잡 근거율', `${(data.top3_evidence.coverage_rate * 100).toFixed(1)}%`],
-    ['Top 3 최신 검증 실측률', `${(data.top3_evidence.fresh_trusted_measured_rate * 100).toFixed(1)}%`],
-    ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
-    // 비율 지표는 표본이 쌓여 계산된 경우에만 카드로 표시한다.
-  ] as const).filter(([, value]) => value !== '0.0%');
+  // 깔때기(지난 30일, 서버 model-trust 기본 days=30) — 단계 건수는 실측 그대로 적는다(건수는 사실이다).
+  // 비율 타일은 분모가 하한(MIN_RATE_SAMPLES) 이상일 때만 숫자로, 아니면 '표본 부족' 과 분모를 적는다.
+  // 운영 화면은 표본이 모자라도 데모 값(시나리오 깔때기)으로 채우지 않는다(2026-10-31 P0-3).
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const funnelCards: TrustTile[] = [
+    { label: '추천 노출', value: funnel.exposures },
+    { label: '길찾기', value: funnel.navigations },
+    { label: '방문 확인', value: funnel.arrivals },
+    { label: '긍정 평가', value: funnel.positive_ratings },
+    // '노출→긍정' 복합 비율은 싣지 않는다: 노출에는 화면에 스친 수동 노출(프리페치 포함)이
+    // 섞여 있어 구성상 낮게 나오는 지표다 — 단계 절대값 타일이 이미 깔때기 전체를 말하고,
+    // 여기서는 인접 타일 두 개(길찾기·방문 확인)로 정의가 자명한 단계 전환율만 싣는다.
+    hasEnoughSamples(funnel.navigations)
+      ? { label: '안내 후 방문 전환', value: pct(funnel.arrivals / funnel.navigations), note: `길찾기 ${funnel.navigations}건 기준` }
+      : { label: '안내 후 방문 전환', value: '표본 부족', note: `길찾기 ${funnel.navigations}건 / 필요 ${MIN_RATE_SAMPLES}건` },
+  ];
+  // Top 3 근거율 — 분모는 창 안 Top 3 추천 수(count). 분모를 알면 하한 미만은 '표본 부족', 이상이면 0.0% 도 실측이라
+  // 그대로 적는다. 옛 서버라 count 가 없으면 예전처럼 비율만 적고 0.0%(계산 전과 구분할 수 없다)는 뺀다.
+  const top3Count = data.top3_evidence.count;
+  const evidenceRates: TrustTile[] = [
+    { label: 'Top 3 혼잡 근거율', value: pct(data.top3_evidence.coverage_rate) },
+    { label: 'Top 3 최신 검증 실측률', value: pct(data.top3_evidence.fresh_trusted_measured_rate) },
+    { label: 'Top 3 영업시간 근거율', value: pct(data.top3_evidence.operating_hours_rate) },
+  ];
+  const evidenceCards: TrustTile[] = typeof top3Count !== 'number'
+    ? evidenceRates.filter((tile) => tile.value !== '0.0%')
+    : hasEnoughSamples(top3Count)
+      ? evidenceRates.map((tile) => ({ ...tile, note: `Top 3 ${top3Count}건 기준` }))
+      : [{ label: 'Top 3 근거율', value: '표본 부족', note: `Top 3 ${top3Count}건 / 필요 ${MIN_RATE_SAMPLES}건` }];
   // ML 후보 학습 관문까지의 진행 — 관문 = 검증 관측 + 남은 수(서버 remaining_to_candidate). 막대는 검증 관측이
   // 1건 이상일 때만 그린다(2026-09-26 검증 반영) — 0% 빈 막대는 '멈춘 기능' 으로 읽힌다. 남은 건수는 바로 위
   // 문장('검증 관측 N건이 더 쌓이면 …')이 이미 말한다.
@@ -212,24 +186,16 @@ export function ModelTrustPanel({
         <div>
           <h3 className="flex items-center gap-2 font-bold text-hanok-ink">
             <ShieldCheck size={18} className="text-emerald-700" />추천 신뢰도
-            {scenario && (
-              <span
-                title={scenarioLine ?? undefined}
-                className="rounded-full border border-dashed bg-amber-500/15 px-2 py-0.5 text-[11px] font-black text-amber-800 border-amber-400/60"
-              >
-                {SCENARIO_BADGE}
-              </span>
-            )}
           </h3>
           <p className="mt-1 text-xs text-hanok-muted">
+            {/* 지금 사실만 — 앞으로 일어날지 모르는 '자동 승격' 을 약속하지 않는다(주간 학습은 실패할 수 있다). */}
             {data.model.trained
               ? `${data.model.version} · 검증 실데이터 ${data.model.real_data_count}건 · MAE ${((data.model.mae ?? 0) * 100).toFixed(1)}%p`
-              : '취향·실제 이동시간·혜택 3축 SPOT 엔진으로 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다'}
+              : '학습된 예측 모델 없음 — 취향·이동시간·혜택 규칙(SPOT)으로 추천 중'}
           </p>
-          {scenarioLine && <p className="mt-1 text-[11px] text-amber-800/90">{scenarioLine}</p>}
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${alerts.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
-          {alerts.length ? `점검 항목 ${alerts.length}건` : '추천 품질 점검 정상'}
+          {alerts.length ? `점검 항목 ${alerts.length}건` : '점검 항목 없음'}
         </span>
       </div>
       {/* 절단 경고는 **숫자 바로 위**에 둔다. 같은 사실이 아래 경고 목록에도
@@ -245,17 +211,15 @@ export function ModelTrustPanel({
         </p>
       )}
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        {funnelCards.map(([label, value]) => (
-          <div
-            key={label}
-            title={scenario ? `${SCENARIO_BADGE} · ${scenarioLine ?? ''}` : undefined}
-            className={`rounded-xl bg-hanok-card p-3 ${scenario ? 'border border-dashed border-amber-400/50' : 'border border-hanok-line'}`}
-          >
-            <p className="text-[10px] text-hanok-muted">{label}{scenario ? ` · ${SCENARIO_BADGE}` : ''}</p>
-            <p className={`mt-1 text-lg font-black ${scenario ? 'text-amber-900' : 'text-hanok-ink'}`}><AnimatedKpiValue value={value} /></p>
+        {[...funnelCards, ...evidenceCards].map((tile) => (
+          <div key={tile.label} className="rounded-xl border border-hanok-line bg-hanok-card p-3">
+            <p className="text-[10px] text-hanok-muted">{tile.label}</p>
+            <p className={`mt-1 text-lg font-black ${tile.value === '표본 부족' ? 'text-hanok-muted' : 'text-hanok-ink'}`}>
+              <AnimatedKpiValue value={tile.value} />
+            </p>
+            {tile.note && <p className="mt-0.5 text-[10px] text-hanok-muted">{tile.note}</p>}
           </div>
         ))}
-        {evidenceCards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink"><AnimatedKpiValue value={value} /></p></div>)}
       </div>
       {/* 실데이터 수집 현황은 관측 0건이어도 그린다(2026-09-22) — 활성 시설 수와 후보 학습 관문까지의
           진행이 이 화면이 지금 말할 수 있는 사실이고, 블록이 사라지면 '수집 자체가 없다' 로 읽힌다. */}
