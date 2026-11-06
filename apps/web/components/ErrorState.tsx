@@ -11,11 +11,18 @@ import { useT } from '@/lib/i18n/I18nProvider';
  */
 export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   const t = useT();
+  // role="alert": 로딩 중이던 자리가 실패 블록으로 바뀌어도 스크린리더는 아무 말이 없었다 — 시각으로는
+  // 빨간 테두리가 보이지만 보조기기 사용자는 결과가 비어 있는 줄 안다(빈 상태와 실패를 가르려고 만든 블록인데
+  // 정작 음성으로는 구분이 안 됐다). 이모지는 장식 — 메시지가 이미 실패를 말하므로 읽지 않는다.
   return (
-    <div className="bg-white rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
-      <div className="text-3xl">⚠️</div>
+    <div
+      role="alert"
+      className="bg-white rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3"
+    >
+      <div className="text-3xl" aria-hidden>⚠️</div>
       <p className="text-sm font-semibold text-muk">{message}</p>
       <button
+        type="button"
         onClick={onRetry}
         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
       >
