@@ -219,7 +219,8 @@
     "merchantConsole": "商家控制台",
     "adminDashboard": "运营仪表盘",
     "merchantShort": "商家",
-    "adminShort": "运营"
+    "adminShort": "运营",
+    "primaryAria": "主导航"
   },
   "console": {
     "openMerchant": "打开商家控制台",

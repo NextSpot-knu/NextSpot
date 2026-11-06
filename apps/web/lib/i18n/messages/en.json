@@ -219,7 +219,8 @@
     "merchantConsole": "Merchant console",
     "adminDashboard": "Operations dashboard",
     "merchantShort": "Merchant",
-    "adminShort": "Dashboard"
+    "adminShort": "Dashboard",
+    "primaryAria": "Primary navigation"
   },
   "console": {
     "openMerchant": "Open merchant console",

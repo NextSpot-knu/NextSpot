@@ -87,7 +87,7 @@ export default function BottomNav() {
       {/* 지도(/main)와 분산코스(/course)는 화면이 캡슐 뒤까지 이어진다(10-20 PM: 캡슐 뒤가 잘린 듯 비어 보이지 않게) — 본문 쪽에서 --rail-gutter 만큼 비운다. */}
       {!['/main', '/course'].some((r) => pathname === r || pathname.startsWith(r + '/')) && <div aria-hidden className="hidden shrink-0 md:block w-[var(--rail-gutter)]" />}
       <nav
-        aria-label="주요 내비게이션"
+        aria-label={t('nav.primaryAria')}
         className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
         {/* 탭 캡슐 — 선택 표시는 합성 가능한 transform 으로 이동해 페이지 전환 중에도 부드럽게 반응한다. */}
@@ -152,7 +152,7 @@ export default function BottomNav() {
 
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}
       <nav
-        aria-label="주요 내비게이션"
+        aria-label={t('nav.primaryAria')}
         className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
         {/* 안내 줄 — 왼쪽 서비스 소개, 오른쪽 콘솔 입구 두 개(12px). 줄 높이는 그대로라 페이지 하단 여백이 바뀌지 않는다. */}

@@ -219,7 +219,8 @@
     "merchantConsole": "사장님 콘솔",
     "adminDashboard": "관제 대시보드",
     "merchantShort": "사장님 콘솔",
-    "adminShort": "관제 대시보드"
+    "adminShort": "관제 대시보드",
+    "primaryAria": "주요 내비게이션"
   },
   "landing": {
     "tagline": "줄 서는 대신, 경주를 한 곳 더.",

@@ -219,7 +219,8 @@
     "merchantConsole": "オーナー\u200bコンソール",
     "adminDashboard": "運営\u200bダッシュボード",
     "merchantShort": "オーナー",
-    "adminShort": "運営"
+    "adminShort": "運営",
+    "primaryAria": "メインナビゲーション"
   },
   "console": {
     "openMerchant": "オーナーコンソールを開く",
