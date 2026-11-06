@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { MapPin, Toilet, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { apiClient } from '@/lib/api-client';
@@ -20,6 +20,18 @@ export default function RestroomChip({ location }: { location: { lat: number; ln
   const t = useT();
   const [items, setItems] = useState<Restroom[]>([]);
   const [open, setOpen] = useState(false);
+  const titleId = useId();
+
+  // 시트가 열려 있으면 Esc 로 닫는다 — 바깥 탭으로만 닫히던 시트는 키보드·스크린리더 사용자가 빠져나올 길이
+  // 닫기 버튼 하나뿐이었다(포커스가 목록 안에 있으면 그 버튼까지 되돌아가야 한다).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
 
   useEffect(() => {
     if (!location) return;
@@ -44,9 +56,17 @@ export default function RestroomChip({ location }: { location: { lat: number; ln
     </button>
     {open && typeof document !== 'undefined' && createPortal(
       <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-black/30" onClick={() => setOpen(false)}>
-        <section className="max-h-[70vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-hanji p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        {/* role="dialog" + aria-modal: 포털로 body 끝에 붙는 시트라 보조기기에는 페이지 맨 아래 생긴 목록으로만
+            들렸다 — 제목(h2)을 이름으로 묶어 "공중화장실, 대화상자"로 들리게 한다. */}
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="max-h-[70vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-hanji p-5 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
           <div className="mb-4 flex items-start justify-between">
-            <div><h2 className="text-lg font-bold text-muk">{t('restroom.title')}</h2><p className="text-xs text-muk-soft">{t('restroom.subtitle')}</p></div>
+            <div><h2 id={titleId} className="text-lg font-bold text-muk">{t('restroom.title')}</h2><p className="text-xs text-muk-soft">{t('restroom.subtitle')}</p></div>
             <button type="button" onClick={() => setOpen(false)} aria-label={t('common.close')} className="rounded-full p-2 hover:bg-hanji-deep"><X size={18} /></button>
           </div>
           <div className="space-y-2">
