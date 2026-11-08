@@ -472,13 +472,14 @@ export type TripOverlayCard = 'visit' | 'journey' | null;
 
 /**
  * 카드별 최소 높이(dp) — 남은 자리가 이보다 작으면 카드를 감춘다. 카드는 접은 판 없이 하나의 판을 그리고 남은 높이 안에서
- * 스크롤되므로(자리가 좁으면 위쪽만), 이 값은 '맨 위 이름 줄 + 첫 행동 줄' 이 스크롤 없이 보이는 높이다
- * (카드 위 여백 16 + 이름 줄 22 + 사이 10~12 + 버튼 44 = 92 에 여유 4. 글자 크기를 키우면 넘치는 만큼 스크롤된다).
- * 411×833dp 에서 시트를 기본 높이(52%)로 올리면 남은 자리가 약 103dp 라 두 카드 모두 이 줄까지 보인다.
+ * 스크롤되므로(자리가 좁으면 위쪽만, 스크롤 막대 표시), 이 값은 '맨 위 이름 줄 전체 + 첫 행동 버튼의 윗부분(누를 수 있는 20dp 남짓)'
+ * 이 보이는 높이다(카드 위 여백 16 + 이름 줄 20~22 + 사이 10~12 + 버튼 20). 버튼 전체(+24)는 자리가 92dp 를 넘으면 보인다.
+ * 기준 화면: 411×833dp 는 시트 기본 높이(52%)에서 남은 자리가 약 103dp(버튼까지 다 보임), 360×780dp 는 약 83dp
+ * (이름 + 버튼 윗부분). 예전 접은 판(62dp)이 들어가던 자리에서 카드가 사라지지 않게 그보다 크게 잡지 않는다.
  *   journey — 진행 중 여행: '진행 중 · 이름' 한 줄 → 도착했어요 / 아직 가는 중 / 상황 변경 → (도보 시간 · 상황 변경 · 길안내 다시 열기)
- *   visit   — 방문 확인: 질문 한 줄 → 아직이요 / 네 → (설명 · 단계 점). 혼잡 단계는 버튼이 60dp 라 아래 끝이 조금 스크롤된다.
+ *   visit   — 방문 확인: 질문 한 줄 → 아직이요 / 네 → (설명 · 단계 점). 혼잡 단계는 버튼이 60dp 다.
  */
-export const TRIP_CARD_HEIGHT = { journey: 96, visit: 96 } as const;
+export const TRIP_CARD_HEIGHT = { journey: 68, visit: 68 } as const;
 
 export interface TripOverlayInput {
   /** 방문 확인 카드가 그릴 것이 있다(때가 된 방문 — 답하는 중 · 고마워요 단계 포함). 카드가 알려 준다. */
@@ -489,6 +490,11 @@ export interface TripOverlayInput {
   searching: boolean;
   /** 위 칩 줄 아래부터 아래 시트·배너·키보드 위까지 남은 높이(dp). */
   room: number;
+  /**
+   * 여정 카드 안 입력 칸(상황 변경)에 쓰는 중이다. 그 입력으로 올라온 키보드가 자리를 줄여 카드를 감추면 → 키보드가 닫히고 →
+   * 다시 보이는 고리가 생기므로, 쓰는 동안은 자리가 모자라도 감추지 않는다(최소 높이만큼은 보인다 — tripScrollMaxHeight).
+   */
+  typing?: boolean;
 }
 
 export interface TripOverlay {
@@ -511,8 +517,14 @@ export function pickTripOverlay(input: TripOverlayInput): TripOverlay {
   const card: TripOverlayCard = input.visitActive ? 'visit' : input.journeyActive ? 'journey' : null;
   const room = Number.isFinite(input.room) ? input.room : 0;
   if (!card) return { card: null, hidden: true };
-  const hidden = input.searching || room < TRIP_CARD_HEIGHT[card];
+  const hidden = input.searching || (!input.typing && room < TRIP_CARD_HEIGHT[card]);
   return { card, hidden };
+}
+
+/** 여정 카드 스크롤의 최대 높이 — 남은 자리. 입력 칸에 쓰는 중이면 키보드가 자리를 줄여도 최소 높이만큼은 남긴다. */
+export function tripScrollMaxHeight(room: number, card: TripOverlayCard, typing: boolean): number {
+  const r = Number.isFinite(room) ? Math.max(0, room) : 0;
+  return typing && card ? Math.max(r, TRIP_CARD_HEIGHT[card]) : r;
 }
 
 /** 카드가 쓸 수 있는 높이 — 위 칩 줄 아래(top)부터 아래에서 가린 두께(bottomCover) 위까지, 사이 여백 8씩. */

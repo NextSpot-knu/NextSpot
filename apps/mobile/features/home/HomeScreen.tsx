@@ -63,6 +63,7 @@ import {
   orderForPins,
   petDataExists,
   pickTripOverlay,
+  tripScrollMaxHeight,
   tripOverlayRoom,
   selectByCategoryOrSearch,
   shouldAskExternal,
@@ -164,6 +165,7 @@ export function HomeScreen() {
   const tripScrollRef = useRef<ScrollView>(null);
   const tripContentRef = useRef<View>(null);
   const tripInputFocusedRef = useRef(false);
+  const [tripTyping, setTripTyping] = useState(false);
   const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const later = useCallback((fn: () => void, ms: number) => {
     const id = setTimeout(() => { timersRef.current.delete(id); fn(); }, ms);
@@ -192,9 +194,10 @@ export function HomeScreen() {
       rootRef.current?.measureInWindow((_x, y, _w, h) => setKeyboardCover(keyboardCoverFor({
         rootY: y, rootH: h, windowH, screenH, keyboardH: e.endCoordinates.height, navBar,
       })));
+      setTripTyping(tripInputFocusedRef.current);
       later(revealFocusedInput, 120); // 줄어든 자리로 다시 그린 뒤
     });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardCover(0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => { setKeyboardCover(0); setTripTyping(false); });
     return () => { show.remove(); hide.remove(); };
   }, [revealFocusedInput, later]);
   // 여정 카드가 그릴 것이 있는가 — 카드가 알려 준다(둘 다 늘 붙어 있다).
@@ -576,7 +579,7 @@ export function HomeScreen() {
   const overlayTop = headerH + 8;
   const sheetCover = sheetShown && sheetState ? Math.round(containerH * SHEET_SNAP_RATIO[sheetState]) : 0;
   const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
-  const tripOverlay = pickTripOverlay({ visitActive, journeyActive, searching: showSearchPanel, room: tripRoom });
+  const tripOverlay = pickTripOverlay({ visitActive, journeyActive, searching: showSearchPanel, room: tripRoom, typing: tripTyping });
   const tripHidden = tripOverlay.card === null || tripOverlay.hidden;
   // 감춘 카드 안 입력 칸에 키보드가 남지 않게(검색 판이 열리거나 시트를 올림).
   useEffect(() => {
@@ -834,7 +837,7 @@ export function HomeScreen() {
       >
         <ScrollView
           ref={tripScrollRef}
-          style={[overlayWidth, { maxHeight: tripRoom, flexGrow: 0 }]}
+          style={[overlayWidth, { maxHeight: tripScrollMaxHeight(tripRoom, tripOverlay.card, tripTyping), flexGrow: 0 }]}
           keyboardShouldPersistTaps="handled"
           persistentScrollbar
         >
@@ -849,8 +852,8 @@ export function HomeScreen() {
               <ActiveJourneyCard
                 location={userPoint}
                 onActiveChange={setJourneyActive}
-                onInputFocus={() => { tripInputFocusedRef.current = true; later(revealFocusedInput, 350); }}
-                onInputBlur={() => { tripInputFocusedRef.current = false; }}
+                onInputFocus={() => { tripInputFocusedRef.current = true; setTripTyping(true); later(revealFocusedInput, 350); }}
+                onInputBlur={() => { tripInputFocusedRef.current = false; setTripTyping(false); }}
               />
             </View>
           </View>

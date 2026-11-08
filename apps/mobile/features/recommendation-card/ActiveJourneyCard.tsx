@@ -1,9 +1,9 @@
-import { Navigation, RefreshCw } from 'lucide-react-native';
+import { Navigation, RefreshCw, X } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, TextInput, View } from 'react-native';
+import { AppState, Keyboard, TextInput, View } from 'react-native';
 
-import { Button, Card, Chip, Icon, Pressable, Text } from '~/components/ui';
+import { Button, Card, Chip, Icon, IconButton, Pressable, Text } from '~/components/ui';
 import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { parseTravelContext, recommendByType, type PlaceCategory, type TravelContext } from '~/lib/core/apiClient';
 import type { RequiredAttribute } from '~/lib/core/travelContextTypes';
@@ -264,8 +264,12 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
       {car && <Text className="mt-[8px] text-[12px] leading-[16px] text-muk-soft">{t('trip.driveBasisHint')}</Text>}
 
       {changeOpen && (
-        <View className="mt-[12px] gap-[8px] border-t border-line pt-[12px]">
-          <Text className="text-[12px] leading-[16px]" weight="bold">{t('trip.changeTitle')}</Text>
+        <View className="mt-[12px] gap-[8px] border-t border-line pt-[4px]">
+          {/* 펼친 상황 변경은 길다 — 맨 위에서 바로 닫을 수 있게(아래 '취소' 는 조건을 고르기 시작해야 보인다). */}
+          <View className="flex-row items-center gap-[8px]">
+            <Text className="min-w-0 flex-1 text-[12px] leading-[16px]" weight="bold">{t('trip.changeTitle')}</Text>
+            <IconButton icon={X} accessibilityLabel={t('common.close')} onPress={() => { haptic('selection'); Keyboard.dismiss(); setChangeOpen(false); }} />
+          </View>
           <Button label={busy ? t('common.loading') : t('trip.confirmContext')} loading={busy} onPress={() => void replan()} />
           {notice && (
             <View accessibilityLiveRegion="polite" className="rounded-xl bg-terracotta/10 px-[12px] py-[8px]">

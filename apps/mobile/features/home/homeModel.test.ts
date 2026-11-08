@@ -18,6 +18,7 @@ import {
   keyboardCoverFor,
   orderForPins,
   pickTripOverlay,
+  tripScrollMaxHeight,
   TRIP_CARD_HEIGHT,
   tripOverlayRoom,
   resolveUserLocation,
@@ -204,6 +205,15 @@ console.log('homeModel ok');
   assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.journey - 1 }).hidden, true);
   assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: Number.NaN }).hidden, true);
   assert.ok(!('compact' in pickTripOverlay({ visitActive: true, journeyActive: false, ...roomy })), '판 모양을 고르지 않는다');
+  // 예전 접은 판(62dp)이 들어가던 짧은 화면에서도 사라지지 않게 최소 높이를 크게 잡지 않는다
+  assert.ok(TRIP_CARD_HEIGHT.journey <= 70 && TRIP_CARD_HEIGHT.visit <= 70);
+  // 상황 변경 입력에 쓰는 동안은 키보드가 자리를 줄여도 감추지 않는다(감춤 → 키보드 닫힘 → 다시 보임 고리 방지). 검색 판은 그대로 감춘다.
+  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: 10, typing: true }).hidden, false);
+  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: true, room: 400, typing: true }).hidden, true);
+  assert.equal(tripScrollMaxHeight(10, 'journey', true), TRIP_CARD_HEIGHT.journey);
+  assert.equal(tripScrollMaxHeight(10, 'journey', false), 10);
+  assert.equal(tripScrollMaxHeight(300, 'journey', true), 300);
+  assert.equal(tripScrollMaxHeight(Number.NaN, 'visit', false), 0);
   // 남은 높이: 컨테이너 − 위 − 아래 − 8
   assert.equal(tripOverlayRoom(800, 200, 300), 292);
   assert.equal(tripOverlayRoom(800, 500, 400), 0);
