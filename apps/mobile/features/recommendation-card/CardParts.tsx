@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
 
-import { Icon, Pressable, Text, cn } from '~/components/ui';
+import { Icon, Text, cn } from '~/components/ui';
 
 import type { ChipTone } from './cardModel';
 
@@ -24,17 +24,32 @@ const TONE_TEXT: Record<ChipTone, string> = {
   neutral: 'text-muk',
 };
 
-/** 큰 글자에서 잘리지 않게 min-h(웹 h-8 = 32pt). 추정(실측 아님)은 점선 테두리. */
-export function BenefitChip({ tone = 'neutral', dashed = false, children }: { tone?: ChipTone; dashed?: boolean; children: string }) {
+/**
+ * 큰 글자에서 잘리지 않게 min-h(웹 h-8 = 32pt). 추정(실측 아님)은 점선 테두리.
+ * small — 추천 시트 머리(가장 낮은 높이 안)의 경고 칩: 12px 한 줄, 글자 확대 상한 maxFontScale.
+ */
+export function BenefitChip({
+  tone = 'neutral',
+  dashed = false,
+  small = false,
+  maxFontScale,
+  children,
+}: {
+  tone?: ChipTone;
+  dashed?: boolean;
+  small?: boolean;
+  maxFontScale?: number;
+  children: string;
+}) {
   return (
     <View
       className={cn(
-        'min-h-[32px] flex-row items-center rounded-full border px-[12px] py-[4px]',
+        small ? 'flex-row items-center rounded-full border px-[8px] py-[1px]' : 'min-h-[32px] flex-row items-center rounded-full border px-[12px] py-[4px]',
         TONE[tone],
         dashed ? 'border-dashed' : '',
       )}
     >
-      <Text className={cn('text-[14px] leading-[18px]', TONE_TEXT[tone])} weight="bold">
+      <Text className={cn(small ? 'text-[12px] leading-[16px]' : 'text-[14px] leading-[18px]', TONE_TEXT[tone])} weight="bold" {...(maxFontScale ? { maxFontSizeMultiplier: maxFontScale } : null)}>
         {children}
       </Text>
     </View>
@@ -53,34 +68,5 @@ export function DetailRow({ icon, label, children, flash }: { icon: LucideIcon; 
         {children}
       </View>
     </View>
-  );
-}
-
-/** 상자를 여닫는 전폭 버튼(상세 펼치기 · 추천 근거 자세히). 44pt. */
-export function ToggleButton({
-  label,
-  expanded,
-  onPress,
-  icon,
-  testID,
-}: {
-  label: string;
-  expanded: boolean;
-  onPress: () => void;
-  icon: ReactNode;
-  testID?: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ expanded }}
-      onPress={onPress}
-      testID={testID}
-      className="min-h-[44px] flex-row items-center justify-center gap-[6px] rounded-2xl border border-gold/40 bg-gold/5 px-[12px] py-[8px]"
-    >
-      {icon}
-      <Text className="text-[13px] leading-[18px] text-gold-deep" weight="bold">{label}</Text>
-    </Pressable>
   );
 }

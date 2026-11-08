@@ -16,14 +16,15 @@ interface GoldenHour {
 
 /**
  * 골든타임 — '오늘 한산: 16~17시'. 웹 GoldenHourBadge 의 알림 예약(브라우저 Notification)은 옮기지 않았다 — 앱 v1 은 알림이 없다(계획 §3.1).
- * 백엔드 미기동·실패·모델 미학습은 조용히 숨긴다.
+ * 백엔드 미기동·실패·모델 미학습은 조용히 숨긴다. enabled 가 false 면 부르지 않는다(추천 시트가 펼침에 닿기 전).
  */
-export function GoldenHourLine({ facilityId }: { facilityId: string }) {
+export function GoldenHourLine({ facilityId, enabled = true }: { facilityId: string; enabled?: boolean }) {
   const t = useT();
   const [data, setData] = useState<GoldenHour | null>(null);
   useEffect(() => {
-    let active = true;
     setData(null);
+    if (!enabled) return;
+    let active = true;
     apiClient
       .get(`/predict/golden-hour?facilityId=${encodeURIComponent(facilityId)}`)
       .then((res) => active && setData(res as GoldenHour))
@@ -31,7 +32,7 @@ export function GoldenHourLine({ facilityId }: { facilityId: string }) {
     return () => {
       active = false;
     };
-  }, [facilityId]);
+  }, [facilityId, enabled]);
   if (!data?.available || data.start == null || data.end == null) return null;
   return (
     <View className="min-h-[32px] flex-row items-center gap-[6px] self-start rounded-full border border-jade/30 bg-jade/10 px-[10px] py-[4px]">
@@ -61,7 +62,7 @@ interface DayPrediction {
   bestCongestion: number;
 }
 
-/** 오늘 24시간 예측 막대 — 상세를 펼쳤을 때만 불러온다. 실패는 조용히 숨긴다. */
+/** 오늘 24시간 예측 막대 — enabled 일 때만 불러온다(추천 시트는 그 장소에서 시트를 펼침까지 올린 뒤). 실패는 조용히 숨긴다. */
 export function DayForecast({ facilityType, enabled }: { facilityType: string; enabled: boolean }) {
   const t = useT();
   const [pred, setPred] = useState<DayPrediction | null>(null);

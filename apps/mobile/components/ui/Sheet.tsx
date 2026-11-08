@@ -5,11 +5,16 @@ import BottomSheet, {
   type BottomSheetBackdropProps,
   type BottomSheetBackgroundProps,
   type BottomSheetHandleProps,
+  type ScrollEventsHandlersHookType,
+  SCROLLABLE_STATUS,
+  SHEET_STATE,
+  useBottomSheetInternal,
+  useScrollEventsHandlersDefault,
 } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BackHandler, Platform, StyleSheet, useWindowDimensions, View, type AccessibilityActionEvent } from 'react-native';
-import { ReduceMotion } from 'react-native-reanimated';
+import { BackHandler, Platform, StyleSheet, useWindowDimensions, View, type AccessibilityActionEvent, type NativeScrollEvent } from 'react-native';
+import { ReduceMotion, scrollTo, useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 웹 lib/sheetSnap.ts 의 상태 이름을 그대로 쓴다(순수 모듈 — check:shared 통과).
@@ -18,6 +23,57 @@ import { colors, springs } from '~/lib/theme/tokens';
 
 export type { SheetState };
 export { BottomSheetScrollView as SheetScrollView, BottomSheetView as SheetView } from '@gorhom/bottom-sheet';
+
+type LockContext = { shouldLockInitialPosition?: boolean; initialContentOffsetY?: number };
+
+/**
+ * SheetScrollView 의 scrollEventsHandlersHook — 시트가 가장 높은 높이 아래로 내려가면 내용을 늘 맨 위로 되돌린다.
+ * gorhom 기본(useScrollEventsHandlersDefault)은 펼침에서 스크롤해 둔 위치 그대로 잠가서, 손잡이로 끌어 내리면 낮은 높이에
+ * 사진·상세의 한 조각만 보이고 머리(이름·행동 버튼)가 사라진다. 높이와 상관없이 한 판을 위쪽부터 보여 주는 시트(추천 카드)용.
+ *  - 펼침(EXTENDED)에서 벗어나는 순간 맨 위로 옮긴다(끄는 동안에도 위쪽부터 이어서 드러나게).
+ *  - 잠긴 동안의 스크롤 이벤트는 처음 위치가 아니라 0 에 잠근다.
+ */
+export const useSheetScrollTopLock: ScrollEventsHandlersHookType = (scrollableRef, scrollableContentOffsetY) => {
+  const base = useScrollEventsHandlersDefault(scrollableRef, scrollableContentOffsetY);
+  const { animatedSheetState, animatedScrollableStatus } = useBottomSheetInternal();
+  const { handleOnScroll: baseScroll, handleOnBeginDrag: baseBegin, handleOnEndDrag: baseEnd, handleOnMomentumEnd: baseMomentumEnd } = base;
+  const toTop = useCallback(() => {
+    'worklet';
+    // @ts-expect-error gorhom 기본 훅과 같은 호출(Scrollable 의 animated ref)
+    scrollTo(scrollableRef, 0, 0, false);
+    scrollableContentOffsetY.value = 0;
+  }, [scrollableRef, scrollableContentOffsetY]);
+  useAnimatedReaction(
+    () => animatedSheetState.value,
+    (state, prev) => {
+      if (prev === SHEET_STATE.EXTENDED && state !== SHEET_STATE.EXTENDED && scrollableContentOffsetY.value > 0) toTop();
+    },
+  );
+  return useMemo(() => {
+    const unlockInitial = (handler: ((e: NativeScrollEvent, c: never) => void) | undefined) => (e: NativeScrollEvent, c: never) => {
+      'worklet';
+      (c as LockContext).shouldLockInitialPosition = false;
+      handler?.(e, c);
+    };
+    return {
+      handleOnScroll: (e: NativeScrollEvent, c: never) => {
+        'worklet';
+        if (animatedScrollableStatus.value === SCROLLABLE_STATUS.LOCKED) {
+          toTop();
+          return;
+        }
+        baseScroll?.(e, c);
+      },
+      handleOnBeginDrag: (e: NativeScrollEvent, c: never) => {
+        'worklet';
+        baseBegin?.(e, c);
+        (c as LockContext).shouldLockInitialPosition = false;
+      },
+      handleOnEndDrag: unlockInitial(baseEnd),
+      handleOnMomentumEnd: unlockInitial(baseMomentumEnd),
+    };
+  }, [animatedScrollableStatus, toTop, baseScroll, baseBegin, baseEnd, baseMomentumEnd]);
+};
 
 const ORDER: readonly SheetState[] = ['minimized', 'normal', 'expanded'];
 const DEFAULT_SNAPS = ['18%', '45%', '88%'] as const;

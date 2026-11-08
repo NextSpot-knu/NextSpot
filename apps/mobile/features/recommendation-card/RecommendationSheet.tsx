@@ -29,8 +29,10 @@ import {
   Text,
   cn,
   toast,
+  useSheetScrollTopLock,
   type SheetState,
 } from '~/components/ui';
+import type { BottomSheetScrollViewMethods } from '@gorhom/bottom-sheet';
 import {
   apiClient,
   reportFacilityAvailability,
@@ -97,6 +99,11 @@ export interface RecommendationSheetProps {
 }
 
 const SNAPS = ['27%', '52%', '90%'] as const;
+
+/** 머리(27% 안에 들어가야 하는 줄) 글자 확대 상한 — 더 키우면 가장 낮은 높이에서 바로 갈래요가 밀려난다. 본문은 기본 1.6. */
+const HEAD_FONT_SCALE = 1.3;
+/** 머리에 올리는 경고 칩 — 휴무 · 곧 마감(또는 도착 때 닫혔을 수 있음) · 혼잡. 나머지 혜택 칩(영업 · 대기 · 할인)은 아래에. */
+const HEAD_CHIP_KEYS: ReadonlySet<string> = new Set(['closed', 'closing', 'crowd']);
 
 export function RecommendationSheet(props: RecommendationSheetProps) {
   const { selected, status = 'ready', openAs = 'minimized', bottomInset = 0 } = props;
@@ -179,8 +186,11 @@ function CardBody(
   const [flash, setFlash] = useState<LiveField[]>([]);
   const [cooldown, setCooldown] = useState(false);
   const [hidden, setHidden] = useState<string[]>(() => loadHiddenPhotos());
+  // 시간 예측(골든타임 · 오늘 예측)은 서버 모델을 부른다 — 그 장소에서 시트를 처음 펼침까지 올렸을 때부터 불러온다(27% 로 훑어볼 때는 안 부른다).
+  const [reachedTop, setReachedTop] = useState(sheetState === 'expanded');
   const handled = useRef<Set<string>>(new Set());
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const scrollRef = useRef<BottomSheetScrollViewMethods>(null);
 
   useEffect(() => {
     setNow(new Date());
@@ -199,8 +209,14 @@ function CardBody(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.id]);
 
-  // 다른 장소로 바뀌면 이전 장소의 로컬 상태를 비운다.
   useEffect(() => {
+    if (sheetState === 'expanded') setReachedTop(true);
+  }, [sheetState]);
+
+  // 다른 장소로 바뀌면 이전 장소의 로컬 상태를 비우고 맨 위부터 보여 준다(같은 ScrollView 를 다시 쓰므로).
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    setReachedTop(sheetState === 'expanded');
     setConfirmed(null);
     setSpotOpen(false);
     setWhyOpen(false);
@@ -215,6 +231,7 @@ function CardBody(
     setCooldown(false);
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.id]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
@@ -329,7 +346,6 @@ function CardBody(
         setLiveAt(new Date());
         setFlash(refreshedFields(next as never));
         setCooldown(true);
-        props.setSheetState('expanded');
         toast.success(t('card.liveRefreshedToast'));
         timers.current.push(setTimeout(() => setFlash([]), LIVE_FLASH_MS), setTimeout(() => setCooldown(false), LIVE_REFRESH_COOLDOWN_MS));
       }
@@ -348,42 +364,53 @@ function CardBody(
   };
 
   // 높이마다 다른 판을 그리지 않는다 — 판은 하나(펼친 카드)이고 시트 높이가 그 위쪽부터 보여 준다. 끄는 동안 손가락을 따라
-  // 같은 내용이 이어서 드러나도록, 가장 낮은 높이(27%)에 들어가야 하는 것(가치 한 줄 · 이름 + SPOT · 바로 갈래요)을 맨 위에 둔다.
-  // 높이(sheetState)에 따라 붙이거나 떼거나 크기를 바꾸는 요소를 두지 않는다.
+  // 같은 내용이 이어서 드러나도록, 가장 낮은 높이(27%)에 들어가야 하는 것(가치 한 줄 · 이름 + SPOT · 휴무·마감·혼잡 경고 ·
+  // 바로 갈래요)을 맨 위에 둔다. 머리 글은 줄 수와 글자 확대 상한을 둬서 큰 글자에서도 행동 줄이 27% 안에 남게 한다.
+  // 높이(sheetState)에 따라 붙이거나 떼거나 크기를 바꾸는 요소를 두지 않는다. 펼침 아래로 내려가면 내용은 맨 위로 돌아간다
+  // (useSheetScrollTopLock — gorhom 기본은 스크롤해 둔 자리에 잠가 머리가 사라진다).
+  const headChips = model.faceChips.filter((chip) => HEAD_CHIP_KEYS.has(chip.key));
+  const bodyChips = model.faceChips.filter((chip) => !HEAD_CHIP_KEYS.has(chip.key));
   return (
-    <SheetScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 10 }} keyboardShouldPersistTaps="handled">
+    <SheetScrollView
+      ref={scrollRef}
+      scrollEventsHandlersHook={useSheetScrollTopLock}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 10 }}
+      keyboardShouldPersistTaps="handled"
+    >
       {/* ── 머리: 가장 낮은 높이에서도 보이는 부분 ── */}
       <View className="gap-[4px]">
-        <View className="flex-row flex-wrap items-center gap-x-[8px] gap-y-[4px]">
-          <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold">{model.compareKicker}</Text>
+        <View className="flex-row flex-wrap items-center gap-x-[6px] gap-y-[4px]">
+          <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.compareKicker}</Text>
           {model.showArrivalLine && model.times.arrival && now && (
             <View className="flex-row items-center gap-[4px] rounded-full bg-jade/15 px-[8px] py-[1px]">
               <Icon icon={Clock} size="xs" color="jade" />
-              <Text className="text-[12px] leading-[16px] text-jade" weight="extrabold">
+              <Text className="text-[12px] leading-[16px] text-jade" weight="extrabold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>
                 {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
               </Text>
             </View>
           )}
+          {/* 휴무 · 곧 마감 · 혼잡은 가기 전에 봐야 한다 — 바로 갈래요 위(27% 안)에. */}
+          {headChips.map((chip) => (
+            <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed} small maxFontScale={HEAD_FONT_SCALE}>{chip.text}</BenefitChip>
+          ))}
         </View>
-        <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header">{model.peekValueText}</Text>
+        <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header" numberOfLines={2} maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.peekValueText}</Text>
         <View className="flex-row items-center gap-[8px]">
-          <Text className="min-w-0 shrink font-serif text-[18px] leading-[24px]" weight="bold" accessibilityRole="header">{model.title}</Text>
+          <Text className="min-w-0 shrink font-serif text-[18px] leading-[24px]" weight="bold" accessibilityRole="header" numberOfLines={2} maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.title}</Text>
           {model.hasSpot && (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${t('card.peek.spot', { n: model.spotScore })}. ${t('card.spotTooltipAria')}`}
               accessibilityState={{ expanded: spotOpen }}
               onPress={() => setSpotOpen((v) => !v)}
-              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
               className={cn('flex-row items-center rounded-md border px-[6px] py-[2px]', spotOpen ? 'border-gold bg-gold/20' : 'border-gold/40 bg-gold/10')}
             >
-              <Text className="text-[12px] leading-[16px] text-gold-deep" weight="extrabold">{`${t('card.peek.spot', { n: model.spotScore })} ⓘ`}</Text>
+              <Text className="text-[12px] leading-[16px] text-gold-deep" weight="extrabold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>{`${t('card.peek.spot', { n: model.spotScore })} ⓘ`}</Text>
             </Pressable>
           )}
         </View>
       </View>
-
-      {model.hasSpot && spotOpen && <SpotInfo model={model} t={t} />}
 
       <View className="flex-row gap-[8px]">
         <Button
@@ -404,6 +431,8 @@ function CardBody(
       )}
 
       {/* ── 여기부터는 시트를 올리면 이어서 드러난다 ── */}
+      {/* SPOT 설명은 행동 줄 아래에서 펼친다 — 머리와 바로 갈래요 사이에 끼면 27% 에서 버튼이 밀려난다. */}
+      {model.hasSpot && spotOpen && <SpotInfo model={model} t={t} />}
       <View className="flex-row gap-[8px]">
         {showInstead && (
           <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
@@ -434,9 +463,9 @@ function CardBody(
         />
       </View>
 
-      {(model.faceChips.length > 0 || model.likelyClosedUnknown) && (
+      {bodyChips.length > 0 && (
         <View className="flex-row flex-wrap items-center gap-[8px]">
-          {model.faceChips.map((chip) => (
+          {bodyChips.map((chip) => (
             <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed}>{chip.text}</BenefitChip>
           ))}
         </View>
@@ -512,6 +541,7 @@ function CardBody(
         setWhyOpen={setWhyOpen}
         comparisonReason={rank !== null && rank < 2 ? props.comparisonReason : undefined}
         facilityId={f.id}
+        forecastEnabled={reachedTop}
       />
     </SheetScrollView>
   );
@@ -574,6 +604,7 @@ function Details({
   setWhyOpen,
   comparisonReason,
   facilityId,
+  forecastEnabled,
 }: {
   model: CardModel;
   t: (k: string, v?: Record<string, string | number>) => string;
@@ -582,14 +613,12 @@ function Details({
   setWhyOpen: (v: boolean) => void;
   comparisonReason?: string;
   facilityId: string;
+  /** 시간 예측을 불러도 되는가(그 장소에서 시트를 펼침까지 올린 뒤). 둘 다 늘 붙여 두고 부르기만 미룬다. */
+  forecastEnabled: boolean;
 }) {
   const lines = model.openHourLines;
   return (
-    <View className="gap-[12px]">
-      <View className="flex-row items-center gap-[8px] border-b border-line py-[6px]">
-        <Icon icon={MapPin} size="sm" color="gold-deep" />
-        <Text className="min-w-0 flex-1 text-[13px] leading-[18px]" weight="extrabold" numberOfLines={1}>{model.title}</Text>
-      </View>
+    <View className="gap-[12px] border-t border-line pt-[12px]">
 
       {model.menuTokens.length > 0 && (
         <DetailRow icon={Utensils} label={t('card.signatureMenu')}>
@@ -671,8 +700,8 @@ function Details({
         </Card>
       )}
 
-      <GoldenHourLine facilityId={facilityId} />
-      <DayForecast facilityType={model.type} enabled />
+      <GoldenHourLine facilityId={facilityId} enabled={forecastEnabled} />
+      <DayForecast facilityType={model.type} enabled={forecastEnabled} />
     </View>
   );
 }
