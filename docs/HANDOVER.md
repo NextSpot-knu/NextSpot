@@ -93,7 +93,7 @@ asyncio.run(main())"
 ```
   기대: OK 4줄(POI008 · POI066 · POI078 · POI012). `FAIL seoul_area_mismatch` 면 이름이 다르다 → `config.py` 기본값 · `SEOUL_ZONES` · 마이그레이션 시드를 함께 고친다.
 - [ ] **(10-31c ④) `20261031130000_guest_crowd_answer_shadow.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(D3 그림자 모드) — API 배포 직후. 확인은 아래 "마이그레이션 확인" 20번과 그 아래 두 쿼리(`observed_%` 열 · cron 잡 `nextspot-network-hash-retention`). 같은 김에 Render 에 전용 `NETWORK_HASH_SALT`(강한 무작위 값)를 넣는 것을 권한다 — 없으면 `JWT_SECRET` 에서 파생해 동작은 하지만 용도가 다른 비밀에 묶인다.
-- [ ] **(10-31c ⑤) Turnstile 켜기** — Cloudflare Invisible 위젯 → Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + 웹 배포 → Supabase Auth CAPTCHA(Turnstile 비밀 키 — 이곳에만) → 익명 로그인 IP 한도 낮추기(지금 300/h — 10-06 상향, 기본 30/h). **CAPTCHA 는 모든 로그인 경로에 토큰을 싣는 웹(D3 보안 수정)이 main 에 배포된 뒤에만 켠다 — 그 전에 켜면 이메일 로그인·가입·비밀번호 재설정이 막힌다**(Supabase CAPTCHA 는 프로젝트 전체에 걸린다). 켠 뒤 게스트→회원 전환·OAuth 콜백이 되는지 한 번 확인. **⚠ 보류 확정(11-02 사용자 — 모바일 앱 계획 A7): 켜지 않는다. 켜면 네이티브 앱의 익명·이메일 로그인이 막힌다(Turnstile 은 네이티브 SDK 가 없다). 익명 로그인 한도는 30/h 로 낮춘다(사용자 A7', 아래 줄).**
+- [ ] **(10-31c ⑤) Turnstile 켜기** — Cloudflare Invisible 위젯 → Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + 웹 배포 → Supabase Auth CAPTCHA(Turnstile 비밀 키 — 이곳에만) → 익명 로그인 IP 한도 낮추기(지금 300/h — 10-06 상향, 기본 30/h). **CAPTCHA 는 모든 로그인 경로에 토큰을 싣는 웹(D3 보안 수정)이 main 에 배포된 뒤에만 켠다 — 그 전에 켜면 이메일 로그인·가입·비밀번호 재설정이 막힌다**(Supabase CAPTCHA 는 프로젝트 전체에 걸린다). 켠 뒤 게스트→회원 전환·OAuth 콜백이 되는지 한 번 확인. **⚠ 보류 확정(11-02 사용자 — 모바일 앱 계획 A7): 켜지 않는다. 켜면 네이티브 앱의 익명·이메일 로그인이 막힌다(Turnstile 은 네이티브 SDK 가 없다). 익명 로그인 한도는 30/h 로 낮췄다(사용자 A7', 11-05 적용).**
 - [ ] **(10-31c ⑥) 개인정보처리방침 + 앱 안 개인정보 안내 — 출시 전 전문가 확인** — 게스트 방문 확인 답에 네트워크 대역 해시를 남긴다(목적: 악용 방지·답 품질, 보관 30일, 원본 IP 는 서버 메모리에만 최대 30분). Turnstile 을 켜면 Cloudflare 를 제3자 처리자로 적는다. 앱 안 안내(`/mypage/privacy` '부정 이용 방지' 절, 4로케일, 갱신일 2026-10-31)는 넣었다 — 법률 검토는 따로 필요하다.
 - [ ] **(10-31c ⑦ · ④ 적용 2주 뒤) 게스트 답 실시간 전환 결정** — `GET /api/v1/admin/metrics/guest-answers?days=14` 의 일치율·공유 네트워크 비율을 보고 정한다. 켜기 전에 운영 로그로 `client_ip`(XFF 마지막 값)가 Render 뒤에서 실제 손님 IP 인지 확인한다(프록시 hop 이 붙으면 전원이 한 IP — "보안 진단" 중 항목과 같은 관측). 켜려면 Render `GUEST_CROWD_ANSWERS_LIVE=true`(재시작) **와** 웹 문구 `visit.guestCongestionNote`(4로케일) 변경을 함께.
 - [ ] **(10-31c ⑧) '인사동·익선동' → '인사동' 확인(사용자)** — 서울시 공식 목록에 한 곳으로 없어 인사동(POI078)만 넣었다(익선동은 POI116). 익선동을 `@3+1` 로 10번째에 더해도 주 768 · 최악 912회/일로 한도 안이다(`SEOUL_TESTBED_PLAN.md` §6 S2).
@@ -105,8 +105,6 @@ asyncio.run(main())"
 - [ ] **(11-01 S3 ⑥) 개발자 계정 서울 리허설** — 실기기에서 지역 전환 → 지도 구역 원·라벨(e2e 는 카카오 SDK 를 대역으로 써 못 봤다) · 카드·코스·대기판의 구역 줄 · 서울에서 공유·제보·체감 혼잡 질문·쿠폰함이 없는지.
 - [ ] **(11-01 S4 ① · 읽기 전용) 홍대 CSV 반출** — 운영 DB 는 읽기만. SQL 은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4' 부록 블록(또는 `apps/api` 에서 `.\.venv\Scripts\python scripts/crowd_dispersion_replay.py sql --cluster hongdae --from 2026-09-20 --to <오늘 KST>`). SQL Editor 결과 한도 'No limit' · 문장 하나씩 · 결과 바닥 행 수를 Q0 목록과 대조 · 파일 이름은 각 블록 머리 주석대로 · 엑셀로 열어 저장하지 않기 · 저장은 저장소 밖 `$HOME\nextspot-s4\hongdae`(같은 절 ②·③). 받으면 에이전트에게 폴더를 알려 준다 → `run --label pilot` → 홍대 1차 결과(집계만 커밋, 원본 CSV 는 커밋하지 않음).
 - [ ] **(11-01 S4 ② · 종로 수집 4주쯤 뒤) 종로 확인 실행** — 같은 반출(`--cluster jongno`)을 받아 깨끗한 체크아웃에서 `run --cluster jongno --label confirmatory --expect-criteria <홍대 검토 뒤 고정한 해시>`. 코드 변경 없음(커밋 안 된 변경이 있으면 종료 4). 종로 수집은 10-31c 배포(Render)부터 쌓인다.
-- [ ] **(11-02 모바일) Supabase Redirect URLs 에 `nextspot://**` 추가** — Authentication → URL Configuration. 앱의 구글 로그인(안드로이드) 복귀에 필요하다. 비밀번호 재설정·가입 확인 메일은 계획 §7.2 H4(메일 템플릿 `token_hash` + 웹 `/auth/confirm`) 전까지 앱에서 요청하면 실패한다.
-- [ ] **(11-02 · 사용자 결정 A7') Supabase 익명 로그인 한도 300 → 30/h** — Authentication → Rate Limits → 'Anonymous sign-ins'. CAPTCHA 를 켜지 않기로 해서 게스트 계정 대량 생성을 막는 장치가 이 한도뿐이다. 낮춘 뒤 행사장·같은 와이파이에서 게스트 세션이 늦게 생긴다는 신호가 오면 이 값을 먼저 본다.
 - [ ] **(11-01 모바일 ② · 웹에도 해당) 위치정보법 확인** — 웹은 이미 로그인 사용자 id 와 함께 좌표를 API 로 보내고, 추천 기록에 후보별 거리를 남긴다. 위치기반서비스사업 신고(소상공인은 개시 1개월 안)·위치기반서비스 이용약관 동의·이용 확인자료 보존·만 14세 미만 처리가 필요한지 법무 확인. 근거 조문과 앱 설계 반영은 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) §8.2·M20.
 - [ ] **(11-01 모바일 ①) 앱 계획 검토 + 스토어 권한 준비** — [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) 남은 것: Expo 조직 만들기(M6) · Google Cloud 프로젝트 + 결제 계정 + 'Maps SDK for Android' 키(A21 — 제한은 1단계 SHA-1 뒤) · 진석 님 권한은 §8.1(App Store Connect 팀·API 키, Play Console 초대·서비스 계정, Expo 조직, 안드로이드 Google Maps 키). 키 파일(.p8·서비스 계정 JSON)은 저장소·채팅에 올리지 않는다.
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
@@ -306,6 +304,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
+
+- 도구·브랜치: Claude Code(i7, 구현 3 · 독립 검토 4회) / `yunseong` · 커밋 `c23ded5`..`d5c0269` + 이 기록. 갤북↔i7 인계 문서는 git 제외 `scratch/`.
+- 한 것: ① preview·출시 빌드 지도 안내 판 — Expo 가 공개 설정에서 `android.config` 를 지워 `MAP_AVAILABLE` 이 늘 거짓이었다 → `extra.googleMapsConfigured`(불리언) `c23ded5`. preview 실기기 지도 확인(사용자). ② SDK 57 패치 6개 `e7ac629`(expo-doctor 21/21). ③ 사용자 요청: 추천 시트는 높이와 상관없이 같은 내용(끄는 만큼 이어서 보임, 놓으면 3단 정렬), 가장 낮은 높이는 머리+첫 행동 줄을 재서(글자 1.6배까지), 펼친 뒤에만 예측 API. 여정 카드도 접은 판 없이 남은 자리만큼 + 스크롤. EAS preview `381cf7de`·development `edf9d84d`(폰에 설치). 원격 `claude/pin-supabase-2-33` 삭제(병합됨). i7 시스템 PATH 의 옛 adb 제거.
+- 검증: mobile tsc · 테스트 65 · check:shared · expo-doctor · export. 에뮬레이터(폰·360×780·폴드 크기·글자 1.0/1.3/1.6). 검토 4회 → High·Med 0.
+- 다음·미결: 실기기 미확인 — 상황 변경 입력 중 키보드(AI 동의 필요)·위치 점·구글 로그인 복귀·TalkBack. **Metro 8081 파일 감시가 반복해서 멈춘다**(옛 번들을 준다 — `--clear` 재시작으로 임시 해결, 원인 미조사). 한 폰에 EAS 빌드와 로컬 빌드를 번갈아 깔면 서명이 달라 설치가 거부된다 — 폰에는 EAS 빌드만. P0 ③ PR #31 설명·리뷰어(진석 님 GitHub 아이디 필요) · P1 개발 빌드 첫 실행 반복 · 계획 iOS 항목 정리.
+- 사람 작업: 진석 님 GitHub 아이디 · Play Console 계정 확인. Supabase Redirect·익명 30/h 줄은 지웠다(11-05 완료).
+
 ## 2026-11-08 — 갤럭시북 앱 실행 환경 · 팀원용 preview APK · App Store 폐기 · 개발 중 첫 실행 반복 요청
 
 - 도구·브랜치: Claude Code / `yunseong`(`01edd15` — supabase 2.33.0 고정은 사용자가 클라우드 세션으로) · 커밋 이 기록(문서)만
@@ -364,15 +370,6 @@ from checks order by seq;
 - 검증: 레드팀 에이전트 1개가 코드·공식 문서로 반박 검토(높음 6 · 중간 7 · 낮음 10 — 전부 반영). 결론을 바꾸는 지적은 코드로 재확인: 웹 `lib` 순수 모듈 일부가 API·Supabase 클라이언트를 import(→ Metro 어댑터 치환), 재설정 메일이 PKCE 라 다른 기기에서 실패(→ `token_hash` + `/auth/confirm`), 접속 로그·추천 기록 거리로 위치가 남음(→ M22), 위치 권한 안내 화면은 버튼 하나(Apple HIG). check-docs.
 - 다음·미결: ★ 질문 답 → 1단계(호환 확인 · 해석 설정 · Expo 뼈대 + 공용 층 에이전트 3). 위치정보법 법무 확인은 웹에도 걸린다(사람 작업 모바일 ②).
 - 사람 작업: "사람 작업 대기" 11-01 모바일 ①(계획 검토 · 스토어 권한 준비) · ②(위치정보법 확인). 10-31c ⑤(Turnstile 켜기)는 M7 답 전 보류 표시.
-
-## 2026-11-01b — 서울 테스트베드 S4: 분산 결정 재생 평가(오프라인) · 지표 약점 4건 보완
-
-- 도구·브랜치: Claude Code(ultracode 워크플로 21 에이전트 + 수정·독립 재검토 에이전트) / `yunseong`(S3 위, main 미반영)
-- 커밋: `eec81e5`(KST 달력 · 지표 보완) · `66d6ab9`(재생) · `54f0c43`(리허설 화면) + 이 기록(문서)
-- 한 것: 사용자 지시 "홍대 1차 결과까지, 종로는 재실행만 가능하게". 읽기 전용 반출 SQL → CSV 검증 로더(운영 수집 사슬 그대로) → 실제 엔진 경로 재생(미래 정보 없음, 도보 상한 20분 · 라우터 이동) → V3(대안 2곳 이상 결정에서 엔진 − 가장 가까운 곳, 판정 하한 = min(날짜 블록 부트스트랩, 날짜 군집 t)) · V2 절제 · V4 예보 대 지속 → JSON·마크다운·화면 요약. 판정 인자는 CRITERIA 해시(지금 `bc852a570864`, 홍대 검토 뒤 고정)로 묶고, 종로 확인 실행은 `--expect-criteria` 필수 · 커밋 안 된 변경이면 거부. 설계·결정 규칙·한계는 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4'.
-- 검증: 3렌즈 반박 검증 → 수정 2라운드 → 남은 Med 3건 수정 → 독립 재검토(누설·선택 편향·실행 가능성 — High 0, Med 2) → 수정. 합성 홍대 40일·종로 16일을 두 번씩 돌려 바이트 동일, 깨끗한 복제본에서 종로 확인 실행 명령 종료 0. 마지막 트리에서 api ruff · pytest 4004 · build_reset(무변경) · check-docs · web lint 0 error(경고 148 그대로)·typecheck·test 131·build. e2e 는 CI.
-- 다음·미결: 홍대 CSV 를 받으면 `run --label pilot` → 1차(예비) 결과 보고 · 집계 요약만 커밋(원본 CSV 금지) → 기준 해시 고정. 홍대는 엔진이 가장 가까운 곳과 갈릴 수 있는 출발지가 홍대 관광특구 하나라 예비·참고 결과다. 결정 대기 Q-S4-1~11 은 기본값으로 돈다. 보정 순위 관문은 보고 전용(Q-S4-3).
-- 사람 작업: "사람 작업 대기" 11-01 S4 ①(홍대 반출) · ②(종로 확인 실행).
 
 ## 기록 규칙
 
