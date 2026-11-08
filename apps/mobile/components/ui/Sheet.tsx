@@ -7,7 +7,6 @@ import BottomSheet, {
   type BottomSheetHandleProps,
   type ScrollEventsHandlersHookType,
   SCROLLABLE_STATUS,
-  SHEET_STATE,
   useBottomSheetInternal,
   useScrollEventsHandlersDefault,
 } from '@gorhom/bottom-sheet';
@@ -26,17 +25,20 @@ export type { SheetState };
 export { BottomSheetScrollView as SheetScrollView, BottomSheetView as SheetView } from '@gorhom/bottom-sheet';
 
 type LockContext = { shouldLockInitialPosition?: boolean; initialContentOffsetY?: number };
+/** 가장 높은 높이에서 이만큼(높이 사이 거리의 비율) 내려가야 '펼침 아래' 로 본다 — 스프링 출렁임은 무시. */
+const BELOW_TOP_INDEX = 0.1;
 
 /**
  * SheetScrollView 의 scrollEventsHandlersHook — 시트가 가장 높은 높이 아래로 내려가면 내용을 늘 맨 위로 되돌린다.
  * gorhom 기본(useScrollEventsHandlersDefault)은 펼침에서 스크롤해 둔 위치 그대로 잠가서, 손잡이로 끌어 내리면 낮은 높이에
  * 사진·상세의 한 조각만 보이고 머리(이름·행동 버튼)가 사라진다. 높이와 상관없이 한 판을 위쪽부터 보여 주는 시트(추천 카드)용.
- *  - 펼침 아래(OPENED)로 내려가는 순간 맨 위로 옮긴다(끄는 동안에도 위쪽부터 이어서 드러나게). 위로 더 당긴 것(OVER_EXTENDED)은 아니다.
+ *  - 펼침 아래로 눈에 띄게(가장 높은 높이에서 다음 높이까지의 10% 넘게) 내려가는 순간 맨 위로 옮긴다(끄는 동안에도 위쪽부터
+ *    이어서 드러나게). 펼침에서 위로 더 당겼다 놓을 때 스프링이 펼침 선 아래로 살짝 출렁이는 것으로는 움직이지 않는다.
  *  - 잠긴 동안의 스크롤 이벤트는 처음 위치가 아니라 0 에 잠근다.
  */
 export const useSheetScrollTopLock: ScrollEventsHandlersHookType = (scrollableRef, scrollableContentOffsetY) => {
   const base = useScrollEventsHandlersDefault(scrollableRef, scrollableContentOffsetY);
-  const { animatedSheetState, animatedScrollableStatus, animatedScrollableState } = useBottomSheetInternal();
+  const { animatedIndex, animatedDetentsState, animatedScrollableStatus, animatedScrollableState } = useBottomSheetInternal();
   const { handleOnScroll: baseScroll, handleOnBeginDrag: baseBegin, handleOnEndDrag: baseEnd, handleOnMomentumEnd: baseMomentumEnd } = base;
   const toTop = useCallback(() => {
     'worklet';
@@ -47,9 +49,12 @@ export const useSheetScrollTopLock: ScrollEventsHandlersHookType = (scrollableRe
     animatedScrollableState.set((state) => (state.contentOffsetY === 0 ? state : { ...state, contentOffsetY: 0 }));
   }, [scrollableRef, scrollableContentOffsetY, animatedScrollableState]);
   useAnimatedReaction(
-    () => animatedSheetState.value,
-    (state, prev) => {
-      if (state === SHEET_STATE.OPENED && prev !== null && prev !== SHEET_STATE.OPENED) toTop();
+    () => {
+      const count = animatedDetentsState.get().detents?.length ?? 0;
+      return count > 0 && animatedIndex.value < count - 1 - BELOW_TOP_INDEX;
+    },
+    (below, prev) => {
+      if (below && prev === false) toTop();
     },
   );
   return useMemo(() => {
@@ -82,14 +87,25 @@ const ORDER: readonly SheetState[] = ['minimized', 'normal', 'expanded'];
 /** 손잡이 높이(pt) — 위 10 + 막대 6 + 아래 6. 내용 높이로 스냅을 정하는 쪽(추천 시트의 가장 낮은 높이)이 더한다. */
 export const SHEET_HANDLE_HEIGHT = 22;
 
-/** 시트 안에서 손잡이·내용 끌기가 진행 중인지 알린다 — 그동안 스냅 값을 바꾸면 손가락 밑에서 시트가 튄다. */
-function DragWatch({ onDragging }: { onDragging: (dragging: boolean) => void }) {
-  const { animatedHandleGestureState, animatedContentGestureState } = useBottomSheetInternal();
+/**
+ * 시트 안에서 알아야 하는 것을 밖으로 알린다.
+ *  - 손잡이·내용 끌기가 진행 중인지 — 그동안 스냅 값을 바꾸면 손가락 밑에서 시트가 튄다.
+ *  - 시트 컨테이너 높이(pt) — '%' 스냅이 기준으로 삼는 높이. px 스냅을 정하는 쪽이 넘지 말아야 할 선을 계산한다.
+ */
+function SheetWatch({ onDragging, onContainerHeight }: { onDragging: (dragging: boolean) => void; onContainerHeight?: (h: number) => void }) {
+  const { animatedHandleGestureState, animatedContentGestureState, animatedLayoutState } = useBottomSheetInternal();
   useAnimatedReaction(
     () => animatedHandleGestureState.value === State.ACTIVE || animatedContentGestureState.value === State.ACTIVE,
     (active, prev) => {
       if (active !== prev) runOnJS(onDragging)(active);
     },
+  );
+  useAnimatedReaction(
+    () => Math.round(animatedLayoutState.get().containerHeight ?? 0),
+    (h, prev) => {
+      if (onContainerHeight && h > 0 && h !== prev) runOnJS(onContainerHeight)(h);
+    },
+    [onContainerHeight],
   );
   return null;
 }
@@ -177,6 +193,8 @@ export type SheetProps = {
   bottomInset?: number;
   /** 넓은 화면(폴더블 펼침·태블릿)에서 시트 폭 상한(pt) — 넘으면 가운데에 놓는다. 없으면 화면 폭 그대로. */
   maxWidth?: number;
+  /** 시트 컨테이너 높이(pt)가 정해지거나 바뀔 때('%' 스냅의 기준 — 분할 화면·회전 포함). */
+  onContainerHeight?: (height: number) => void;
 };
 
 /**
@@ -196,6 +214,7 @@ export function Sheet({
   stateLabels,
   bottomInset = 0,
   maxWidth,
+  onContainerHeight,
 }: SheetProps) {
   const ref = useRef<BottomSheet>(null);
   const { width: windowWidth } = useWindowDimensions();
@@ -257,7 +276,7 @@ export function Sheet({
       onChange={onChange}
       {...CONTAINER_A11Y}
     >
-      <DragWatch onDragging={setDragging} />
+      <SheetWatch onDragging={setDragging} onContainerHeight={onContainerHeight} />
       {children}
     </BottomSheet>
   );

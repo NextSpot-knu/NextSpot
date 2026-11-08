@@ -47,7 +47,7 @@ import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveFiel
 
 import { acceptCandidate, keepCandidate, rejectCandidate, type NavigationMode } from './actions';
 import { nextCandidateAfter } from './actionsCore';
-import { nextPeekHeight, peekSnapHeight } from './sheetPeek';
+import { nextPeekHeight, peekMaxHeight, peekSnapHeight } from './sheetPeek';
 import { BenefitChip, DetailRow } from './CardParts';
 import { CardPhoto } from './CardPhoto';
 import { buildCardModel, formatClock, type AvailabilityLocal, type CardModel, type LiveDetail } from './cardModel';
@@ -134,12 +134,16 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
 
   // 가장 낮은 높이 = 손잡이 + 머리·첫 행동 줄 + 여백. 글자 크기·긴 이름·경고 칩이 늘려도 바로 갈래요가 잘리지 않게 잰 값으로.
   // 4dp 넘게 바뀔 때만 바꾸고(스냅 흔들림 방지), 끄는 중이면 Sheet 가 손을 뗀 뒤에 적용한다.
+  // 상한은 시트 컨테이너(52% 스냅의 기준) 기준 — 분할 화면·회전으로 컨테이너가 바뀌면 다시 계산한다.
   const { height: windowHeight } = useWindowDimensions();
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [blockHeight, setBlockHeight] = useState(0);
   const [peekPx, setPeekPx] = useState<number | null>(null);
-  const onPeekBlock = useCallback(
-    (blockHeight: number) => setPeekPx((prev) => nextPeekHeight(prev, peekSnapHeight(blockHeight, windowHeight, SHEET_HANDLE_HEIGHT))),
-    [windowHeight],
-  );
+  useEffect(() => {
+    const max = peekMaxHeight(containerHeight, windowHeight);
+    setPeekPx((prev) => nextPeekHeight(prev, peekSnapHeight(blockHeight, SHEET_HANDLE_HEIGHT, max), max));
+  }, [blockHeight, containerHeight, windowHeight]);
+  const onPeekBlock = useCallback((h: number) => setBlockHeight(Math.round(h)), []);
   const snaps = useMemo(() => [peekPx ?? SNAPS[0], SNAPS[1], SNAPS[2]] as const, [peekPx]);
   const onPeekRef = useRef(props.onPeekHeightChange);
   onPeekRef.current = props.onPeekHeightChange;
@@ -157,6 +161,7 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
       stateLabels={stateLabels}
       bottomInset={bottomInset}
       maxWidth={props.maxWidth}
+      onContainerHeight={setContainerHeight}
     >
       {selected && status === 'ready' ? (
         <CardBody {...props} selected={selected} sheetState={sheetState} setSheetState={setSheetState} onPeekBlock={onPeekBlock} />
@@ -233,8 +238,13 @@ function CardBody(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.id]);
 
+  // 장소가 바뀐 그 커밋은 건너뛴다 — 부모가 새 장소의 첫 높이(openAs)로 되돌리기 전이라 sheetState 가 이전 장소의 'expanded' 일 수 있다.
+  const lastIdRef = useRef(String(f.id));
   useEffect(() => {
-    if (sheetState === 'expanded') setTopFor(String(f.id));
+    const id = String(f.id);
+    const placeChanged = lastIdRef.current !== id;
+    lastIdRef.current = id;
+    if (!placeChanged && sheetState === 'expanded') setTopFor(id);
   }, [sheetState, f.id]);
 
   // 다른 장소로 바뀌면 이전 장소의 로컬 상태를 비우고 맨 위부터 보여 준다(같은 ScrollView 를 다시 쓰므로).
