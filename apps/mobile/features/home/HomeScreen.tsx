@@ -579,7 +579,10 @@ export function HomeScreen() {
   const overlayTop = headerH + 8;
   const sheetCover = sheetShown && sheetState ? Math.round(containerH * SHEET_SNAP_RATIO[sheetState]) : 0;
   const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
-  const tripOverlay = pickTripOverlay({ visitActive, journeyActive, searching: showSearchPanel, room: tripRoom, typing: tripTyping });
+  const tripRoomNoKeyboard = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH));
+  const tripOverlay = pickTripOverlay({
+    visitActive, journeyActive, searching: showSearchPanel, room: tripRoom, roomWithoutKeyboard: tripRoomNoKeyboard, typing: tripTyping,
+  });
   const tripHidden = tripOverlay.card === null || tripOverlay.hidden;
   // 감춘 카드 안 입력 칸에 키보드가 남지 않게(검색 판이 열리거나 시트를 올림).
   useEffect(() => {
@@ -837,7 +840,7 @@ export function HomeScreen() {
       >
         <ScrollView
           ref={tripScrollRef}
-          style={[overlayWidth, { maxHeight: tripScrollMaxHeight(tripRoom, tripOverlay.card, tripTyping), flexGrow: 0 }]}
+          style={[overlayWidth, { maxHeight: tripScrollMaxHeight(tripRoom, tripRoomNoKeyboard, tripOverlay.card, tripTyping), flexGrow: 0 }]}
           keyboardShouldPersistTaps="handled"
           persistentScrollbar
         >

@@ -77,6 +77,20 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
   const [outcome, setOutcome] = useState<ReplanOutcome | null>(null);
   // 재시도는 같은 조건으로 — 실패한 시도가 draft 였는지 현재 여정 조건이었는지 기억한다(웹과 같다).
   const lastContext = useRef<Partial<TravelContext> | undefined>(undefined);
+  // 상황 변경 입력 칸이 초점을 가진 채 사라지면(닫기 · 갈아타기 성공 · 도착 · 아직 가는 중) onBlur 가 오지 않을 수 있다 —
+  // 홈이 '쓰는 중' 으로 남지 않게 직접 알린다.
+  const inputFocused = useRef(false);
+  const onInputBlurRef = useRef(onInputBlur);
+  onInputBlurRef.current = onInputBlur;
+  const releaseInput = useCallback(() => {
+    if (!inputFocused.current) return;
+    inputFocused.current = false;
+    onInputBlurRef.current?.();
+  }, []);
+  useEffect(() => {
+    if (!changeOpen || !trip || trip.status === 'arrived') releaseInput();
+  }, [changeOpen, trip, releaseInput]);
+  useEffect(() => releaseInput, [releaseInput]);
   const { allowed: aiAllowed } = useAiConsent();
 
   // 다시 읽는 때: 앱이 앞으로 올 때 · 화면에 돌아올 때 · 길안내 시작 · 도착 · 방문 확인으로 여정이 끝남(trip-cleared).
@@ -288,8 +302,8 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
             multiline
             value={changeText}
             onChangeText={setChangeText}
-            onFocus={onInputFocus}
-            onBlur={onInputBlur}
+            onFocus={() => { inputFocused.current = true; onInputFocus?.(); }}
+            onBlur={releaseInput}
             placeholder={t('trip.changePlaceholder')}
             placeholderTextColor="#8a7f78"
             className={aiAllowed ? 'min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk' : 'min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[13px] text-muk-soft'}

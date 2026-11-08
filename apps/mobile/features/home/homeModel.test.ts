@@ -205,15 +205,22 @@ console.log('homeModel ok');
   assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.journey - 1 }).hidden, true);
   assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: Number.NaN }).hidden, true);
   assert.ok(!('compact' in pickTripOverlay({ visitActive: true, journeyActive: false, ...roomy })), '판 모양을 고르지 않는다');
-  // 예전 접은 판(62dp)이 들어가던 짧은 화면에서도 사라지지 않게 최소 높이를 크게 잡지 않는다
-  assert.ok(TRIP_CARD_HEIGHT.journey <= 70 && TRIP_CARD_HEIGHT.visit <= 70);
-  // 상황 변경 입력에 쓰는 동안은 키보드가 자리를 줄여도 감추지 않는다(감춤 → 키보드 닫힘 → 다시 보임 고리 방지). 검색 판은 그대로 감춘다.
-  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: 10, typing: true }).hidden, false);
-  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: true, room: 400, typing: true }).hidden, true);
-  assert.equal(tripScrollMaxHeight(10, 'journey', true), TRIP_CARD_HEIGHT.journey);
-  assert.equal(tripScrollMaxHeight(10, 'journey', false), 10);
-  assert.equal(tripScrollMaxHeight(300, 'journey', true), 300);
-  assert.equal(tripScrollMaxHeight(Number.NaN, 'visit', false), 0);
+  // 짧은 화면(360x780dp, 시트 기본 높이에서 남은 자리 약 83dp)에서도 사라지지 않게 최소 높이를 크게 잡지 않는다
+  assert.ok(TRIP_CARD_HEIGHT.journey <= 82 && TRIP_CARD_HEIGHT.visit <= 82);
+  const typing = { visitActive: false, journeyActive: true, searching: false, typing: true } as const;
+  // 상황 변경 입력에 쓰는 동안은 키보드 가림만 무시한다(감춤 → 키보드 닫힘 고리 방지)
+  assert.equal(pickTripOverlay({ ...typing, room: 10, roomWithoutKeyboard: 200 }).hidden, false);
+  // 시트를 펼침으로 올려 시트가 가리면 쓰는 중이어도 감춘다(보이지 않는 칸에 쓰지 않게)
+  assert.equal(pickTripOverlay({ ...typing, room: 10, roomWithoutKeyboard: 20 }).hidden, true);
+  // 쓰는 중이 아니면 키보드 포함 자리로 판단, 검색 판은 늘 감춘다
+  assert.equal(pickTripOverlay({ ...typing, typing: false, room: 10, roomWithoutKeyboard: 200 }).hidden, true);
+  assert.equal(pickTripOverlay({ ...typing, searching: true, room: 400, roomWithoutKeyboard: 400 }).hidden, true);
+  // 스크롤 높이: 쓰는 중이면 최소 높이만큼 남기되 시트가 가린 선은 넘지 않는다
+  assert.equal(tripScrollMaxHeight(10, 200, 'journey', true), TRIP_CARD_HEIGHT.journey);
+  assert.equal(tripScrollMaxHeight(10, 60, 'journey', true), 60);
+  assert.equal(tripScrollMaxHeight(10, 200, 'journey', false), 10);
+  assert.equal(tripScrollMaxHeight(300, 300, 'journey', true), 300);
+  assert.equal(tripScrollMaxHeight(Number.NaN, Number.NaN, 'visit', false), 0);
   // 남은 높이: 컨테이너 − 위 − 아래 − 8
   assert.equal(tripOverlayRoom(800, 200, 300), 292);
   assert.equal(tripOverlayRoom(800, 500, 400), 0);
