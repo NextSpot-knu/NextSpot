@@ -35,8 +35,6 @@ export interface VisitCheckCardProps {
   className?: string;
   /** 방문을 마친 뒤 '쿠폰함 보기' 로 간다. 없으면 그 버튼을 그리지 않는다(쿠폰은 경주 가게만 준다 — 앱 v1 은 경주만이라 홈이 넘기면 된다). */
   onOpenCoupons?: () => void;
-  /** 자리가 좁을 때(홈 지도 위) — 첫 질문을 단계 점·설명 없이 두 줄로. 답하기 시작하면 원래 판. */
-  compact?: boolean;
   /** 그릴 것이 생기거나 없어질 때(때가 된 방문 — 답하는 중 · 고마워요 단계 포함) — 홈이 카드 자리를 고른다. */
   onActiveChange?: (active: boolean) => void;
 }
@@ -53,7 +51,7 @@ const CONGESTION: readonly [ObservedCongestion, string, string][] = [
  * 웹 components/main/VisitCheckCard.tsx(기준 커밋 0d145a1). 체감 혼잡은 가입 계정만 지도 혼잡에 바로 반영되고 게스트는 그림자 저장이라
  * 안내 문구가 다르다(웹과 같은 규칙). 단계 판정·저장은 tripLoop.
  */
-export function VisitCheckCard({ className, onOpenCoupons, compact = false, onActiveChange }: VisitCheckCardProps) {
+export function VisitCheckCard({ className, onOpenCoupons, onActiveChange }: VisitCheckCardProps) {
   const t = useT();
   const { account } = useAccount();
   const isGuest = isGuestAccount(account);
@@ -172,34 +170,13 @@ export function VisitCheckCard({ className, onOpenCoupons, compact = false, onAc
   };
 
   const activeIndex = steps.indexOf(stage);
-  if (compact && stage === 'ask') {
-    return (
-      <Card elevation="surface" padded={false} className={cn('gap-[8px] rounded-3xl px-[14px] py-[10px]', className ?? '')} accessibilityLabel={t('visit.askDesc')}>
-        <View className="flex-row items-center gap-[8px]">
-          <Icon icon={MapPin} size="sm" color="jade" />
-          <Text className="min-w-0 flex-1 text-[14px] leading-[19px]" weight="bold" numberOfLines={1} accessibilityRole="header">{t('visit.askTitle', { name: due.name })}</Text>
-          <IconButton icon={X} accessibilityLabel={t('common.close')} onPress={dismiss} size="md" />
-        </View>
-        <View className="flex-row gap-[8px]">
-          <Button className="flex-1" variant="secondary" label={t('visit.notYet')} onPress={dismiss} />
-          <Button className="flex-1" label={t('visit.yes')} onPress={confirmArrival} />
-        </View>
-      </Card>
-    );
-  }
+  // 자리가 좁을 때 쓰던 접은 판은 없다 — 판은 하나이고, 홈이 남은 높이 안에서 스크롤로 위쪽부터 보여 준다.
+  // 그래서 단계마다 질문 한 줄과 답 버튼을 맨 위에 두고, 설명 · 단계 점은 그 아래에 둔다(homeModel TRIP_CARD_HEIGHT.visit).
   return (
     <Card elevation="surface" className={cn('rounded-3xl', className ?? '')} accessibilityLabel={t('visit.askDesc')}>
       <View className="absolute right-[4px] top-[4px] z-10">
         <IconButton icon={X} accessibilityLabel={t('common.close')} onPress={stage === 'completed' ? () => { haptic('selection'); close(); } : dismiss} size="md" />
       </View>
-
-      {stage !== 'completed' && (
-        <View className="mb-[12px] flex-row gap-[6px] pr-[40px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          {steps.map((item, index) => (
-            <View key={item} className={cn('h-[6px] rounded-full', index <= activeIndex ? 'bg-jade' : 'bg-line')} style={{ width: index === activeIndex ? 28 : 10 }} />
-          ))}
-        </View>
-      )}
 
       {stage === 'completed' ? (
         <View className="gap-[12px] pr-[24px]" testID="visit-completed">
@@ -220,19 +197,17 @@ export function VisitCheckCard({ className, onOpenCoupons, compact = false, onAc
         </View>
       ) : stage === 'ask' ? (
         <View className="gap-[12px] pr-[24px]">
-          <View className="flex-row items-start gap-[10px]">
-            <View className="h-[36px] w-[36px] items-center justify-center rounded-full border border-jade/25 bg-jade/10">
-              <Icon icon={MapPin} size="lg" color="jade" />
+          <View className="flex-row items-start gap-[8px]">
+            <View className="pt-[2px]" accessibilityElementsHidden importantForAccessibility="no">
+              <Icon icon={MapPin} size="sm" color="jade" />
             </View>
-            <View className="min-w-0 flex-1">
-              <Text className="text-[14px] leading-[20px]" weight="bold" accessibilityRole="header">{t('visit.askTitle', { name: due.name })}</Text>
-              <Text className="mt-[2px] text-[11px] leading-[16px] text-muk-soft">{t('visit.askDesc')}</Text>
-            </View>
+            <Text className="min-w-0 flex-1 text-[14px] leading-[20px]" weight="bold" accessibilityRole="header">{t('visit.askTitle', { name: due.name })}</Text>
           </View>
           <View className="flex-row gap-[8px]">
             <Button className="flex-1" variant="secondary" label={t('visit.notYet')} onPress={dismiss} />
             <Button className="flex-1" label={t('visit.yes')} onPress={confirmArrival} />
           </View>
+          <Text className="text-[11px] leading-[16px] text-muk-soft">{t('visit.askDesc')}</Text>
         </View>
       ) : stage === 'feedback' ? (
         <View className="gap-[12px] pr-[24px]">
@@ -247,10 +222,7 @@ export function VisitCheckCard({ className, onOpenCoupons, compact = false, onAc
         </View>
       ) : (
         <View className="gap-[12px] pr-[24px]">
-          <View>
-            <Text className="text-[14px] leading-[20px]" weight="bold">{t('report.title')}</Text>
-            <Text className="mt-[2px] text-[11px] leading-[16px] text-muk-soft">{t(isGuest ? 'visit.guestCongestionNote' : 'report.footer')}</Text>
-          </View>
+          <Text className="text-[14px] leading-[20px]" weight="bold">{t('report.title')}</Text>
           <View className="flex-row gap-[8px]">
             {CONGESTION.map(([value, labelKey, descKey]) => (
               <Pressable
@@ -265,9 +237,18 @@ export function VisitCheckCard({ className, onOpenCoupons, compact = false, onAc
               </Pressable>
             ))}
           </View>
+          <Text className="text-[11px] leading-[16px] text-muk-soft">{t(isGuest ? 'visit.guestCongestionNote' : 'report.footer')}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel={t('common.close')} onPress={() => pickCongestion()} className="min-h-[44px] items-center justify-center">
             <Text className="text-[12px] text-muk-soft" weight="bold">{t('common.close')}</Text>
           </Pressable>
+        </View>
+      )}
+
+      {stage !== 'completed' && (
+        <View className="mt-[12px] flex-row gap-[6px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {steps.map((item, index) => (
+            <View key={item} className={cn('h-[6px] rounded-full', index <= activeIndex ? 'bg-jade' : 'bg-line')} style={{ width: index === activeIndex ? 28 : 10 }} />
+          ))}
         </View>
       )}
     </Card>

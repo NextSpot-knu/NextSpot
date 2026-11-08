@@ -822,8 +822,9 @@ export function HomeScreen() {
         </View>
       </View>
 
-      {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다. 두 카드는 늘 붙여 두고(답하던 단계·입력·
-          펼침이 사라지지 않게) pickTripOverlay 가 고른 하나만 보인다. 자리가 없으면 감추기만 한다(display none). */}
+      {/* 진행 중 여행 · 방문 확인 — 웹 /main 모바일처럼 검색·칩 줄 아래에 얹는다. 두 카드는 늘 붙여 두고(답하던 단계·상황 변경
+          입력이 사라지지 않게) pickTripOverlay 가 고른 하나만 보인다. 카드는 접은 판 없이 늘 같은 판이고, 남은 높이(maxHeight)
+          안에서 위쪽부터 보이며 나머지는 스크롤된다. 이름 + 첫 행동 줄이 들어갈 자리도 없으면 감추기만 한다(display none). */}
       <View
         pointerEvents="box-none"
         className="absolute inset-x-0 px-[12px]"
@@ -840,7 +841,6 @@ export function HomeScreen() {
           <View ref={tripContentRef} collapsable={false}>
             <View style={{ display: tripOverlay.card === 'visit' ? 'flex' : 'none' }}>
               <VisitCheckCard
-                compact={tripOverlay.compact}
                 onActiveChange={setVisitActive}
                 onOpenCoupons={() => router.push('/mypage/coupons' as never)}
               />
@@ -848,7 +848,6 @@ export function HomeScreen() {
             <View style={{ display: tripOverlay.card === 'journey' ? 'flex' : 'none' }}>
               <ActiveJourneyCard
                 location={userPoint}
-                compact
                 onActiveChange={setJourneyActive}
                 onInputFocus={() => { tripInputFocusedRef.current = true; later(revealFocusedInput, 350); }}
                 onInputBlur={() => { tripInputFocusedRef.current = false; }}

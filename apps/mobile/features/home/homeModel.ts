@@ -471,13 +471,14 @@ export function resolveUserLocation(coords: { latitude: number; longitude: numbe
 export type TripOverlayCard = 'visit' | 'journey' | null;
 
 /**
- * 카드 판별 최소 높이(dp) — 이보다 좁으면 그 판을 쓰지 않는다. 접은 판의 답 버튼이 스크롤 밑으로 숨지 않게 판마다 따로 잰다
- * (411×833dp 에뮬레이터 onLayout 실측 58 · 110 · 146dp + 여유 4 — 글자 크기를 키우면 넘치는 만큼 스크롤된다).
- *   journeyCompact — 진행 중 여행 한 줄(이름 + 도착했어요 + 펼치기)
- *   visitCompact   — 방문 확인 두 줄(질문 + 아직이요·네)
- *   visitFull      — 방문 확인 원래 판(단계 점 · 설명 포함)
+ * 카드별 최소 높이(dp) — 남은 자리가 이보다 작으면 카드를 감춘다. 카드는 접은 판 없이 하나의 판을 그리고 남은 높이 안에서
+ * 스크롤되므로(자리가 좁으면 위쪽만), 이 값은 '맨 위 이름 줄 + 첫 행동 줄' 이 스크롤 없이 보이는 높이다
+ * (카드 위 여백 16 + 이름 줄 22 + 사이 10~12 + 버튼 44 = 92 에 여유 4. 글자 크기를 키우면 넘치는 만큼 스크롤된다).
+ * 411×833dp 에서 시트를 기본 높이(52%)로 올리면 남은 자리가 약 103dp 라 두 카드 모두 이 줄까지 보인다.
+ *   journey — 진행 중 여행: '진행 중 · 이름' 한 줄 → 도착했어요 / 아직 가는 중 / 상황 변경 → (도보 시간 · 상황 변경 · 길안내 다시 열기)
+ *   visit   — 방문 확인: 질문 한 줄 → 아직이요 / 네 → (설명 · 단계 점). 혼잡 단계는 버튼이 60dp 라 아래 끝이 조금 스크롤된다.
  */
-export const TRIP_CARD_HEIGHT = { journeyCompact: 62, visitCompact: 114, visitFull: 150 } as const;
+export const TRIP_CARD_HEIGHT = { journey: 96, visit: 96 } as const;
 
 export interface TripOverlayInput {
   /** 방문 확인 카드가 그릴 것이 있다(때가 된 방문 — 답하는 중 · 고마워요 단계 포함). 카드가 알려 준다. */
@@ -495,8 +496,6 @@ export interface TripOverlay {
   card: TripOverlayCard;
   /** 지금은 자리가 없어 감춘다(검색 판 · 시트를 올림 · 키보드). 카드는 붙어 있다 — 감추기만. */
   hidden: boolean;
-  /** 접은 판(한두 줄)으로 그린다 — 지도를 가리지 않게. */
-  compact: boolean;
 }
 
 /**
@@ -504,17 +503,16 @@ export interface TripOverlay {
  * (recordActiveTrip 이 대기 방문도 같이 쓴다). 그래서 앱 휴대폰 화면에서는 하나만 보인다:
  *  1. 방문 확인이 때가 되면 그것이 먼저다 — 웹도 이 카드를 가장 위 층(z-55)에 띄웠고, 답('네'·'아직이요')이 여정까지 끝낸다.
  *     '도착했어요'를 누르면 바로 이 카드로 넘어간다.
- *  2. 아니면 길안내 중인 여정. 홈에서는 늘 접은 판(이름 + '도착했어요')으로 시작하고 눌러야 펼친다.
- *  3. 검색 결과 판이 열려 있거나, 남은 높이가 그 카드의 접은 판보다 작으면 감춘다(시트가 내려오면 다시 보인다).
- *     방문 확인은 자리가 넉넉할 때만 원래 판. 펼친 카드도 남은 높이 안에서 스크롤되므로 시트와 겹치지 않는다.
+ *  2. 아니면 길안내 중인 여정.
+ *  3. 검색 결과 판이 열려 있거나, 남은 높이가 그 카드의 최소 높이(이름 + 첫 행동 줄)보다 작으면 감춘다(시트가 내려오면 다시 보인다).
+ *     접은 판·펼친 판은 따로 없다 — 카드는 늘 같은 판이고 남은 높이 안에서 스크롤되므로(위쪽부터 보인다) 시트와 겹치지 않는다.
  */
 export function pickTripOverlay(input: TripOverlayInput): TripOverlay {
   const card: TripOverlayCard = input.visitActive ? 'visit' : input.journeyActive ? 'journey' : null;
   const room = Number.isFinite(input.room) ? input.room : 0;
-  if (!card) return { card: null, hidden: true, compact: true };
-  const min = card === 'visit' ? TRIP_CARD_HEIGHT.visitCompact : TRIP_CARD_HEIGHT.journeyCompact;
-  const hidden = input.searching || room < min;
-  return { card, hidden, compact: card === 'journey' || room < TRIP_CARD_HEIGHT.visitFull };
+  if (!card) return { card: null, hidden: true };
+  const hidden = input.searching || room < TRIP_CARD_HEIGHT[card];
+  return { card, hidden };
 }
 
 /** 카드가 쓸 수 있는 높이 — 위 칩 줄 아래(top)부터 아래에서 가린 두께(bottomCover) 위까지, 사이 여백 8씩. */
