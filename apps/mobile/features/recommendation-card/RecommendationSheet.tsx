@@ -2,7 +2,6 @@ import {
   Bookmark,
   Check,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Clock,
   Coffee,
@@ -45,7 +44,7 @@ import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveFiel
 
 import { acceptCandidate, keepCandidate, rejectCandidate, type NavigationMode } from './actions';
 import { nextCandidateAfter } from './actionsCore';
-import { BenefitChip, DetailRow, ToggleButton } from './CardParts';
+import { BenefitChip, DetailRow } from './CardParts';
 import { CardPhoto } from './CardPhoto';
 import { buildCardModel, formatClock, type AvailabilityLocal, type CardModel, type LiveDetail } from './cardModel';
 import { CongestionReportButton } from './CongestionReportButton';
@@ -160,7 +159,7 @@ function CardBody(
     setSheetState: (s: SheetState) => void;
   },
 ) {
-  const { selected: c, candidates, sheetState, setSheetState } = props;
+  const { selected: c, candidates, sheetState } = props;
   const { t, locale } = useI18n();
   const busyAt = useBusyThreshold();
   const f = c.facility;
@@ -347,116 +346,93 @@ function CardBody(
     haptic('selection');
     props.onShowAlternatives?.(c);
   };
-  const expanded = sheetState === 'expanded';
 
-  // ── 미리보기(가장 낮은 높이) ───────────────────────────────────────────────────
-  if (sheetState === 'minimized') {
-    return (
-      <SheetView style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-        <View className="gap-[8px]">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('card.peek.expand')}
-            onPress={() => setSheetState('normal')}
-            className="gap-[4px]"
-          >
-            <Text className="text-[14px] leading-[19px]" weight="extrabold" numberOfLines={2}>{model.peekValueText}</Text>
-            <View className="flex-row items-center gap-[6px]">
-              <Text className="shrink font-serif text-[16px] leading-[21px]" weight="bold" numberOfLines={1}>{model.title}</Text>
-              {model.hasSpot && (
-                <View className="rounded-md border border-gold/40 bg-gold/10 px-[6px] py-[2px]">
-                  <Text className="text-[11px] leading-[15px] text-gold-deep" weight="extrabold">{t('card.peek.spot', { n: model.spotScore })}</Text>
-                </View>
-              )}
-              <Icon icon={ChevronUp} size="sm" color="gold-deep" />
-            </View>
-            <View className="flex-row flex-wrap items-center gap-[6px]">
-              {model.showArrivalLine && model.times.arrival && now && (
-                <View className="flex-row items-center gap-[4px] rounded-md border border-jade/30 bg-jade/15 px-[8px] py-[2px]">
-                  <Icon icon={Clock} size="xs" color="jade" />
-                  <Text className="text-[11px] leading-[15px] text-jade" weight="extrabold">
-                    {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
-                  </Text>
-                </View>
-              )}
-              {model.crowdChip && model.crowdChipOnFace && (
-                <View className={cn('rounded-md border px-[8px] py-[2px]', model.crowdChip.dashed ? 'border-dashed' : '', 'border-line bg-white/70')}>
-                  <Text className="text-[11px] leading-[15px] text-muk" weight="bold">{model.crowdChip.text}</Text>
-                </View>
-              )}
-              {model.closedToday && (
-                <View className="rounded-md border border-terracotta/30 bg-terracotta/10 px-[8px] py-[2px]">
-                  <Text className="text-[11px] leading-[15px] text-terracotta" weight="bold">{t('card.closedToday')}</Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-          <View className="flex-row gap-[8px]">
-            <Button
-              className="flex-1"
-              label={t('card.accept')}
-              accessibilityLabel={t('card.acceptAria')}
-              icon={confirmed === 'accepted' ? Check : undefined}
-              onPress={onAcceptPress}
-            />
-            {showInstead ? (
-              <Button className="flex-1" variant="secondary" label={insteadLabel} accessibilityLabel={t('card.seeInsteadAria', { name: model.title })} onPress={onInstead} />
-            ) : (
-              <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
-            )}
-          </View>
-        </View>
-      </SheetView>
-    );
-  }
-
-  // ── 전체 카드 · 펼친 카드 ──────────────────────────────────────────────────────
+  // 높이마다 다른 판을 그리지 않는다 — 판은 하나(펼친 카드)이고 시트 높이가 그 위쪽부터 보여 준다. 끄는 동안 손가락을 따라
+  // 같은 내용이 이어서 드러나도록, 가장 낮은 높이(27%)에 들어가야 하는 것(가치 한 줄 · 이름 + SPOT · 바로 갈래요)을 맨 위에 둔다.
+  // 높이(sheetState)에 따라 붙이거나 떼거나 크기를 바꾸는 요소를 두지 않는다.
   return (
     <SheetScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 10 }} keyboardShouldPersistTaps="handled">
-      <ValueBox model={model} now={now} />
-
-      <View className="flex-row items-start justify-between gap-[12px]">
-        <View className="min-w-0 flex-1 gap-[6px]">
-          <View className="flex-row flex-wrap items-center gap-[6px]">
-            <View className={cn('flex-row items-center gap-[4px] rounded-lg px-[10px] py-[4px]', model.rankIsListed ? 'bg-terracotta' : 'bg-gold/15')}>
-              <Icon icon={Sparkles} size="xs" color={model.rankIsListed ? 'white' : 'gold-deep'} />
-              <Text className={cn('text-[11px] leading-[15px]', model.rankIsListed ? 'text-white' : 'text-gold-deep')} weight="black">
-                {t(model.rankText.key, model.rankText.vars)}
-              </Text>
-            </View>
-          </View>
-          {/* 요리 분류(cuisine)는 카카오 한국어 태그 — ko 가 아니면 배지를 그리지 않는다(cardModel 의 cuisineInForeignLocale 과 같은 이유). */}
-          {model.faceMenu && (model.faceMenu.kind !== 'cuisine' || locale === 'ko') && (
-            <View className="flex-row items-start gap-[4px] rounded-lg border border-gold/35 bg-gold/10 px-[8px] py-[4px]">
-              <View className="pt-[2px]" accessibilityElementsHidden importantForAccessibility="no">
-                <Icon icon={model.type === 'cafe' ? Coffee : Utensils} size="sm" color="gold-deep" />
-              </View>
-              <Text className="min-w-0 flex-1 text-[13px] leading-[18px]" weight="bold">
-                {model.faceMenu.kind === 'menu' ? `${t('card.signatureMenu')} ` : ''}
-                {model.faceMenu.items.join(' · ')}
+      {/* ── 머리: 가장 낮은 높이에서도 보이는 부분 ── */}
+      <View className="gap-[4px]">
+        <View className="flex-row flex-wrap items-center gap-x-[8px] gap-y-[4px]">
+          <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold">{model.compareKicker}</Text>
+          {model.showArrivalLine && model.times.arrival && now && (
+            <View className="flex-row items-center gap-[4px] rounded-full bg-jade/15 px-[8px] py-[1px]">
+              <Icon icon={Clock} size="xs" color="jade" />
+              <Text className="text-[12px] leading-[16px] text-jade" weight="extrabold">
+                {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
               </Text>
             </View>
           )}
-          <Text className="font-serif text-[20px] leading-[26px]" weight="bold" accessibilityRole="header">{model.title}</Text>
         </View>
-        {model.hasSpot && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('card.spotTooltipAria')}
-            accessibilityState={{ expanded: spotOpen }}
-            onPress={() => setSpotOpen((v) => !v)}
-            className={cn('min-h-[60px] min-w-[60px] items-center justify-center gap-[4px] rounded-2xl border px-[8px] py-[6px]', spotOpen ? 'border-gold bg-gold/20' : 'border-gold/40 bg-gold/10')}
-          >
-            <Text className="text-[12px] leading-[14px] text-gold-deep" weight="bold">{`${t('card.spotScoreLabel')} ⓘ`}</Text>
-            <Text className="text-[22px] leading-[24px]" weight="black">
-              {model.spotScore}
-              <Text className="text-[11px] text-muk-soft">{t('card.pointSuffix')}</Text>
-            </Text>
-          </Pressable>
-        )}
+        <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header">{model.peekValueText}</Text>
+        <View className="flex-row items-center gap-[8px]">
+          <Text className="min-w-0 shrink font-serif text-[18px] leading-[24px]" weight="bold" accessibilityRole="header">{model.title}</Text>
+          {model.hasSpot && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${t('card.peek.spot', { n: model.spotScore })}. ${t('card.spotTooltipAria')}`}
+              accessibilityState={{ expanded: spotOpen }}
+              onPress={() => setSpotOpen((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              className={cn('flex-row items-center rounded-md border px-[6px] py-[2px]', spotOpen ? 'border-gold bg-gold/20' : 'border-gold/40 bg-gold/10')}
+            >
+              <Text className="text-[12px] leading-[16px] text-gold-deep" weight="extrabold">{`${t('card.peek.spot', { n: model.spotScore })} ⓘ`}</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {model.hasSpot && spotOpen && <SpotInfo model={model} t={t} />}
+
+      <View className="flex-row gap-[8px]">
+        <Button
+          className="flex-1"
+          label={t('card.accept')}
+          accessibilityLabel={t('card.acceptAria')}
+          icon={confirmed === 'accepted' ? Check : undefined}
+          onPress={onAcceptPress}
+        />
+        {showInstead ? (
+          <Button className="flex-1" variant="secondary" label={insteadLabel} accessibilityLabel={t('card.seeInsteadAria', { name: model.title })} onPress={onInstead} />
+        ) : (
+          <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
+        )}
+      </View>
+      {hoursPrompt && (
+        <HoursPrompt busy={hoursBusy} error={hoursError} onAnswer={answerHours} onUnsure={() => { setHoursPrompt(false); setHoursError(false); }} />
+      )}
+
+      {/* ── 여기부터는 시트를 올리면 이어서 드러난다 ── */}
+      <View className="flex-row gap-[8px]">
+        {showInstead && (
+          <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
+        )}
+        <Button
+          className="flex-1"
+          variant="secondary"
+          icon={confirmed === 'saved' ? Check : Bookmark}
+          label={t('card.putOff').replace('\n', ' · ')}
+          accessibilityLabel={t('card.putOffAria')}
+          onPress={doKeep}
+        />
+      </View>
+      <View className="flex-row items-center gap-[8px]">
+        {model.needsHoursConfirmation && model.kakaoPlaceUrl ? (
+          <Text className={cn('min-w-0 flex-1 text-[11px] leading-[15px]', model.likelyClosedUnknown ? 'text-terracotta' : 'text-muk-soft')} weight="medium">
+            {t('card.checkHoursKakaoHint')}
+          </Text>
+        ) : (
+          <View className="flex-1">
+            <Button variant="secondary" label={t('card.drive')} onPress={onDrivePress} />
+          </View>
+        )}
+        <CongestionReportButton
+          facility={{ id: f.id, name: f.name }}
+          isFirst={model.displayCongestionSource === 'none'}
+          onReported={(level: ReportLevel) => setLocalReport({ level: localReportLevel(level), timestamp: new Date().toISOString() })}
+        />
+      </View>
 
       {(model.faceChips.length > 0 || model.likelyClosedUnknown) && (
         <View className="flex-row flex-wrap items-center gap-[8px]">
@@ -471,16 +447,25 @@ function CardBody(
         </Text>
       )}
 
-      {showInstead && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('card.seeInsteadAria', { name: model.title })}
-          onPress={onInstead}
-          className="min-h-[44px] flex-row items-center justify-center gap-[4px] rounded-2xl border border-jade/40 bg-jade/10 px-[12px] py-[8px]"
-        >
-          <Text className="text-[13px] leading-[18px] text-jade" weight="bold">{insteadLabel}</Text>
-          <Icon icon={ChevronRight} size="sm" color="jade" />
-        </Pressable>
+      <View className="flex-row flex-wrap items-center gap-[6px]">
+        <View className={cn('flex-row items-center gap-[4px] rounded-lg px-[10px] py-[4px]', model.rankIsListed ? 'bg-terracotta' : 'bg-gold/15')}>
+          <Icon icon={Sparkles} size="xs" color={model.rankIsListed ? 'white' : 'gold-deep'} />
+          <Text className={cn('text-[11px] leading-[15px]', model.rankIsListed ? 'text-white' : 'text-gold-deep')} weight="black">
+            {t(model.rankText.key, model.rankText.vars)}
+          </Text>
+        </View>
+      </View>
+      {/* 요리 분류(cuisine)는 카카오 한국어 태그 — ko 가 아니면 배지를 그리지 않는다(cardModel 의 cuisineInForeignLocale 과 같은 이유). */}
+      {model.faceMenu && (model.faceMenu.kind !== 'cuisine' || locale === 'ko') && (
+        <View className="flex-row items-start gap-[4px] rounded-lg border border-gold/35 bg-gold/10 px-[8px] py-[4px]">
+          <View className="pt-[2px]" accessibilityElementsHidden importantForAccessibility="no">
+            <Icon icon={model.type === 'cafe' ? Coffee : Utensils} size="sm" color="gold-deep" />
+          </View>
+          <Text className="min-w-0 flex-1 text-[13px] leading-[18px]" weight="bold">
+            {model.faceMenu.kind === 'menu' ? `${t('card.signatureMenu')} ` : ''}
+            {model.faceMenu.items.join(' · ')}
+          </Text>
+        </View>
       )}
 
       {props.comparisonReason && model.rankIsListed && (rank ?? 0) >= 2 && (
@@ -490,53 +475,12 @@ function CardBody(
         </View>
       )}
 
-      {/* 행동 — 짧은 시트에서도 보이도록 사진보다 먼저(웹은 바닥 고정). */}
-      <View className="gap-[8px]">
-        <Button
-          label={t('card.accept')}
-          accessibilityLabel={t('card.acceptAria')}
-          icon={confirmed === 'accepted' ? Check : undefined}
-          onPress={onAcceptPress}
-          block
-        />
-        <View className="flex-row gap-[8px]">
-          <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
-          <Button
-            className="flex-1"
-            variant="secondary"
-            icon={confirmed === 'saved' ? Check : Bookmark}
-            label={t('card.putOff').replace('\n', ' · ')}
-            accessibilityLabel={t('card.putOffAria')}
-            onPress={doKeep}
-          />
-        </View>
-        {hoursPrompt && (
-          <HoursPrompt busy={hoursBusy} error={hoursError} onAnswer={answerHours} onUnsure={() => { setHoursPrompt(false); setHoursError(false); }} />
-        )}
-        <View className="flex-row items-center gap-[8px]">
-          {model.needsHoursConfirmation && model.kakaoPlaceUrl ? (
-            <Text className={cn('min-w-0 flex-1 text-[11px] leading-[15px]', model.likelyClosedUnknown ? 'text-terracotta' : 'text-muk-soft')} weight="medium">
-              {t('card.checkHoursKakaoHint')}
-            </Text>
-          ) : (
-            <View className="flex-1">
-              <Button variant="secondary" label={t('card.drive')} onPress={onDrivePress} />
-            </View>
-          )}
-          <CongestionReportButton
-            facility={{ id: f.id, name: f.name }}
-            isFirst={model.displayCongestionSource === 'none'}
-            onReported={(level: ReportLevel) => setLocalReport({ level: localReportLevel(level), timestamp: new Date().toISOString() })}
-          />
-        </View>
-      </View>
-
       <CardPhoto
-          model={model}
-          facilityName={model.title}
-          onHidden={(url) => setHidden((h) => (h.includes(url) ? h : [...h, url]))}
-          height={expanded ? 200 : 150}
-        />
+        model={model}
+        facilityName={model.title}
+        onHidden={(url) => setHidden((h) => (h.includes(url) ? h : [...h, url]))}
+        height={180}
+      />
 
       {model.canLiveRefresh && (
         <View className="flex-row flex-wrap items-center gap-x-[8px] gap-y-[4px]">
@@ -560,47 +504,16 @@ function CardBody(
         </View>
       )}
 
-      <ToggleButton
-        label={t(expanded ? 'card.detailsCollapse' : 'card.detailsExpand')}
-        expanded={expanded}
-        onPress={() => setSheetState(expanded ? 'normal' : 'expanded')}
-        icon={<Icon icon={expanded ? ChevronUp : ChevronDown} size="sm" color="gold-deep" />}
+      <Details
+        model={model}
+        t={t}
+        flash={flash}
+        whyOpen={whyOpen}
+        setWhyOpen={setWhyOpen}
+        comparisonReason={rank !== null && rank < 2 ? props.comparisonReason : undefined}
+        facilityId={f.id}
       />
-
-      {expanded && (
-        <Details
-          model={model}
-          t={t}
-          flash={flash}
-          whyOpen={whyOpen}
-          setWhyOpen={setWhyOpen}
-          comparisonReason={rank !== null && rank < 2 ? props.comparisonReason : undefined}
-          facilityId={f.id}
-        />
-      )}
     </SheetScrollView>
-  );
-}
-
-function ValueBox({ model, now }: { model: CardModel; now: Date | null }) {
-  const t = useT();
-  return (
-    <View className="rounded-2xl border border-terracotta/25 bg-terracotta/10 px-[12px] py-[8px]">
-      <View className="flex-row flex-wrap items-center gap-x-[8px] gap-y-[4px]">
-        <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold">{model.compareKicker}</Text>
-        {model.showArrivalLine && model.times.arrival && now && (
-          <View className="flex-row items-center gap-[6px] rounded-full bg-jade/15 px-[10px] py-[2px]">
-            <Icon icon={Clock} size="sm" color="jade" />
-            <Text className="text-[13px] leading-[18px] text-jade" weight="extrabold">
-              {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
-            </Text>
-          </View>
-        )}
-      </View>
-      <Text className="mt-[2px] text-[17px] leading-[23px]" weight="extrabold" accessibilityRole="header">
-        {model.valueSentence ?? `${model.title} · ${model.benefitParts.join(' · ')}`}
-      </Text>
-    </View>
   );
 }
 
@@ -862,4 +775,3 @@ function WhyPanel({
     </View>
   );
 }
-
