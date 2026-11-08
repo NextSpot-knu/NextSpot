@@ -29,6 +29,7 @@ import {
   regionForKakaoLevel,
   regionFromCorners,
 } from './geometry';
+import { isMapAvailable } from './mapAvailability';
 import { GOOGLE_MUTED_STYLE, MAP_COLORS, markerAnchor, numberMarkerSize, pinContentKey, pinXml, USER_DOT } from './pins';
 import type {
   LatLng,
@@ -82,9 +83,11 @@ export const DEFAULT_INITIAL_REGION: Region = regionForKakaoLevel(
   DEFAULT_VIEW_SIZE,
 );
 
-/** 안드로이드 구글 지도는 키가 없으면 MapView 를 여는 순간 앱이 죽는다("API key not found") — 키 없는 빌드는 지도를 그리지 않는다. */
-export const MAP_AVAILABLE =
-  Platform.OS !== 'android' || Boolean(Constants.expoConfig?.android?.config?.googleMaps?.apiKey);
+/**
+ * 안드로이드 구글 지도는 키가 없으면 MapView 를 여는 순간 앱이 죽는다("API key not found") — 키 없는 빌드는 지도를 그리지 않는다.
+ * 키 유무는 extra.googleMapsConfigured 로 읽는다(android.config 는 배포 빌드에서 지워진다 — ./mapAvailability).
+ */
+export const MAP_AVAILABLE = isMapAvailable(Platform.OS, Constants.expoConfig?.extra);
 
 export function NextSpotMap({
   markers = [],
