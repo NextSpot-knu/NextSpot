@@ -13,7 +13,7 @@ import {
   Utensils,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
 
 import {
   Button,
@@ -22,6 +22,7 @@ import {
   EmptyState,
   Icon,
   Pressable,
+  SHEET_HANDLE_HEIGHT,
   Sheet,
   SheetScrollView,
   SheetView,
@@ -46,6 +47,7 @@ import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveFiel
 
 import { acceptCandidate, keepCandidate, rejectCandidate, type NavigationMode } from './actions';
 import { nextCandidateAfter } from './actionsCore';
+import { nextPeekHeight, peekSnapHeight } from './sheetPeek';
 import { BenefitChip, DetailRow } from './CardParts';
 import { CardPhoto } from './CardPhoto';
 import { buildCardModel, formatClock, type AvailabilityLocal, type CardModel, type LiveDetail } from './cardModel';
@@ -96,12 +98,15 @@ export interface RecommendationSheetProps {
   rejectIsRemoval?: boolean;
   /** 시트 높이(미리보기·기본·펼침)가 바뀔 때 — 홈이 지도 가려진 띠를 다시 계산한다. */
   onStateChange?: (state: SheetState) => void;
+  /**
+   * 가장 낮은 높이(px)가 정해지거나 바뀔 때 — 시트가 머리 + 첫 행동 줄을 재서 정한다(sheetPeek). 홈이 지도 띠·여정 카드 자리를
+   * 27% 비율 대신 이 값으로 계산한다. null 은 아직 모름(27%).
+   */
+  onPeekHeightChange?: (px: number | null) => void;
 }
 
+/** 기본 · 펼침 높이. 가장 낮은 높이는 머리 + 첫 행동 줄을 재서 px 로 정하고(sheetPeek), 재기 전에는 27%. */
 const SNAPS = ['27%', '52%', '90%'] as const;
-
-/** 머리(27% 안에 들어가야 하는 줄) 글자 확대 상한 — 더 키우면 가장 낮은 높이에서 바로 갈래요가 밀려난다. 본문은 기본 1.6. */
-const HEAD_FONT_SCALE = 1.3;
 /** 머리에 올리는 경고 칩 — 휴무 · 곧 마감(또는 도착 때 닫혔을 수 있음) · 혼잡. 나머지 혜택 칩(영업 · 대기 · 할인)은 아래에. */
 const HEAD_CHIP_KEYS: ReadonlySet<string> = new Set(['closed', 'closing', 'crowd']);
 
@@ -127,10 +132,25 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
     onStateChangeRef.current?.(sheetState);
   }, [sheetState]);
 
+  // 가장 낮은 높이 = 손잡이 + 머리·첫 행동 줄 + 여백. 글자 크기·긴 이름·경고 칩이 늘려도 바로 갈래요가 잘리지 않게 잰 값으로.
+  // 4dp 넘게 바뀔 때만 바꾸고(스냅 흔들림 방지), 끄는 중이면 Sheet 가 손을 뗀 뒤에 적용한다.
+  const { height: windowHeight } = useWindowDimensions();
+  const [peekPx, setPeekPx] = useState<number | null>(null);
+  const onPeekBlock = useCallback(
+    (blockHeight: number) => setPeekPx((prev) => nextPeekHeight(prev, peekSnapHeight(blockHeight, windowHeight, SHEET_HANDLE_HEIGHT))),
+    [windowHeight],
+  );
+  const snaps = useMemo(() => [peekPx ?? SNAPS[0], SNAPS[1], SNAPS[2]] as const, [peekPx]);
+  const onPeekRef = useRef(props.onPeekHeightChange);
+  onPeekRef.current = props.onPeekHeightChange;
+  useEffect(() => {
+    onPeekRef.current?.(peekPx);
+  }, [peekPx]);
+
   if (!selected && status === 'ready') return null;
   return (
     <Sheet
-      snapPoints={SNAPS}
+      snapPoints={snaps}
       state={sheetState}
       onStateChange={setSheetState}
       handleLabel={t('app.cardSheet.handle')}
@@ -139,7 +159,7 @@ export function RecommendationSheet(props: RecommendationSheetProps) {
       maxWidth={props.maxWidth}
     >
       {selected && status === 'ready' ? (
-        <CardBody {...props} selected={selected} sheetState={sheetState} setSheetState={setSheetState} />
+        <CardBody {...props} selected={selected} sheetState={sheetState} setSheetState={setSheetState} onPeekBlock={onPeekBlock} />
       ) : (
         <SheetView style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
           {status === 'loading' ? (
@@ -164,6 +184,8 @@ function CardBody(
     selected: SheetCandidate;
     sheetState: SheetState;
     setSheetState: (s: SheetState) => void;
+    /** 머리 + 첫 행동 줄 묶음의 높이(px) — 가장 낮은 높이를 정한다. */
+    onPeekBlock: (height: number) => void;
   },
 ) {
   const { selected: c, candidates, sheetState } = props;
@@ -187,7 +209,9 @@ function CardBody(
   const [cooldown, setCooldown] = useState(false);
   const [hidden, setHidden] = useState<string[]>(() => loadHiddenPhotos());
   // 시간 예측(골든타임 · 오늘 예측)은 서버 모델을 부른다 — 그 장소에서 시트를 처음 펼침까지 올렸을 때부터 불러온다(27% 로 훑어볼 때는 안 부른다).
-  const [reachedTop, setReachedTop] = useState(sheetState === 'expanded');
+  // 장소 id 로 기억해 다른 장소로 바뀐 그 렌더부터 바로 꺼진다(효과 순서에 기대지 않는다).
+  const [topFor, setTopFor] = useState<string | null>(sheetState === 'expanded' ? String(f.id) : null);
+  const forecastEnabled = topFor === String(f.id);
   const handled = useRef<Set<string>>(new Set());
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const scrollRef = useRef<BottomSheetScrollViewMethods>(null);
@@ -210,13 +234,12 @@ function CardBody(
   }, [f.id]);
 
   useEffect(() => {
-    if (sheetState === 'expanded') setReachedTop(true);
-  }, [sheetState]);
+    if (sheetState === 'expanded') setTopFor(String(f.id));
+  }, [sheetState, f.id]);
 
   // 다른 장소로 바뀌면 이전 장소의 로컬 상태를 비우고 맨 위부터 보여 준다(같은 ScrollView 를 다시 쓰므로).
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
-    setReachedTop(sheetState === 'expanded');
     setConfirmed(null);
     setSpotOpen(false);
     setWhyOpen(false);
@@ -365,7 +388,8 @@ function CardBody(
 
   // 높이마다 다른 판을 그리지 않는다 — 판은 하나(펼친 카드)이고 시트 높이가 그 위쪽부터 보여 준다. 끄는 동안 손가락을 따라
   // 같은 내용이 이어서 드러나도록, 가장 낮은 높이(27%)에 들어가야 하는 것(가치 한 줄 · 이름 + SPOT · 휴무·마감·혼잡 경고 ·
-  // 바로 갈래요)을 맨 위에 둔다. 머리 글은 줄 수와 글자 확대 상한을 둬서 큰 글자에서도 행동 줄이 27% 안에 남게 한다.
+  // 바로 갈래요)을 맨 위에 둔다. 가장 낮은 높이는 이 묶음을 재서 정하므로 큰 글자·긴 이름에서도 행동 줄이 잘리지 않는다
+  // (머리 글은 2줄까지 — 전체 문장은 상세 맨 위에).
   // 높이(sheetState)에 따라 붙이거나 떼거나 크기를 바꾸는 요소를 두지 않는다. 펼침 아래로 내려가면 내용은 맨 위로 돌아간다
   // (useSheetScrollTopLock — gorhom 기본은 스크롤해 둔 자리에 잠가 머리가 사라진다).
   const headChips = model.faceChips.filter((chip) => HEAD_CHIP_KEYS.has(chip.key));
@@ -377,54 +401,56 @@ function CardBody(
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, gap: 10 }}
       keyboardShouldPersistTaps="handled"
     >
-      {/* ── 머리: 가장 낮은 높이에서도 보이는 부분 ── */}
-      <View className="gap-[4px]">
-        <View className="flex-row flex-wrap items-center gap-x-[6px] gap-y-[4px]">
-          <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.compareKicker}</Text>
-          {model.showArrivalLine && model.times.arrival && now && (
-            <View className="flex-row items-center gap-[4px] rounded-full bg-jade/15 px-[8px] py-[1px]">
-              <Icon icon={Clock} size="xs" color="jade" />
-              <Text className="text-[12px] leading-[16px] text-jade" weight="extrabold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>
-                {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
-              </Text>
-            </View>
-          )}
-          {/* 휴무 · 곧 마감 · 혼잡은 가기 전에 봐야 한다 — 바로 갈래요 위(27% 안)에. */}
-          {headChips.map((chip) => (
-            <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed} small maxFontScale={HEAD_FONT_SCALE}>{chip.text}</BenefitChip>
-          ))}
+      {/* ── 머리 + 첫 행동 줄: 가장 낮은 높이에서 보이는 부분(높이를 재서 스냅으로) ── */}
+      <View className="gap-[10px]" onLayout={(e: LayoutChangeEvent) => props.onPeekBlock(e.nativeEvent.layout.height)}>
+        <View className="gap-[4px]">
+          <View className="flex-row flex-wrap items-center gap-x-[6px] gap-y-[4px]">
+            <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold">{model.compareKicker}</Text>
+            {model.showArrivalLine && model.times.arrival && now && (
+              <View className="flex-row items-center gap-[4px] rounded-full bg-jade/15 px-[8px] py-[1px]">
+                <Icon icon={Clock} size="xs" color="jade" />
+                <Text className="text-[12px] leading-[16px] text-jade" weight="extrabold">
+                  {t('card.arrivalLine', { depart: formatClock(now), arrive: formatClock(model.times.arrival) })}
+                </Text>
+              </View>
+            )}
+            {/* 휴무 · 곧 마감 · 혼잡은 가기 전에 봐야 한다 — 바로 갈래요 위(27% 안)에. */}
+            {headChips.map((chip) => (
+              <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed} small>{chip.text}</BenefitChip>
+            ))}
+          </View>
+          <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header" numberOfLines={2}>{model.peekValueText}</Text>
+          <View className="flex-row items-center gap-[8px]">
+            <Text className="min-w-0 shrink font-serif text-[18px] leading-[24px]" weight="bold" accessibilityRole="header" numberOfLines={2}>{model.title}</Text>
+            {model.hasSpot && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${t('card.peek.spot', { n: model.spotScore })}. ${t('card.spotTooltipAria')}`}
+                accessibilityState={{ expanded: spotOpen }}
+                onPress={() => setSpotOpen((v) => !v)}
+                hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
+                className={cn('flex-row items-center rounded-md border px-[6px] py-[2px]', spotOpen ? 'border-gold bg-gold/20' : 'border-gold/40 bg-gold/10')}
+              >
+                <Text className="text-[12px] leading-[16px] text-gold-deep" weight="extrabold">{`${t('card.peek.spot', { n: model.spotScore })} ⓘ`}</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-        <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header" numberOfLines={2} maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.peekValueText}</Text>
-        <View className="flex-row items-center gap-[8px]">
-          <Text className="min-w-0 shrink font-serif text-[18px] leading-[24px]" weight="bold" accessibilityRole="header" numberOfLines={2} maxFontSizeMultiplier={HEAD_FONT_SCALE}>{model.title}</Text>
-          {model.hasSpot && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${t('card.peek.spot', { n: model.spotScore })}. ${t('card.spotTooltipAria')}`}
-              accessibilityState={{ expanded: spotOpen }}
-              onPress={() => setSpotOpen((v) => !v)}
-              hitSlop={{ top: 11, bottom: 11, left: 8, right: 8 }}
-              className={cn('flex-row items-center rounded-md border px-[6px] py-[2px]', spotOpen ? 'border-gold bg-gold/20' : 'border-gold/40 bg-gold/10')}
-            >
-              <Text className="text-[12px] leading-[16px] text-gold-deep" weight="extrabold" maxFontSizeMultiplier={HEAD_FONT_SCALE}>{`${t('card.peek.spot', { n: model.spotScore })} ⓘ`}</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
 
-      <View className="flex-row gap-[8px]">
-        <Button
-          className="flex-1"
-          label={t('card.accept')}
-          accessibilityLabel={t('card.acceptAria')}
-          icon={confirmed === 'accepted' ? Check : undefined}
-          onPress={onAcceptPress}
-        />
-        {showInstead ? (
-          <Button className="flex-1" variant="secondary" label={insteadLabel} accessibilityLabel={t('card.seeInsteadAria', { name: model.title })} onPress={onInstead} />
-        ) : (
-          <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
-        )}
+        <View className="flex-row gap-[8px]">
+          <Button
+            className="flex-1"
+            label={t('card.accept')}
+            accessibilityLabel={t('card.acceptAria')}
+            icon={confirmed === 'accepted' ? Check : undefined}
+            onPress={onAcceptPress}
+          />
+          {showInstead ? (
+            <Button className="flex-1" variant="secondary" label={insteadLabel} accessibilityLabel={t('card.seeInsteadAria', { name: model.title })} onPress={onInstead} />
+          ) : (
+            <Button className="flex-1" variant="secondary" label={t('card.reject')} accessibilityLabel={t('card.rejectAria')} onPress={doReject} />
+          )}
+        </View>
       </View>
       {hoursPrompt && (
         <HoursPrompt busy={hoursBusy} error={hoursError} onAnswer={answerHours} onUnsure={() => { setHoursPrompt(false); setHoursError(false); }} />
@@ -541,7 +567,7 @@ function CardBody(
         setWhyOpen={setWhyOpen}
         comparisonReason={rank !== null && rank < 2 ? props.comparisonReason : undefined}
         facilityId={f.id}
-        forecastEnabled={reachedTop}
+        forecastEnabled={forecastEnabled}
       />
     </SheetScrollView>
   );
@@ -619,6 +645,16 @@ function Details({
   const lines = model.openHourLines;
   return (
     <View className="gap-[12px] border-t border-line pt-[12px]">
+      {/* 머리는 2줄까지라 긴 이름·문장(영·일어)이 잘릴 수 있다 — 펼치면 여기서 전부 읽힌다. */}
+      <View className="flex-row items-start gap-[8px]">
+        <View className="pt-[2px]" accessibilityElementsHidden importantForAccessibility="no">
+          <Icon icon={MapPin} size="sm" color="gold-deep" />
+        </View>
+        <View className="min-w-0 flex-1 gap-[2px]">
+          <Text className="text-[14px] leading-[19px]" weight="extrabold">{model.title}</Text>
+          <Text className="text-[12px] leading-[17px] text-muk-soft" weight="semibold">{model.peekValueText}</Text>
+        </View>
+      </View>
 
       {model.menuTokens.length > 0 && (
         <DetailRow icon={Utensils} label={t('card.signatureMenu')}>

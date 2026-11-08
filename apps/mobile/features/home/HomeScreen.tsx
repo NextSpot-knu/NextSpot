@@ -78,7 +78,7 @@ import {
   mapBottomInset,
   sheetStatus,
   type PickKind,
-  SHEET_SNAP_RATIO,
+  sheetCoverHeight,
   type SheetHeightState,
 } from './sheetModel';
 import { myLocationAction, showsMyLocationButton, showsUserDot } from './locationPolicy';
@@ -155,6 +155,8 @@ export function HomeScreen() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [headerH, setHeaderH] = useState(160);
   const [sheetState, setSheetState] = useState<SheetHeightState | null>(null);
+  // 시트 가장 낮은 높이(px) — 시트가 머리 + 첫 행동 줄을 재서 알려 준다. 모르면 27% 비율(sheetModel.sheetCoverHeight).
+  const [sheetPeekPx, setSheetPeekPx] = useState<number | null>(null);
   const [containerH, setContainerH] = useState(0);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [bottomStackH, setBottomStackH] = useState(0);
@@ -248,7 +250,7 @@ export function HomeScreen() {
   const searching = query.trim() !== '';
   const status = sheetStatus({ hasFacilities, recsLoaded: recs !== null, hasSelection: selection !== null, searching });
   const sheetShown = selection !== null || status === 'loading';
-  const bottomInset = mapBottomInset(sheetShown ? sheetState : null, containerH, SLOT_FALLBACK_HEIGHT);
+  const bottomInset = mapBottomInset(sheetShown ? sheetState : null, containerH, SLOT_FALLBACK_HEIGHT, 16, sheetPeekPx);
   const focusOn = useCallback((latitude: number, longitude: number, level?: number) => {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
     mapRef.current?.animateTo({ latitude, longitude }, { level, insets: { top: headerH + 8, bottom: bottomInset } });
@@ -577,7 +579,7 @@ export function HomeScreen() {
 
   // 여정 카드 — 한 번에 하나(방문 확인이 먼저), 위 칩 줄과 아래 시트·배너 사이 남은 자리에만(homeModel.pickTripOverlay).
   const overlayTop = headerH + 8;
-  const sheetCover = sheetShown && sheetState ? Math.round(containerH * SHEET_SNAP_RATIO[sheetState]) : 0;
+  const sheetCover = sheetShown && sheetState ? sheetCoverHeight(sheetState, containerH, sheetPeekPx) : 0;
   const tripRoom = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH, keyboardCover));
   const tripRoomNoKeyboard = tripOverlayRoom(containerH, overlayTop, Math.max(sheetCover, bottomStackH));
   const tripOverlay = pickTripOverlay({
@@ -878,6 +880,7 @@ export function HomeScreen() {
         onViewProfile={() => router.push('/mypage' as never)}
         onViewLab={() => router.push('/mypage/lab' as never)}
         onStateChange={setSheetState}
+        onPeekHeightChange={setSheetPeekPx}
         maxWidth={HOME_PANEL_MAX_WIDTH}
       />
 

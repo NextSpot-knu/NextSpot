@@ -57,6 +57,7 @@ export {
   Sheet,
   SheetScrollView,
   useSheetScrollTopLock,
+  SHEET_HANDLE_HEIGHT,
   SheetView,
   type ModalSheetProps,
   type SheetProps,

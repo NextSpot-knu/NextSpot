@@ -14,7 +14,8 @@ import BottomSheet, {
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BackHandler, Platform, StyleSheet, useWindowDimensions, View, type AccessibilityActionEvent, type NativeScrollEvent } from 'react-native';
-import { ReduceMotion, scrollTo, useAnimatedReaction } from 'react-native-reanimated';
+import { State } from 'react-native-gesture-handler';
+import { ReduceMotion, runOnJS, scrollTo, useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 웹 lib/sheetSnap.ts 의 상태 이름을 그대로 쓴다(순수 모듈 — check:shared 통과).
@@ -30,23 +31,25 @@ type LockContext = { shouldLockInitialPosition?: boolean; initialContentOffsetY?
  * SheetScrollView 의 scrollEventsHandlersHook — 시트가 가장 높은 높이 아래로 내려가면 내용을 늘 맨 위로 되돌린다.
  * gorhom 기본(useScrollEventsHandlersDefault)은 펼침에서 스크롤해 둔 위치 그대로 잠가서, 손잡이로 끌어 내리면 낮은 높이에
  * 사진·상세의 한 조각만 보이고 머리(이름·행동 버튼)가 사라진다. 높이와 상관없이 한 판을 위쪽부터 보여 주는 시트(추천 카드)용.
- *  - 펼침(EXTENDED)에서 벗어나는 순간 맨 위로 옮긴다(끄는 동안에도 위쪽부터 이어서 드러나게).
+ *  - 펼침 아래(OPENED)로 내려가는 순간 맨 위로 옮긴다(끄는 동안에도 위쪽부터 이어서 드러나게). 위로 더 당긴 것(OVER_EXTENDED)은 아니다.
  *  - 잠긴 동안의 스크롤 이벤트는 처음 위치가 아니라 0 에 잠근다.
  */
 export const useSheetScrollTopLock: ScrollEventsHandlersHookType = (scrollableRef, scrollableContentOffsetY) => {
   const base = useScrollEventsHandlersDefault(scrollableRef, scrollableContentOffsetY);
-  const { animatedSheetState, animatedScrollableStatus } = useBottomSheetInternal();
+  const { animatedSheetState, animatedScrollableStatus, animatedScrollableState } = useBottomSheetInternal();
   const { handleOnScroll: baseScroll, handleOnBeginDrag: baseBegin, handleOnEndDrag: baseEnd, handleOnMomentumEnd: baseMomentumEnd } = base;
   const toTop = useCallback(() => {
     'worklet';
     // @ts-expect-error gorhom 기본 훅과 같은 호출(Scrollable 의 animated ref)
     scrollTo(scrollableRef, 0, 0, false);
     scrollableContentOffsetY.value = 0;
-  }, [scrollableRef, scrollableContentOffsetY]);
+    // gorhom 의 제스처 계산이 보는 스크롤 위치도 맞춘다.
+    animatedScrollableState.set((state) => (state.contentOffsetY === 0 ? state : { ...state, contentOffsetY: 0 }));
+  }, [scrollableRef, scrollableContentOffsetY, animatedScrollableState]);
   useAnimatedReaction(
     () => animatedSheetState.value,
     (state, prev) => {
-      if (prev === SHEET_STATE.EXTENDED && state !== SHEET_STATE.EXTENDED && scrollableContentOffsetY.value > 0) toTop();
+      if (state === SHEET_STATE.OPENED && prev !== null && prev !== SHEET_STATE.OPENED) toTop();
     },
   );
   return useMemo(() => {
@@ -76,6 +79,20 @@ export const useSheetScrollTopLock: ScrollEventsHandlersHookType = (scrollableRe
 };
 
 const ORDER: readonly SheetState[] = ['minimized', 'normal', 'expanded'];
+/** 손잡이 높이(pt) — 위 10 + 막대 6 + 아래 6. 내용 높이로 스냅을 정하는 쪽(추천 시트의 가장 낮은 높이)이 더한다. */
+export const SHEET_HANDLE_HEIGHT = 22;
+
+/** 시트 안에서 손잡이·내용 끌기가 진행 중인지 알린다 — 그동안 스냅 값을 바꾸면 손가락 밑에서 시트가 튄다. */
+function DragWatch({ onDragging }: { onDragging: (dragging: boolean) => void }) {
+  const { animatedHandleGestureState, animatedContentGestureState } = useBottomSheetInternal();
+  useAnimatedReaction(
+    () => animatedHandleGestureState.value === State.ACTIVE || animatedContentGestureState.value === State.ACTIVE,
+    (active, prev) => {
+      if (active !== prev) runOnJS(onDragging)(active);
+    },
+  );
+  return null;
+}
 const DEFAULT_SNAPS = ['18%', '45%', '88%'] as const;
 
 const SHEET_ANIMATION = { ...springs.sheet, reduceMotion: ReduceMotion.System };
@@ -140,7 +157,7 @@ export type SheetProps = {
   children: ReactNode;
   /**
    * 세 높이 [미리보기, 기본, 펼침] — 웹 추천 카드(RecommendationCard)의 minimized · normal · expanded.
-   * px 또는 '%' 문자열, 작은 것부터. 기본 ['18%', '45%', '88%'].
+   * px 또는 '%' 문자열, 작은 것부터. 기본 ['18%', '45%', '88%']. 바뀌면 그 높이로 옮기되, 사용자가 끄는 중이면 손을 뗀 뒤에 바꾼다.
    */
   snapPoints?: readonly [number | string, number | string, number | string];
   /** 제어 — 지금 높이. 바꾸면 그 높이로 움직인다. */
@@ -185,7 +202,13 @@ export function Sheet({
   const sideMargin = maxWidth !== undefined && windowWidth > maxWidth ? Math.round((windowWidth - maxWidth) / 2) : 0;
   const current = useRef<number>(ORDER.indexOf(state ?? initialState));
   const [shown, setShown] = useState<number>(current.current);
-  const points = useMemo(() => [...snapPoints], [snapPoints]);
+  // 끄는 동안 들어온 스냅 변경은 손을 뗀 뒤에 적용한다.
+  const [dragging, setDragging] = useState(false);
+  const [applied, setApplied] = useState(snapPoints);
+  useEffect(() => {
+    if (!dragging) setApplied(snapPoints);
+  }, [snapPoints, dragging]);
+  const points = useMemo(() => [...applied], [applied]);
 
   useEffect(() => {
     if (!state) return;
@@ -234,6 +257,7 @@ export function Sheet({
       onChange={onChange}
       {...CONTAINER_A11Y}
     >
+      <DragWatch onDragging={setDragging} />
       {children}
     </BottomSheet>
   );

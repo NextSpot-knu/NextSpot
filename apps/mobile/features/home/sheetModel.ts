@@ -13,7 +13,10 @@ export type PickKind = 'recommended' | 'pin' | 'search' | 'place';
 /** 시트의 세 높이 이름(components/ui Sheet 의 SheetState 와 같다). */
 export type SheetHeightState = 'minimized' | 'normal' | 'expanded';
 
-/** RecommendationSheet 의 스냅(27% · 52% · 90%)과 같은 비율. */
+/**
+ * RecommendationSheet 의 스냅(27% · 52% · 90%)과 같은 비율. 가장 낮은 높이는 시트가 머리 + 첫 행동 줄을 재서 px 로 바꾸므로
+ * (onPeekHeightChange) 그 값을 받았으면 minimized 비율 대신 그것을 쓴다 — sheetCoverHeight.
+ */
 export const SHEET_SNAP_RATIO: Record<SheetHeightState, number> = { minimized: 0.27, normal: 0.52, expanded: 0.9 };
 
 /** 펼친 높이로 지도를 밀어 올리면 핀이 화면 밖으로 나간다 — 지도 가려진 띠는 '기본' 높이까지만 반영한다. */
@@ -69,15 +72,26 @@ export function sheetStatus(opts: { hasFacilities: boolean; recsLoaded: boolean;
 }
 
 /**
- * 시트 높이 상태 → 지도 아래 가려진 띠(pt). 시트가 없으면 `idle`. 컨테이너 높이를 모르면 폴백.
+ * 시트가 지금 높이에서 아래를 가리는 두께(pt). 가장 낮은 높이는 시트가 잰 값(peekPx)이 있으면 그것, 없으면 27% 비율.
+ */
+export function sheetCoverHeight(state: SheetHeightState, containerHeight: number, peekPx?: number | null): number {
+  if (!(containerHeight > 0)) return 0;
+  if (state === 'minimized' && typeof peekPx === 'number' && peekPx > 0) return Math.round(Math.min(peekPx, containerHeight * MAP_INSET_CAP));
+  return Math.round(containerHeight * SHEET_SNAP_RATIO[state]);
+}
+
+/**
+ * 시트 높이 상태 → 지도 아래 가려진 띠(pt). 시트가 없으면 `idle`. 컨테이너 높이를 모르면 폴백. 펼침은 기본 높이까지만.
  */
 export function mapBottomInset(
   state: SheetHeightState | null,
   containerHeight: number,
   fallback: number,
   idle = 16,
+  peekPx?: number | null,
 ): number {
   if (state === null) return idle;
   if (!(containerHeight > 0)) return fallback;
-  return Math.round(containerHeight * Math.min(SHEET_SNAP_RATIO[state], MAP_INSET_CAP)) + 16;
+  const capped: SheetHeightState = state === 'expanded' ? 'normal' : state;
+  return sheetCoverHeight(capped, containerHeight, peekPx) + 16;
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import type { RecommendationResponse } from '../../lib/core/apiClient';
 import type { HomeFacility } from './homeModel';
-import { buildSelectedCandidate, cardFacilityFromHome, mapBottomInset, sheetStatus } from './sheetModel';
+import { buildSelectedCandidate, cardFacilityFromHome, mapBottomInset, sheetCoverHeight, sheetStatus } from './sheetModel';
 
 const home = {
   id: 'f1', name: '카페', type: 'cafe', latitude: 35.8, longitude: 129.2, capacity: null, features: null,
@@ -42,5 +42,12 @@ assert.equal(mapBottomInset(null, 800, 150), 16);
 assert.equal(mapBottomInset('minimized', 800, 150), Math.round(800 * 0.27) + 16);
 assert.equal(mapBottomInset('expanded', 800, 150), mapBottomInset('normal', 800, 150));
 assert.equal(mapBottomInset('normal', 0, 150), 150);
+// 가장 낮은 높이는 시트가 잰 px 가 있으면 그것(비율 대신) — 지도 띠 · 여정 카드 자리가 같은 값을 쓴다
+assert.equal(mapBottomInset('minimized', 800, 150, 16, 190), 190 + 16);
+assert.equal(sheetCoverHeight('minimized', 800, 190), 190);
+assert.equal(sheetCoverHeight('minimized', 800, null), Math.round(800 * 0.27));
+assert.equal(sheetCoverHeight('normal', 800, 190), Math.round(800 * 0.52));
+assert.equal(sheetCoverHeight('minimized', 800, 2000), Math.round(800 * 0.52), '기본 높이를 넘지 않는다');
+assert.equal(sheetCoverHeight('expanded', 0, 190), 0);
 
 console.log('sheetModel ok');

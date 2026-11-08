@@ -26,19 +26,17 @@ const TONE_TEXT: Record<ChipTone, string> = {
 
 /**
  * 큰 글자에서 잘리지 않게 min-h(웹 h-8 = 32pt). 추정(실측 아님)은 점선 테두리.
- * small — 추천 시트 머리(가장 낮은 높이 안)의 경고 칩: 12px 한 줄, 글자 확대 상한 maxFontScale.
+ * small — 추천 시트 머리(가장 낮은 높이 안)의 경고 칩: 12px 한 줄.
  */
 export function BenefitChip({
   tone = 'neutral',
   dashed = false,
   small = false,
-  maxFontScale,
   children,
 }: {
   tone?: ChipTone;
   dashed?: boolean;
   small?: boolean;
-  maxFontScale?: number;
   children: string;
 }) {
   return (
@@ -49,7 +47,7 @@ export function BenefitChip({
         dashed ? 'border-dashed' : '',
       )}
     >
-      <Text className={cn(small ? 'text-[12px] leading-[16px]' : 'text-[14px] leading-[18px]', TONE_TEXT[tone])} weight="bold" {...(maxFontScale ? { maxFontSizeMultiplier: maxFontScale } : null)}>
+      <Text className={cn(small ? 'text-[12px] leading-[16px]' : 'text-[14px] leading-[18px]', TONE_TEXT[tone])} weight="bold">
         {children}
       </Text>
     </View>

@@ -67,6 +67,7 @@ export function DayForecast({ facilityType, enabled }: { facilityType: string; e
   const t = useT();
   const [pred, setPred] = useState<DayPrediction | null>(null);
   useEffect(() => {
+    setPred(null);
     if (!enabled || !facilityType) return;
     let active = true;
     isPredictModelTrained()
