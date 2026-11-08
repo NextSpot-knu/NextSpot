@@ -306,6 +306,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-08 — 갤럭시북 앱 실행 환경 · 팀원용 preview APK · App Store 폐기 · 개발 중 첫 실행 반복 요청
+
+- 도구·브랜치: Claude Code / `yunseong`(`01edd15` — supabase 2.33.0 고정은 사용자가 클라우드 세션으로) · 커밋 이 기록(문서)만
+- 한 것: 두 번째 PC(갤럭시북)에 앱 실행 환경 — `apps/mobile/.env.local`(공개 값 + `Expo_Token_for_Claude`), EAS preview APK 빌드 `d5b58709`(팀원 설치 링크), 로컬 개발 빌드 → Z Fold7 설치(USB `adb reverse tcp:8081`). **로컬 빌드는 JDK 21 로**(`C:\Program Files\Java\jdk-21.0.11`) — JDK 25 는 react-native-screens·worklets 의 `configureCMakeDebug` 가 'restricted method' 경고로 실패한다(`--enable-native-access` 로도 안 됨). 갤럭시북에서는 `npx` 캐시가 깨져 eas-cli 를 따로 설치해 썼다.
+- 결정(사용자): **App Store 출시 폐기 — Play 스토어만.** `MOBILE_APP_PLAN.md` 의 iOS 항목(TestFlight·4.8·Apple 로그인 철회·진석 님 Apple 권한)은 더 진행하지 않는다(계획 본문 정리는 아직).
+- 다음·미결: ① **개발 빌드에서 게스트 세션을 기기에 남기지 않기(사용자 요청, 미구현)** — 지금은 Supabase 세션(`lib/core/supabase.ts` `storage: globalThis.localStorage` = expo-sqlite)과 첫 실행 표시(`features/onboarding/firstRunCore.ts` `INTRO_SEEN_KEY`·`SETUP_SEEN_KEY`)가 재실행에도 남아 취향 조사 화면이 완전 첫 설치에만 뜬다. 개발 중에는 같은 폰에서도 매번 첫 실행 흐름을 검사할 수 있어야 한다. 운영 빌드는 지금 동작 유지(`__DEV__`·`APP_VARIANT=development` 로 가른다). 주의: 실행마다 새 익명 로그인을 하면 익명 한도 30/h(IP)와 운영 DB 의 빈 게스트 행이 늘어난다 — 세션은 두고 첫 실행 표시만 지우는 방식이나 개발 메뉴 '첫 실행 다시 보기'도 함께 검토. ② preview APK(링크 설치)에서 지도가 안 나온다는 사용자 보고 — 같은 패키지·EAS 키(SHA-1 `C8:94…`)라 키 제한 목록·preview 환경 변수부터 확인. ③ 아이폰 팀원 열람은 Appetize(독립 실행 APK 필요) 또는 웹 export(반나절~하루 추정) 중 미정.
+- 사람 작업: Play Console — 진석 님 개발자 계정 등록 여부·종류·생성일 확인 후 사용자 초대(로그인만으로는 개발자 계정이 되지 않는다).
+
 ## 2026-11-05 — 모바일 3단계: 홈 여정 카드·내 위치·폴드 펼친 화면 · Z Fold7 실기기 연결
 
 - 도구·브랜치: Claude Code(구현 1 · 작은 수정 Sonnet 1 · 독립 검토 3회) / `yunseong` · 커밋 `77684e8`..`890b093` + 이 기록
@@ -365,15 +373,6 @@ from checks order by seq;
 - 검증: 3렌즈 반박 검증 → 수정 2라운드 → 남은 Med 3건 수정 → 독립 재검토(누설·선택 편향·실행 가능성 — High 0, Med 2) → 수정. 합성 홍대 40일·종로 16일을 두 번씩 돌려 바이트 동일, 깨끗한 복제본에서 종로 확인 실행 명령 종료 0. 마지막 트리에서 api ruff · pytest 4004 · build_reset(무변경) · check-docs · web lint 0 error(경고 148 그대로)·typecheck·test 131·build. e2e 는 CI.
 - 다음·미결: 홍대 CSV 를 받으면 `run --label pilot` → 1차(예비) 결과 보고 · 집계 요약만 커밋(원본 CSV 금지) → 기준 해시 고정. 홍대는 엔진이 가장 가까운 곳과 갈릴 수 있는 출발지가 홍대 관광특구 하나라 예비·참고 결과다. 결정 대기 Q-S4-1~11 은 기본값으로 돈다. 보정 순위 관문은 보고 전용(Q-S4-3).
 - 사람 작업: "사람 작업 대기" 11-01 S4 ①(홍대 반출) · ②(종로 확인 실행).
-
-## 2026-11-01 — 서울 테스트베드 S3: 개발자 전용 내부 지역 · 구역 실측 엔진 연결 · DB 지역 격리
-
-- 도구·브랜치: Claude Code(ultracode 워크플로 24 에이전트 + 수정·검토 에이전트) / `yunseong`(`0747801` 위, main 미반영)
-- 커밋: `cc6b299`(DB 격리·region-guard) · `40d6034`(서울 적재·매핑) · `b563db2`(API 지역 판정·엔진) · `50ed9b8`(리허설 화면 개발자 전용) · `d22aeef`(웹) + 이 기록(문서)
-- 한 것: 사용자 결정 — 서울은 **developer 만**(admin·심사 계정 포함 그 밖은 0), 서울에선 제보·자리 알림·타임세일·공유·경주 전용 위젯 끔, region-guard 자동 비활성화 켬, 인사동 유지, 순위는 절대 단계. 엔진 검증(리허설) 화면도 서울 실측을 보여 개발자 전용으로 바꿨다(사용자 확인: 관광공모전이 끝나 심사 계정 노출은 필요 없다). 설계·동작은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S3' 와 커밋 본문.
-- 검증: 6 작업 묶음 구현 → 통합 → 4 렌즈(보안·경주 불변·엔진·웹) 반박 검증 → 수정 3회 → 남은 Med 4건·Low 다수를 API·웹 에이전트가 고치고 다른 검토자 2명이 다시 봄(High·Med 0 까지). 마지막 트리에서 api ruff · pytest 3739 · web lint 0 error(경고 148 그대로)·typecheck·test 131·build · build_reset(추가만) · check-docs. 마이그레이션은 PGlite 시나리오(57+ 검사)만 — 실 Supabase 미시험. e2e 는 바뀐 spec 만 로컬, 전체는 CI.
-- 다음·미결: 받아들인 잔여 — ① developer 에서 강등된 사람은 자기 서울 추천 행을 브라우저로 계속 읽는다(RLS 소유자 절) — 강등 때 그 행을 지우거나 라벨을 바꾸는 것은 사람 판단 ② 운영 PostgREST 가 임베드 JSON 경로 필터를 받는지 미확인(model-trust 는 실패하면 닫힌 쪽 폴백) ③ 내부 지역 `pack` 을 쓰는 효과 일부(saved 등)는 재확인 때 다시 돈다(무해). S4(재생 평가)는 사용자가 ultracode 로.
-- 사람 작업: "사람 작업 대기" 11-01 S3 ①~⑥(사전 확인 쿼리 · 적용 순서 · region-guard · 시험 계정 비밀·적재 · 구역 경계 · 리허설). 계획의 Render 변수 `INTERNAL_REGION_*` 는 없다(코드에 developer 고정).
 
 ## 기록 규칙
 
