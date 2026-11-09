@@ -113,16 +113,23 @@ const loadKakaoMaps = createKakaoLoader({
       onError();
       return;
     }
-    let script = document.getElementById(KAKAO_SDK_SCRIPT_ID) as HTMLScriptElement | null;
-    if (!script) {
-      script = document.createElement('script');
-      script.id = KAKAO_SDK_SCRIPT_ID;
-      script.async = true;
-      script.src = src;
-      document.head.appendChild(script);
-    }
+    // 이 함수는 namespace 가 없을 때만 불린다. 남아 있는 태그는 실패했거나 시간 초과로 버린 시도라
+    // load·error 가 다시 오지 않으므로 지우고 새로 넣는다(재시도가 실제로 네트워크를 타게).
+    document.getElementById(KAKAO_SDK_SCRIPT_ID)?.remove();
+    const script = document.createElement('script');
+    script.id = KAKAO_SDK_SCRIPT_ID;
+    script.async = true;
+    script.src = src;
     script.addEventListener('load', onLoad, { once: true });
-    script.addEventListener('error', onError, { once: true });
+    script.addEventListener(
+      'error',
+      () => {
+        script.remove();
+        onError();
+      },
+      { once: true },
+    );
+    document.head.appendChild(script);
   },
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -176,6 +183,8 @@ export function NextSpotMap({
   const nsRef = useRef<KakaoMapsNamespace | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** SDK 를 못 받아 다시 시도한 횟수 — 바뀌면 지도 만들기 effect 가 다시 돈다. */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const regionRef = useRef<Region>(initialRegion);
   const initialRegionRef = useRef<Region>(initialRegion);
   const sizeRef = useRef<ViewSize | null>(null);
@@ -338,7 +347,26 @@ export function NextSpotMap({
       mapRef.current = null;
       nsRef.current = null;
     };
-  }, [emitViewport, syncRegionFromMap]);
+  }, [emitViewport, syncRegionFromMap, loadAttempt]);
+
+  // SDK 를 못 받았으면(네트워크·시간 초과) 다시 온라인이 되거나 탭으로 돌아올 때 다시 시도한다 —
+  // 오래 켜 두는 웹에서 한 번의 실패로 세션 내내 빈 지도가 남지 않게.
+  useEffect(() => {
+    if (!failed || typeof window === 'undefined') return undefined;
+    const retry = () => {
+      if (document.visibilityState === 'hidden') return;
+      setFailed(false);
+      setLoadAttempt((n) => n + 1);
+    };
+    window.addEventListener('online', retry);
+    window.addEventListener('focus', retry);
+    document.addEventListener('visibilitychange', retry);
+    return () => {
+      window.removeEventListener('online', retry);
+      window.removeEventListener('focus', retry);
+      document.removeEventListener('visibilitychange', retry);
+    };
+  }, [failed]);
 
   // 손 조작 켜고 끄기(처음 값은 지도 만들 때 넣었다).
   useEffect(() => {
