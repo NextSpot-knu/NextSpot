@@ -304,6 +304,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-09b — 모바일 앱 웹 판(디자이너용) · EAS Hosting `https://nextspot.expo.app` · 시트 반영 preview APK
+
+- 도구·브랜치: Claude Code(i7, 구현 2 · 독립 검토 1) / `yunseong` · 커밋 `fc99dcd`·`dbe498f`·`3a38113` + 이 기록.
+- 한 것: Appetize 무료(월 30분·세션 3분)로는 디자이너가 오래 못 써서 웹 판을 만들었다. ① 웹 지도 = 카카오 JS SDK(`features/map/NextSpotMap.web.tsx`·`kakaoWeb.ts`, 키 `EXPO_PUBLIC_KAKAO_MAP_KEY` — 웹 앱과 같은 값) ② 웹 실행 수리 — `web.output` `single`(하이드레이션 #418 제거), expo-sqlite 저장소 설치를 네이티브 전용 파일로, 데스크톱은 430px 가운데 기둥, `Alert`→`window.confirm`, 카카오맵 길안내 https 직행, 위치 거부 배너 ③ 검토 Med 1(실패한 SDK 태그 재사용) 수정 `3a38113`. EAS Hosting 운영 배포(`dist` → `eas deploy --prod`). preview APK `0e946bf4`(시트 반영, `8021caf`).
+- 검증: mobile tsc · 테스트 68 · check:shared · expo-doctor · export(웹·안드로이드). Playwright 412×915·1440×900 흐름 전부 + 8분 켜 두기(오류 0). 검토 → 네이티브 회귀 없음, High 0.
+- 다음·미결: 웹은 시트 본문 마우스 끌기가 안 된다(손잡이·휠은 됨). 개발 모드 접근성 prop 경고 다수(운영 빌드엔 없음). 웹 재배포 = `apps/mobile` 에서 `npx expo export --platform web` → `npx eas-cli deploy --prod`.
+- 사람 작업: **카카오 개발자 콘솔 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가(사용자가 하기로, 11-09)** — 안 하면 그 주소에서 지도·추천이 빈다.
+
 ## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
 
 - 도구·브랜치: Claude Code(i7, 구현 3 · 독립 검토 4회) / `yunseong` · 커밋 `c23ded5`..`d5c0269` + 이 기록. 갤북↔i7 인계 문서는 git 제외 `scratch/`.
