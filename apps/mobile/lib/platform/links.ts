@@ -6,6 +6,7 @@
 // 안드로이드 11+ AndroidManifest <queries> 에 kakaomap 스킴 VIEW 인텐트(설정 플러그인). 없으면 늘 웹으로 간다(안전한 쪽).
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { Platform } from 'react-native';
 import { telHref } from '@/lib/phoneLink';
 import {
   kakaoDrivingHandoff,
@@ -37,9 +38,9 @@ export async function openExternalUrl(url: string): Promise<OpenResult> {
   }
 }
 
-/** 앱 스킴을 먼저, 안 되면 웹 주소로. */
+/** 앱 스킴을 먼저, 안 되면 웹 주소로. 웹 빌드는 앱 스킴을 건너뛴다 — 브라우저의 canOpenURL 은 늘 참이라 `kakaomap://` 빈 탭만 열린다. */
 export async function openKakaoHandoff(handoff: KakaoHandoff): Promise<OpenResult> {
-  if (handoff.app) {
+  if (handoff.app && Platform.OS !== 'web') {
     try {
       if (await Linking.canOpenURL(handoff.app)) {
         await Linking.openURL(handoff.app);

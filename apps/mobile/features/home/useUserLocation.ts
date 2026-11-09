@@ -10,7 +10,7 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, type Href } from 'expo-router';
-import { AppState, Linking } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 
 import { decideLocationAccess, LOCATION_CONSENT_ROUTE, mayReadPosition } from '~/features/auth/locationAccess';
 import { useLocationConsent } from '~/features/auth/useLocationConsent';
@@ -190,8 +190,14 @@ export function useUserLocation(): UserLocationState {
   }, [readPosition]);
 
   const openSettings = useCallback(() => {
+    // 웹에는 설정 앱이 없다(react-native-web Linking 에 openSettings 가 없어 누르면 예외) — 브라우저 권한을 다시 묻는다.
+    // 사이트 설정에서 막아 뒀으면 브라우저가 바로 거부를 돌려주고 화면은 그대로다.
+    if (Platform.OS === 'web') {
+      continueFromPrimer();
+      return;
+    }
     void Linking.openSettings().catch(() => undefined);
-  }, []);
+  }, [continueFromPrimer]);
 
   const openConsent = useCallback(() => {
     router.push(LOCATION_CONSENT_ROUTE as Href);
