@@ -33,7 +33,7 @@
       },
       "allowBackup": false,
       "predictiveBackGestureEnabled": false,
-      "package": "kr.nextspot.expo",
+      "package": "kr.nextspot.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
