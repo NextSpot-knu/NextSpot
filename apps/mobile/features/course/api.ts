@@ -14,11 +14,16 @@ import type { CoursePlan, CoursePlanRequest, CourseStop } from './types';
 /** 콜드 캐시 첫 코스 생성이 40초 넘게 걸린 실측(웹 2026-09-21) — 기본 10초 대신 60초. */
 export const COURSE_TIMEOUT_MS = 60_000;
 
+/** 세션이 없어서 난 AuthError — 서버가 401 을 준 것과 구분한다(G4b-28: 세션 없음만 2.5초 유예). */
+export function isNoSessionError(err: unknown): boolean {
+  return err instanceof AuthError && (err as AuthError & { noSession?: boolean }).noSession === true;
+}
+
 /** 로그인(익명 포함) 세션의 사용자 id. 없으면 AuthError — 화면이 'needs session' 안내를 그린다. */
 export async function currentUserId(): Promise<string> {
   const session = await ensureAnonymousSession();
   const id = session?.user?.id;
-  if (!id) throw new AuthError();
+  if (!id) throw Object.assign(new AuthError(), { noSession: true });
   return id;
 }
 

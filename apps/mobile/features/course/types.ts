@@ -90,4 +90,6 @@ export interface CoursePlanRequest {
   sequence?: string[];
   types?: string[];
   pins?: { order: number; facilityId: string }[];
+  /** 가정 시각(UTC ISO) — 'now' 프리셋이면 넣지 않는다(서버 현재 시각). 웹 body.assumedAt. */
+  assumedAt?: string;
 }

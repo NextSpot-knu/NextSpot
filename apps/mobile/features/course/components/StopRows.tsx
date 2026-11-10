@@ -1,10 +1,11 @@
 // 코스 정류지 목록 — 웹 course/page.tsx 의 StopRows·StopRow·DroppedSlotRow (기준 커밋 0d145a1).
 // 타임라인 조판(번호 원 + 금빛 세로 연결선), 못 채운 자리는 사유를 달아 자리를 지킨다. 길안내는 카카오 도보 핸드오프(앱 → 웹 폴백).
-import { ChevronDown, Navigation } from 'lucide-react-native';
+import { Navigation } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
+import { PlacePhotoFallback } from '~/components/PlacePhotoFallback';
 import { Gradient, Icon, Pressable, Text, toast } from '~/components/ui';
 import { useBusyThreshold } from '~/lib/core/publicSettings';
 import { spotPoints } from '~/lib/core/spotPoints';
@@ -13,6 +14,8 @@ import { haptic } from '~/lib/platform/haptics';
 import { openDrivingDirections, openWalkingDirections } from '~/lib/platform/links';
 import { track } from '~/lib/platform/analytics';
 import { toHttpsImageUrls } from '~/lib/platform/images';
+import { shadows } from '~/lib/theme/tokens';
+import { placeVisual } from '@/lib/placeVisual';
 import { stopCalmerOnArrival } from '@/lib/courseStopReason';
 
 import { CONGESTION_CLASS, CONGESTION_TEXT_CLASS, congestionOf, stopEstimate } from '../congestionUi';
@@ -21,28 +24,31 @@ import { arrivalParts, buildRows, hhmm, slotReasonKey, typeEmoji, walkMinutesOf 
 import { loadTravelContext } from '../travelContext';
 import { recordActiveTrip } from '../tripAdapter';
 import type { CourseStop, SlotOutcome } from '../types';
+import { RotatingChevron } from './RotatingChevron';
+
+/** 웹 <h3>(정류지 이름 줄) — 웹 빌드에서만 제목 단계를 붙인다(네이티브 접근성 API 에는 단계가 없다). */
+const HEADING_LEVEL_3 = (Platform.OS === 'web' ? { 'aria-level': 3 } : {}) as object;
 
 export function arrivalText(offsetMin: number, t: TFunc, baseMs: number | null): string {
   const { key, vars } = arrivalParts(offsetMin);
   return `${t(key, vars)} · ${hhmm(offsetMin, baseMs)}`;
 }
 
+/** 정류지를 잇는 금빛 세로선 — 보통 from-gold/45 via-gold/25 to-gold/15(top 3.35rem·bottom -12), 빈 자리는 from-gold/25 to-gold/10(top 3rem·bottom -10). */
 function Timeline({ dashed }: { dashed?: boolean }) {
   return (
-    <View
+    <Gradient
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{
-        position: 'absolute',
-        left: 17,
-        top: 54,
-        bottom: -12,
-        width: 2,
-        borderRadius: 1,
-        backgroundColor: 'rgba(193, 154, 62, 0.3)', // colors.gold 30%
-        opacity: dashed ? 0.5 : 1,
-      }}
+      colors={
+        dashed
+          ? ['rgba(193, 154, 62, 0.25)', 'rgba(193, 154, 62, 0.1)']
+          : ['rgba(193, 154, 62, 0.45)', 'rgba(193, 154, 62, 0.25)', 'rgba(193, 154, 62, 0.15)']
+      }
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={{ position: 'absolute', left: 17, top: dashed ? 48 : 53.6, bottom: dashed ? -10 : -12, width: 2, borderRadius: 1 }}
     />
   );
 }
@@ -127,15 +133,15 @@ export function DroppedSlotRow({ outcome, last, onUnpin }: { outcome: SlotOutcom
           <Text className="text-[16px] text-muk-soft">{outcome.requestedType ? typeEmoji(outcome.requestedType) : '·'}</Text>
         </View>
         <View className="min-w-0 flex-1 gap-[4px] rounded-2xl border border-dashed border-line bg-hanji-deep/40 px-[14px] py-[12px]">
-          <Text className="text-[13px] text-muk-soft" weight="bold">
+          <Text className="text-[13px] leading-[19.5px] text-muk-soft" weight="bold">
             {t('course.slotDroppedHere')}
           </Text>
           {reasonKey ? (
-            <Text className="text-[12px] leading-[18px] text-muk-soft">
+            <Text className="text-[11px] leading-[17.9px] text-muk-soft">
               {t(reasonKey, { type: outcome.requestedType ? t(`category.${outcome.requestedType}`) : '' })}
             </Text>
           ) : null}
-          <Text className="text-[11px] leading-[16px] text-muk-soft">{t('course.slotHint')}</Text>
+          <Text className="text-[10px] leading-[16.25px] text-muk-soft/80">{t('course.slotHint')}</Text>
           {onUnpin ? (
             <Pressable
               accessibilityRole="button"
@@ -143,7 +149,7 @@ export function DroppedSlotRow({ outcome, last, onUnpin }: { outcome: SlotOutcom
               onPress={onUnpin}
               className="mt-[6px] min-h-[44px] self-start flex-row items-center justify-center rounded-full border border-line bg-white px-[14px]"
             >
-              <Text className="text-[12px] text-muk-soft" weight="bold">
+              <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="bold">
                 📌 {t('course.unpin')}
               </Text>
             </Pressable>
@@ -154,10 +160,11 @@ export function DroppedSlotRow({ outcome, last, onUnpin }: { outcome: SlotOutcom
   );
 }
 
-function Pill({ children, className, textClass }: { children: string; className: string; textClass: string }) {
+/** 혜택 칩 — 웹 px-2 py-1 12px bold(줄 높이 18 → 높이 26). 시간 칩만 테두리가 없다(bordered=false, G4b-R04). */
+function Pill({ children, className, textClass, bordered = true }: { children: string; className: string; textClass: string; bordered?: boolean }) {
   return (
-    <View className={`flex-row items-center rounded-full border px-[8px] py-[4px] ${className}`}>
-      <Text className={`text-[12px] ${textClass}`} weight="bold">
+    <View className={`flex-row items-center rounded-full px-[8px] py-[4px] ${bordered ? 'border' : ''} ${className}`}>
+      <Text className={`text-[12px] leading-[18px] ${textClass}`} weight="bold">
         {children}
       </Text>
     </View>
@@ -230,8 +237,8 @@ export function StopRow({
     }
   };
 
-  const linkBtn = 'min-h-[44px] flex-row items-center gap-[4px] rounded-full px-[10px]';
-  const outlineBtn = 'min-h-[44px] flex-row items-center justify-center rounded-full border border-line bg-white px-[14px]';
+  const linkBtn = 'min-h-[44px] flex-row items-center gap-[4px] rounded-full px-[8px]';
+  const outlineBtn = 'min-h-[44px] flex-row items-center justify-center rounded-full border border-line bg-white';
 
   return (
     <View className="py-[12px]">
@@ -239,6 +246,7 @@ export function StopRow({
       <View className="flex-row items-start gap-[12px]">
         <View
           className="h-[36px] w-[36px] items-center justify-center rounded-full border-2 border-white bg-gold"
+          style={{ boxShadow: '0px 2px 8px rgba(193, 154, 62, 0.45)' }}
           accessibilityLabel={String(stop.order)}
         >
           <Text className="text-[14px] text-white" weight="extrabold">
@@ -248,18 +256,28 @@ export function StopRow({
         <View className="min-w-0 flex-1">
           <View className="flex-row items-start justify-between gap-[12px]">
             <View className="min-w-0 flex-1 gap-[6px]">
-              <Text className="text-[15px] leading-[21px]" weight="bold" numberOfLines={2}>
-                {typeEmoji(stop.facility.type)} {stop.facility.name}
-              </Text>
-              {pinned ? (
-                <View className="self-start rounded-full border border-gold/30 bg-gold/15 px-[6px] py-[2px]">
-                  <Text className="text-[10px] text-gold-deep" weight="bold">
-                    📌 {t('course.pinnedBadge')}
-                  </Text>
+              {/* 웹 <h3 flex gap-1.5>: 종류 이모지 칸 20 + 이름(2줄) + '📌 고정됨' 같은 줄. */}
+              <View className="min-w-0 flex-row items-start gap-[6px]" accessibilityRole="header" {...HEADING_LEVEL_3}>
+                <View
+                  className="mt-[2px] h-[20px] w-[20px] items-center justify-center rounded-md bg-hanji-deep"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                >
+                  <Text className="text-[11px] leading-[14px]">{typeEmoji(stop.facility.type)}</Text>
                 </View>
-              ) : null}
+                <Text className="min-w-0 shrink text-[15px] leading-[20.6px]" weight="bold" numberOfLines={2}>
+                  {stop.facility.name}
+                </Text>
+                {pinned ? (
+                  <View className="mt-[2px] shrink-0 rounded-full border border-gold/30 bg-gold/15 px-[6px] py-[2px]">
+                    <Text className="text-[10px] leading-[15px] text-gold-deep" weight="bold">
+                      📌 {t('course.pinnedBadge')}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
               <View className="flex-row flex-wrap items-center gap-[6px]">
-                <Pill className="border-transparent bg-hanji-deep" textClass="text-muk">
+                <Pill bordered={false} className="bg-hanji-deep" textClass="text-muk">
                   {`🕒 ${t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin, baseMs) })}`}
                 </Pill>
                 {walk !== null ? (
@@ -275,7 +293,7 @@ export function StopRow({
                 {est && estKey ? (
                   // 추정은 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다 — 점선 테두리로 구분한다.
                   <View className={`flex-row items-center rounded-full border border-dashed bg-white/70 px-[8px] py-[4px] ${CONGESTION_CLASS[estKey].split(' ')[0]}`}>
-                    <Text className={`text-[12px] ${CONGESTION_TEXT_CLASS[estKey]}`} weight="bold">
+                    <Text className={`text-[12px] leading-[18px] ${CONGESTION_TEXT_CLASS[estKey]}`} weight="bold">
                       {t('course.estimateChip', { label: t(`congestion.${estKey}`) })}
                     </Text>
                   </View>
@@ -291,13 +309,13 @@ export function StopRow({
                 ) : null}
               </View>
             </View>
-            {/* 56pt 사진 — 없거나 깨지면 장소 표지(유형 이모지). */}
+            {/* 56pt 사진 — 아래에는 늘 장소 표지(경주 문양 + 유형 그림, G4b-12). 사진은 그 위에 얹는다. */}
             <View
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
-              className="h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-xl border border-line bg-tile-slate-bg"
+              className="h-[56px] w-[56px] overflow-hidden rounded-xl border border-line"
             >
-              <Text className="text-[22px]">{typeEmoji(stop.facility.type)}</Text>
+              <PlacePhotoFallback visual={placeVisual(stop.facility.id, stop.facility.type)} />
               {photoUrl ? (
                 <Image
                   key={photoUrl}
@@ -310,7 +328,7 @@ export function StopRow({
             </View>
           </View>
 
-          <View className="mt-[6px] flex-row flex-wrap items-center gap-[6px]">
+          <View className="mt-[8px] flex-row flex-wrap items-center gap-[8px]">
             {!readOnly ? (
               <Pressable
                 accessibilityRole="button"
@@ -319,10 +337,10 @@ export function StopRow({
                 onPress={() => setOpen((v) => !v)}
                 className={linkBtn}
               >
-                <Text className="text-[12px] text-gold-deep" weight="bold">
+                <Text className="text-[12px] leading-[16px] text-gold-deep" weight="bold">
                   {t('course.reasonToggle')}
                 </Text>
-                <Icon icon={ChevronDown} size="xs" color="gold-deep" />
+                <RotatingChevron open={open} size={13} color="gold-deep" />
               </Pressable>
             ) : null}
             <Pressable
@@ -332,21 +350,22 @@ export function StopRow({
               onPress={() => setMoreOpen((v) => !v)}
               className={linkBtn}
             >
-              <Text className="text-[12px] text-muk-soft" weight="bold">
+              <Text className="text-[12px] leading-[16px] text-muk-soft" weight="bold">
                 {t('course.moreActions')}
               </Text>
-              <Icon icon={ChevronDown} size="xs" color="muk-soft" />
+              <RotatingChevron open={moreOpen} size={13} color="muk-soft" />
             </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={t('course.directionsAria', { name: stop.facility.name })}
               onPress={() => startNavigation('walk')}
               className="ml-auto min-h-[44px] overflow-hidden rounded-full"
+              style={{ boxShadow: shadows.cta }}
             >
               <Gradient name="cta" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
               <View className="min-h-[44px] flex-row items-center gap-[6px] px-[16px]">
-                <Icon icon={Navigation} size="sm" color="white" />
-                <Text className="text-[12px] text-white" weight="bold">
+                <Icon icon={Navigation} size={13} color="white" />
+                <Text className="text-[12px] leading-[16px] text-white" weight="bold">
                   {t('course.directions')}
                 </Text>
               </View>
@@ -354,15 +373,15 @@ export function StopRow({
           </View>
 
           {!readOnly && open ? (
-            <View className="mt-[8px] gap-[6px] rounded-r-xl border-l-2 border-gold/45 bg-hanji-deep/60 px-[12px] py-[10px]">
-              <Text className="text-[13px] leading-[19px]">{reasonText}</Text>
+            <View className="mt-[8px] gap-[6px] rounded-l-[4px] rounded-r-xl border-l-2 border-gold/45 bg-hanji-deep/60 px-[12px] py-[10px]">
+              <Text className="text-[12px] leading-[19.5px]">{reasonText}</Text>
               {est ? (
-                <Text className="text-[11px] leading-[16px] text-muk-soft">
+                <Text className="text-[10px] leading-[16.25px] text-muk-soft">
                   {t('card.evidenceEstimated', { time: formatEstimateTime(est.observedAt) ?? '—' })}
                 </Text>
               ) : null}
               <View className="self-start rounded-full border border-line bg-white px-[8px] py-[2px]">
-                <Text className="text-[11px] text-muk-soft" weight="semibold">
+                <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="semibold">
                   {t('course.spotScore', { score: spotPoints(stop.spotScore) })}
                 </Text>
               </View>
@@ -376,8 +395,9 @@ export function StopRow({
                 accessibilityLabel={t('course.drivingAria', { name: stop.facility.name })}
                 onPress={() => startNavigation('car')}
                 className={outlineBtn}
+                style={{ paddingHorizontal: 12 }}
               >
-                <Text className="text-[12px] text-muk-soft" weight="bold">
+                <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="bold">
                   {t('course.driving')}
                 </Text>
               </Pressable>
@@ -388,11 +408,12 @@ export function StopRow({
                   accessibilityLabel={altsOpen ? t('course.altsHide') : t('course.altsToggle', { n: alternatives.length })}
                   onPress={() => setAltsOpen((v) => !v)}
                   className={`${outlineBtn} flex-row gap-[4px]`}
+                  style={{ paddingHorizontal: 14 }}
                 >
-                  <Text className="text-[12px] text-muk-soft" weight="bold">
+                  <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="bold">
                     {altsOpen ? t('course.altsHide') : t('course.altsToggle', { n: alternatives.length })}
                   </Text>
-                  <Icon icon={ChevronDown} size="xs" color="muk-soft" />
+                  <RotatingChevron open={altsOpen} size={12} color="muk-soft" />
                 </Pressable>
               ) : null}
               {canReplan ? (
@@ -402,8 +423,9 @@ export function StopRow({
                   accessibilityLabel={pinned ? t('course.pinOff') : t('course.pinOn')}
                   onPress={() => onTogglePin?.(slotIdx as number, stop.facility.id)}
                   className={`min-h-[44px] flex-row items-center justify-center rounded-full border px-[14px] ${pinned ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}
+                  style={pinned ? { boxShadow: '0px 2px 10px rgba(193, 154, 62, 0.18)' } : undefined}
                 >
-                  <Text className={`text-[12px] ${pinned ? 'text-gold-deep' : 'text-muk-soft'}`} weight="bold">
+                  <Text className={`text-[11px] leading-[16.5px] ${pinned ? 'text-gold-deep' : 'text-muk-soft'}`} weight="bold">
                     📌 {pinned ? t('course.pinOff') : t('course.pinOn')}
                   </Text>
                 </Pressable>
@@ -417,12 +439,19 @@ export function StopRow({
                 const altCong = alt.predictedCongestion == null ? null : congestionOf(alt.predictedCongestion, busyAt);
                 const altEst = altCong ? null : stopEstimate(alt);
                 return (
-                  <View key={alt.facility.id} className={`flex-row items-center gap-[8px] px-[12px] py-[8px] ${i > 0 ? 'border-t border-line/70' : ''}`}>
+                  <View key={alt.facility.id} className={`flex-row items-center gap-[8px] px-[12px] py-[10px] ${i > 0 ? 'border-t border-line/70' : ''}`}>
+                    <View
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                      className="h-[24px] w-[24px] items-center justify-center rounded-md bg-white"
+                    >
+                      <Text className="text-[12px] leading-[16px]">{typeEmoji(alt.facility.type)}</Text>
+                    </View>
                     <View className="min-w-0 flex-1">
-                      <Text className="text-[13px]" weight="bold" numberOfLines={1}>
-                        {typeEmoji(alt.facility.type)} {alt.facility.name}
+                      <Text className="text-[12px] leading-[18px]" weight="bold" numberOfLines={1}>
+                        {alt.facility.name}
                       </Text>
-                      <Text className="text-[11px] text-muk-soft">
+                      <Text className="text-[10px] leading-[15px] text-muk-soft">
                         {`🕒 ${arrivalText(alt.arrivalOffsetMin, t, baseMs)}`}
                         {altCong ? ` · ${t(`congestion.${altCong}`)}` : ''}
                         {altEst ? ` · ${t('course.estimateChip', { label: t(`congestion.${congestionOf(altEst.level, busyAt)}`) })}` : ''}
@@ -433,17 +462,19 @@ export function StopRow({
                       accessibilityRole="button"
                       accessibilityLabel={t('course.altsPickAria', { name: alt.facility.name })}
                       onPress={() => onSwap?.(slotIdx as number, alt.facility.id)}
-                      className="min-h-[44px] items-center justify-center rounded-full border border-gold/35 bg-gold/10 px-[12px]"
+                      hitSlop={{ top: 2, bottom: 2 }}
+                      className="items-center justify-center rounded-full border border-gold/35 bg-gold/10"
+                      style={{ minHeight: 40, paddingHorizontal: 12 }}
                     >
-                      <Text className="text-[11px] text-gold-deep" weight="bold">
+                      <Text className="text-[10px] leading-[15px] text-gold-deep" weight="bold">
                         {t('course.altsPick')}
                       </Text>
                     </Pressable>
                   </View>
                 );
               })}
-              <View className="bg-white/50 px-[12px] py-[10px]">
-                <Text className="text-[11px] leading-[16px] text-muk-soft">{t('course.altsNote')}</Text>
+              <View className="border-t border-line/70 bg-white/50 px-[12px] py-[10px]">
+                <Text className="text-[10px] leading-[16.25px] text-muk-soft">{t('course.altsNote')}</Text>
               </View>
             </View>
           ) : null}

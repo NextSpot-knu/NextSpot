@@ -102,7 +102,7 @@ export function buildRows(stops: readonly CourseStop[], outcomes: readonly SlotO
 const SLOT_REASON_KEY: Record<string, string> = {
   no_candidate_of_type: 'course.slotNoCandidate',
   closed_at_arrival: 'course.slotClosedAtArrival',
-  late_night_unconfirmed: 'app.course.slotLateNight',
+  late_night_unconfirmed: 'course.slotLateNight',
   over_time_budget: 'course.slotOverTimeBudget',
   pin_unavailable: 'course.slotPinUnavailable',
 };
@@ -170,6 +170,8 @@ export interface CourseCacheEntry {
   planId: string;
   savedAt: number;
   contextSignature: string;
+  /** 이 계획을 만든 가정 시각 프리셋 id(웹 cached.preset) — 없으면 'now'. */
+  preset?: string;
 }
 
 export function serializeCache(entry: CourseCacheEntry): string {
@@ -181,6 +183,7 @@ export function parseCache(
   raw: string | null | undefined,
   expectedSignature: string,
   nowMs: number = Date.now(),
+  expectedPreset: string = 'now',
 ): CourseCacheEntry | null {
   if (!raw) return null;
   try {
@@ -188,6 +191,8 @@ export function parseCache(
     if (!Array.isArray(c.stops) || c.stops.length === 0) return null;
     if (typeof c.savedAt !== 'number' || nowMs - c.savedAt > COURSE_CACHE_MAX_AGE_MS) return null;
     if (c.contextSignature !== expectedSignature) return null;
+    // 다른 가정 시각의 계획은 안 보여준다(웹 page.tsx:431).
+    if ((c.preset ?? 'now') !== expectedPreset) return null;
     return {
       stops: c.stops,
       slotOutcomes: Array.isArray(c.slotOutcomes) ? c.slotOutcomes : [],
@@ -195,6 +200,7 @@ export function parseCache(
       planId: typeof c.planId === 'string' ? c.planId : '',
       savedAt: c.savedAt,
       contextSignature: c.contextSignature,
+      preset: c.preset ?? 'now',
     };
   } catch {
     return null;

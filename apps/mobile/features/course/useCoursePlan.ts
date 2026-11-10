@@ -1,15 +1,17 @@
 // 코스 계획 상태 — 웹 course/page.tsx 의 fetchCourse·디바운스·스테일-우선 캐시·고정(pin)·재계획 토스트를 훅 하나로 옮겼다(기준 커밋 0d145a1).
-// 빠진 것: 가정 시각 프리셋(앱 범위 밖), 내부 검증 지역 분기, 공유 모드(useSharedCourse 가 따로).
+// 가정 시각 프리셋(D11 ①)은 서명 밖 별도 필드로 대조한다(웹과 같다). 빠진 것: 내부 검증 지역 분기, 공유 모드(useSharedCourse 가 따로).
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useAssumedPreset } from '~/components/AssumedTimeSelect';
 import { toast } from '~/components/ui';
 import { isAuthError } from '~/lib/core/apiClient';
+import { assumedAtIsoForPreset, getStoredAssumedPreset } from '~/lib/core/assumedTime';
 import { createPublicClient } from '~/lib/core/supabase';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { describeReplan } from '@/lib/coursePlanDiff';
 
-import { fetchCoursePlan } from './api';
+import { fetchCoursePlan, isNoSessionError } from './api';
 import {
   COURSE_CACHE_KEY,
   buildPinList,
@@ -71,10 +73,16 @@ export interface CoursePlanState {
   swapTo(slotIdx: number, facilityId: string): void;
   unpinSlot(slotIdx: number): void;
   unpinAll(): void;
+  /** 탭을 떠날 때 짜기 입력(순서·종류·고정)을 비운다(D16 a). 이미 비었으면 아무 상태도 바꾸지 않는다 — 안 그러면 탭을 옮길 때마다 재조회가 나간다. */
+  resetInputs(): void;
 }
+
+/** 세션이 아직 없을 때 로그인 안내를 내기 전에 기다리는 시간(웹 page.tsx:323 — 익명 세션이 늦게 올 수 있다). */
+export const NO_SESSION_GRACE_MS = 2500;
 
 export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePlanState {
   const t = useT();
+  const assumedPreset = useAssumedPreset();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [sequence, setSequence] = useState<SequenceItem[]>([]);
   const [pins, setPins] = useState<Record<string, string>>({});
@@ -93,9 +101,11 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   const userReplanRef = useRef(false);
   const hasRenderedResultsRef = useRef(false);
   const renderedSignatureRef = useRef<string | null>(null);
-  // 포커스 재계획 판정용 — 마지막 요청에 쓴 여행 조건 · 마지막 성공 시각 · 진행 중 여부 · 로그인 필요 상태.
+  // 포커스 재계획 판정용 — 마지막 요청에 쓴 여행 조건 · 진행 중 여부 · 로그인 필요 상태.
   const requestedContextKeyRef = useRef<string | null>(null);
-  const lastOkAtRef = useRef(0);
+  const renderedPresetRef = useRef<string | null>(null);
+  // 세션 없음 유예를 이미 썼는가 — 한 번 기다린 뒤에도 없으면 안내를 그린다. 성공하면 다시 켠다.
+  const graceUsedRef = useRef(false);
   const inFlightRef = useRef(false);
   const needsAuthRef = useRef(false);
   // 요청이 날아가는 동안 SIGNED_IN 이 왔는가 — 그 요청이 옛 토큰으로 401 을 받으면 needsAuth 에 멈추지 않고 한 번 다시 짠다.
@@ -110,9 +120,10 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   // 마운트 시 캐시 하이드레이션 — 입력이 모두 비어 있던 평소 조건에서 만든 계획만 되살린다.
   useEffect(() => {
     if (!enabled) return;
-    const cached = parseCache(readCache(), planSignature(loadTravelContext(), [], [], []));
+    const cached = parseCache(readCache(), planSignature(loadTravelContext(), [], [], []), Date.now(), getStoredAssumedPreset());
     if (!cached) return;
     hasRenderedResultsRef.current = true;
+    renderedPresetRef.current = cached.preset ?? 'now';
     renderedSignatureRef.current = cached.contextSignature;
     prevPlanRef.current = { planId: cached.planId, ids: cached.stops.map((s) => s.facility.id) };
     setStops(cached.stops);
@@ -150,7 +161,10 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
     const types = sequence.length > 0 ? [] : selectedTypes;
     const signature = planSignature(context, sequenceTypesOf(sequence), types, pinList);
     // 화면에 같은 조건의 계획이 이미 있으면 조용한 새로고침 — 로더 없이, 실패해도 보이는 계획을 유지한다(스테일-우선).
-    const silentRefresh = hasRenderedResultsRef.current && renderedSignatureRef.current === signature;
+    const silentRefresh =
+      hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset && renderedSignatureRef.current === signature;
+    const assumedAt = assumedAtIsoForPreset(assumedPreset);
+    let deferred = false;
     if (!silentRefresh) setLoading(true);
     setError(null);
     setNeedsAuth(false);
@@ -162,15 +176,17 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
         context,
         ...(sequence.length > 0 ? { sequence: sequenceTypesOf(sequence) } : selectedTypes.length > 0 ? { types: selectedTypes } : {}),
         ...(pinList.length > 0 ? { pins: pinList } : {}),
+        ...(assumedAt ? { assumedAt } : {}),
       });
       if (gen !== fetchGenRef.current) return; // 구세대 응답 폐기
-      lastOkAtRef.current = Date.now();
+      graceUsedRef.current = false;
       announceReplan(plan.planId, plan.stops);
       setStops(plan.stops);
       setSlotOutcomes(plan.slotOutcomes);
       setRenderedSlotKeys(slotKeys);
       hasRenderedResultsRef.current = plan.stops.length > 0;
       renderedSignatureRef.current = signature;
+      renderedPresetRef.current = assumedPreset;
       // 빈 계획도 저장한다 — 낡은 코스가 다음 방문에 되살아나지 않게(하이드레이션이 0개를 거른다).
       writeCache(
         serializeCache({
@@ -180,6 +196,7 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
           planId: plan.planId,
           savedAt: Date.now(),
           contextSignature: signature,
+          preset: assumedPreset,
         }),
       );
     } catch (err) {
@@ -188,6 +205,15 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
         // 로그인이 막 끝났는데 이 요청은 로그인 전 토큰이었다 — 안내 화면에 서지 말고 새 세션으로 한 번 더(플래그는 다음 요청 시작에 꺼진다).
         signedInDuringFlightRef.current = false;
         setTimeout(() => void fetchCourseRef.current(), 0);
+        return;
+      }
+      if (isNoSessionError(err) && !graceUsedRef.current) {
+        // 세션이 없다 — 웹처럼 2.5초 기다린 뒤 한 번 더 본다(그 사이 익명 세션이 생기면 그대로 계획이 나온다). 그동안은 로더를 유지한다.
+        graceUsedRef.current = true;
+        deferred = true;
+        setTimeout(() => {
+          if (gen === fetchGenRef.current) void fetchCourseRef.current();
+        }, NO_SESSION_GRACE_MS);
         return;
       }
       if (silentRefresh) return;
@@ -200,13 +226,13 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
         setNeedsAuth(true);
       } else setError(t('course.fetchError'));
     } finally {
-      if (gen === fetchGenRef.current) {
+      if (gen === fetchGenRef.current && !deferred) {
         inFlightRef.current = false;
         setLoading(false);
         setHasLoadedOnce(true);
       }
     }
-  }, [enabled, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, announceReplan, t]);
+  }, [enabled, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, announceReplan, assumedPreset, t]);
 
   const fetchCourseRef = useRef(fetchCourse);
   fetchCourseRef.current = fetchCourse;
@@ -223,17 +249,14 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
     return () => data.subscription.unsubscribe();
   }, [enabled]);
 
-  // 탭에 돌아왔을 때 — 여행 조건이 바뀌었거나 마지막 성공이 오래됐으면 다시 짠다(같은 조건이면 로더 없이 조용히).
+  // 탭에 돌아올 때마다 — 웹이 탭 이동마다 새로 마운트되며 계획을 다시 받는 것과 같다(D16 b). 같은 조건이면 로더 없이 조용히.
   useFocusEffect(
     useCallback(() => {
       if (!enabled) return;
       const decision = decideCourseFocusRefresh({
         contextKey: JSON.stringify(loadTravelContext()),
         requestedContextKey: requestedContextKeyRef.current,
-        lastOkAt: lastOkAtRef.current,
-        now: Date.now(),
         inFlight: inFlightRef.current,
-        needsAuth: needsAuthRef.current,
       });
       if (decision === 'replan') void fetchCourseRef.current();
     }, [enabled]),
@@ -318,6 +341,12 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
     unpinAll: () => {
       markUserReplan();
       setPins({});
+    },
+    // 비었으면 같은 참조를 돌려줘 상태가 안 바뀐다 → fetchCourse 의 deps 도 그대로 → 탭 전환만으로 POST 가 나가지 않는다.
+    resetInputs: () => {
+      setSelectedTypes((prev) => (prev.length > 0 ? [] : prev));
+      setSequence((prev) => (prev.length > 0 ? [] : prev));
+      setPins((prev) => (Object.keys(prev).length > 0 ? {} : prev));
     },
   };
 }

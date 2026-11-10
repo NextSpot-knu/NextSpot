@@ -81,7 +81,7 @@ const seq = (...types: string[]): SequenceItem[] => types.map((type, i) => ({ ui
   assert.deepEqual(rows.map((r) => (r.stop ? r.stop.facility.id : `slot${r.slotOrder}`)), ['A', 'slot2', 'C']);
   assert.equal(slotReasonKey(outcomes[1]), 'course.slotNoCandidate');
   assert.equal(slotReasonKey({ ...outcomes[1], requestedType: null }), 'course.slotNoCandidateAny');
-  assert.equal(slotReasonKey({ ...outcomes[1], status: 'late_night_unconfirmed' }), 'app.course.slotLateNight');
+  assert.equal(slotReasonKey({ ...outcomes[1], status: 'late_night_unconfirmed' }), 'course.slotLateNight');
 }
 
 // 순서 피커 — 상한, 이동(끌기·버튼 공통)
@@ -106,6 +106,11 @@ const seq = (...types: string[]): SequenceItem[] => types.map((type, i) => ({ ui
   assert.equal(parseCache(serializeCache({ ...entry, stops: [] }), sig, 2000), null); // 빈 계획
   assert.equal(parseCache('{broken', sig), null);
   assert.equal(parseCache(null, sig), null);
+  // 가정 시각 — 다른 프리셋의 계획은 되살리지 않는다(없던 필드 = 'now')
+  assert.equal(parseCache(raw, sig, 2000, 'sat_afternoon'), null);
+  const satRaw = serializeCache({ ...entry, preset: 'sat_afternoon' });
+  assert.equal(parseCache(satRaw, sig, 2000, 'sat_afternoon')?.preset, 'sat_afternoon');
+  assert.equal(parseCache(satRaw, sig, 2000), null);
 }
 
 // 공유 복원 — 경과 보정·못 찾은 시설 제외·번호 재부여

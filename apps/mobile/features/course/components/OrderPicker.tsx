@@ -1,8 +1,9 @@
 // 순서 지정 피커 — 웹 course/page.tsx 의 OrderPicker. 종류를 순서대로 담으면 그 순서대로 코스를 배정한다(body.sequence).
-// 웹의 framer Reorder 대신 react-native-draggable-flatlist(가로, 길게 눌러 끌기). 끌기는 손가락 전용이라
-// 같은 일을 하는 '앞으로 · 뒤로' 버튼(44pt)과 스크린리더 사용자 지정 동작을 함께 둔다(접근성 대안).
+// 웹의 framer Reorder 대신 react-native-draggable-flatlist(가로, 길게 눌러 끌기). 보이는 '앞으로 · 뒤로' 줄은 웹에 없어 지웠다(결정 D21/E7 — 웹에 맞춘다).
+// 끌기 대안은 칩의 스크린리더 사용자 지정 동작(앞으로·뒤로·빼기)으로 남는다. 손으로는 ✕ 로 빼고 다시 담아 순서를 바꾼다.
 // sequence 가 1개 이상이면 '순서 모드' — 아래 종류 필터(자동 모드용)는 그리지 않는다(두 입력이 동시에 보이면 어느 쪽이 적용되는지 헷갈린다).
-import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
+import { Platform } from 'react-native';
 import { View } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, type RenderItemParams } from 'react-native-draggable-flatlist';
 
@@ -12,6 +13,9 @@ import { haptic } from '~/lib/platform/haptics';
 
 import { typeEmoji } from '../model';
 import { MAX_SEQUENCE, TYPE_OPTIONS, type SequenceItem } from '../types';
+
+/** 웹 <h2> — 웹 빌드에서만 제목 단계를 붙인다. */
+const HEADING_LEVEL_2 = (Platform.OS === 'web' ? { 'aria-level': 2 } : {}) as object;
 
 export function OrderPicker({
   sequence,
@@ -61,6 +65,7 @@ export function OrderPicker({
             else if (e.nativeEvent.actionName === 'delete') onRemove(item.uid);
           }}
           className="mr-[8px] min-h-[44px] flex-row items-center gap-[6px] rounded-full border border-gold/40 bg-gold/15 pl-[12px] pr-[6px]"
+          style={{ boxShadow: '0px 1px 4px rgba(193, 154, 62, 0.18)' }}
         >
           <Text className="text-[13px] text-gold-deep/70" weight="bold">
             {idx + 1}
@@ -85,22 +90,22 @@ export function OrderPicker({
   return (
     <View className="gap-[12px] rounded-2xl border border-line/70 bg-hanji-deep/35 p-[16px]">
       <View className="gap-[4px]">
-        <Text className="text-[15px]" weight="bold">
+        <Text className="text-[15px] leading-[18.75px]" weight="bold" accessibilityRole="header" {...HEADING_LEVEL_2}>
           {t('course.orderTitle')}
         </Text>
-        <Text className="text-[12px] leading-[18px] text-muk-soft">{t('course.orderHint')}</Text>
+        <Text className="text-[11px] leading-[17.9px] text-muk-soft">{t('course.orderHint')}</Text>
       </View>
 
       <View className="flex-row flex-wrap gap-[8px]">
         {TYPE_OPTIONS.map((opt) => (
           <Chip
             key={opt.id}
+            variant="courseType"
             label={t(`category.${opt.id}`)}
             emoji={opt.emoji}
             disabled={full}
             accessibilityLabel={t('course.orderAddAria', { type: t(`category.${opt.id}`) })}
             onPress={() => onAdd(opt.id)}
-            className="min-h-[44px] px-[16px]"
           />
         ))}
       </View>
@@ -116,46 +121,13 @@ export function OrderPicker({
             activationDistance={8}
             showsHorizontalScrollIndicator={false}
           />
-          {/* 앞·뒤 버튼 — 끌기를 못 쓰는 사람과 스크린리더용. 칸마다 한 쌍(이름으로 어느 칸인지 구분). */}
-          <View className="gap-[6px]">
-            {sequence.map((item, idx) => {
-              const label = t(`category.${item.type}`);
-              return (
-                <View key={item.uid} className="min-h-[44px] flex-row items-center gap-[8px]">
-                  <Text className="min-w-0 flex-1 text-[13px]" weight="semibold" numberOfLines={1}>
-                    {idx + 1}. {typeEmoji(item.type)} {label}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t('app.course.moveEarlier', { type: label })}
-                    accessibilityState={{ disabled: idx === 0 }}
-                    disabled={idx === 0}
-                    onPress={() => onMove(idx, idx - 1)}
-                    className={`h-[44px] w-[44px] items-center justify-center rounded-full border border-line bg-white ${idx === 0 ? 'opacity-40' : ''}`}
-                  >
-                    <Icon icon={ChevronLeft} size="md" color="muk-soft" />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t('app.course.moveLater', { type: label })}
-                    accessibilityState={{ disabled: idx === sequence.length - 1 }}
-                    disabled={idx === sequence.length - 1}
-                    onPress={() => onMove(idx, idx + 1)}
-                    className={`h-[44px] w-[44px] items-center justify-center rounded-full border border-line bg-white ${idx === sequence.length - 1 ? 'opacity-40' : ''}`}
-                  >
-                    <Icon icon={ChevronRight} size="md" color="muk-soft" />
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('course.orderReset')}
             onPress={onReset}
             className="min-h-[44px] self-start justify-center rounded-full border border-line bg-white px-[16px]"
           >
-            <Text className="text-[12px] text-muk-soft" weight="bold">
+            <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="bold">
               {t('course.orderReset')}
             </Text>
           </Pressable>
@@ -165,10 +137,10 @@ export function OrderPicker({
       {sequence.length === 0 && (
         <View className="gap-[8px] border-t border-line/70 pt-[12px]">
           <View className="gap-[2px]">
-            <Text className="text-[14px]" weight="bold">
+            <Text className="text-[14px] leading-[17.5px]" weight="bold" accessibilityRole="header" {...HEADING_LEVEL_2}>
               {t('course.pickTitle')}
             </Text>
-            <Text className="text-[12px] text-muk-soft" weight="semibold">
+            <Text className="text-[11px] leading-[16.5px] text-muk-soft" weight="semibold">
               {t('course.typeFilterLabel')}
             </Text>
           </View>
@@ -176,11 +148,11 @@ export function OrderPicker({
             {TYPE_OPTIONS.map((opt) => (
               <Chip
                 key={opt.id}
+                variant="courseType"
                 label={t(`category.${opt.id}`)}
                 emoji={opt.emoji}
                 selected={selectedTypes.includes(opt.id)}
                 onPress={() => onToggleType(opt.id)}
-                className="min-h-[44px] px-[16px]"
               />
             ))}
           </View>
