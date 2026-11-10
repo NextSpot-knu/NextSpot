@@ -62,6 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
+   **Play 앱 주력 = 운영 웹을 감싼 Bubblewrap TWA(11-10, `feat/twa` · `apps/twa`, 패키지 `kr.nextspot.app`)** — 다음은 main PR → Play 앱 서명 지문 → `assetlinks.json` → 릴리스. Expo 앱(`kr.nextspot.expo`)은 병렬 유지.
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -105,6 +106,9 @@ asyncio.run(main())"
 - [ ] **(11-01 S3 ⑥) 개발자 계정 서울 리허설** — 실기기에서 지역 전환 → 지도 구역 원·라벨(e2e 는 카카오 SDK 를 대역으로 써 못 봤다) · 카드·코스·대기판의 구역 줄 · 서울에서 공유·제보·체감 혼잡 질문·쿠폰함이 없는지.
 - [ ] **(11-01 S4 ① · 읽기 전용) 홍대 CSV 반출** — 운영 DB 는 읽기만. SQL 은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4' 부록 블록(또는 `apps/api` 에서 `.\.venv\Scripts\python scripts/crowd_dispersion_replay.py sql --cluster hongdae --from 2026-09-20 --to <오늘 KST>`). SQL Editor 결과 한도 'No limit' · 문장 하나씩 · 결과 바닥 행 수를 Q0 목록과 대조 · 파일 이름은 각 블록 머리 주석대로 · 엑셀로 열어 저장하지 않기 · 저장은 저장소 밖 `$HOME\nextspot-s4\hongdae`(같은 절 ②·③). 받으면 에이전트에게 폴더를 알려 준다 → `run --label pilot` → 홍대 1차 결과(집계만 커밋, 원본 CSV 는 커밋하지 않음).
 - [ ] **(11-01 S4 ② · 종로 수집 4주쯤 뒤) 종로 확인 실행** — 같은 반출(`--cluster jongno`)을 받아 깨끗한 체크아웃에서 `run --cluster jongno --label confirmatory --expect-criteria <홍대 검토 뒤 고정한 해시>`. 코드 변경 없음(커밋 안 된 변경이 있으면 종료 4). 종로 수집은 10-31c 배포(Render)부터 쌓인다.
+- [ ] **(11-10 TWA·Expo ① · 갤북) Expo 앱 새 패키지 `kr.nextspot.expo` 빌드** — `apps/mobile` 에서 `eas build -p android --profile development`(대화형 — 새 키 생성 허용), 이어서 `--profile preview`. 패키지가 바뀌어 EAS 가 새 서명키를 만든다(클라우드엔 Expo 토큰이 없어 못 했다).
+- [ ] **(11-10 ②) Maps 키 Android 앱 제한** — `eas credentials -p android` 로 새 키 SHA-1 확인 → Google Cloud 'Maps SDK for Android' 키의 Android 앱 제한에 `kr.nextspot.expo` + 그 SHA-1, 로컬 디버그용 `kr.nextspot.expo` + `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` 추가. 옛 `kr.nextspot.app` 항목은 새 Expo 빌드가 지도를 띄우는 것을 본 뒤 지운다.
+- [ ] **(11-10 ③) 폰·팀원 옛 Expo 빌드 지우기** — Z Fold7 의 옛 Expo 개발 빌드(`kr.nextspot.app`)를 지워야 TWA 디버그 APK 가 깔린다(같은 패키지·다른 서명은 덮어 설치 거부). 팀원에게 준 옛 preview APK 도 같은 이유로 TWA 와 충돌한다.
 - [ ] **(11-01 모바일 ② · 웹에도 해당) 위치정보법 확인** — 웹은 이미 로그인 사용자 id 와 함께 좌표를 API 로 보내고, 추천 기록에 후보별 거리를 남긴다. 위치기반서비스사업 신고(소상공인은 개시 1개월 안)·위치기반서비스 이용약관 동의·이용 확인자료 보존·만 14세 미만 처리가 필요한지 법무 확인. 근거 조문과 앱 설계 반영은 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) §8.2·M20.
 - [ ] **(11-01 모바일 ①) 앱 계획 검토 + 스토어 권한 준비** — [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) 남은 것: Expo 조직 만들기(M6) · Google Cloud 프로젝트 + 결제 계정 + 'Maps SDK for Android' 키(A21 — 제한은 1단계 SHA-1 뒤) · 진석 님 권한은 §8.1(App Store Connect 팀·API 키, Play Console 초대·서비스 계정, Expo 조직, 안드로이드 Google Maps 키). 키 파일(.p8·서비스 계정 JSON)은 저장소·채팅에 올리지 않는다.
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
@@ -304,6 +308,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-10 — Play 주력 = 웹 TWA(`feat/twa`) · Expo 앱 패키지 `kr.nextspot.expo` 로
+
+- 도구·브랜치: Claude Code(클라우드) / `feat/twa`(origin/main 기준) `80ed3ce`·`479af46` · `yunseong` 이 기록 + 패키지명 커밋
+- 결정(사용자): App Store 를 접어 'WebView 감싸기 금지' 이유가 사라졌다 → **Play 주력은 운영 웹을 Bubblewrap TWA 로 감싼 앱**, Expo 앱은 병렬 유지. 패키지 `kr.nextspot.app` 은 TWA, Expo 는 `kr.nextspot.expo`(한 폰에 둘 다). iOS `bundleIdentifier` 는 iOS 를 접어 그대로 둔다(App Store 로 다시 가면 그때 정한다).
+- 한 것: ① `apps/twa` — `@bubblewrap/core` 1.27.0 으로 생성(standalone·portrait·`#faf5ec`·위치 위임 켬·알림 위임 끔·1/1.0.0·minSdk 24·폴백 customtabs). 클라우드가 운영 호스트를 막아 아이콘은 `apps/web/public` 을 로컬 서빙해 만들었다. 서명키는 `.gitignore`. ② `.github/workflows/twa-debug-apk.yml`(`feat/twa` push + dispatch, 디버그 APK 14일) — 첫 실행은 minSdk 21 이 androidbrowserhelper 2.7.4(최소 24)와 맞지 않아 실패 → 24 로 고쳐 [run 42736007454](https://github.com/NextSpot-knu/NextSpot/actions/runs/42736007454) 초록 · 아티팩트 `nextspot-twa-debug-479af46…`(5.2MB, 11-24 만료). ③ `apps/mobile/app.json` `android.package` → `kr.nextspot.expo`.
+- 검증: check-docs · mobile tsc · 테스트 68 · expo-doctor 19/21(실패 2 = exp.host·RN Directory 접속 차단, 네트워크 — CI mobile 잡에서 본다).
+- 다음·미결: `feat/twa` → main PR(팀장 승인). 그 뒤 Play 앱 서명 지문으로 `apps/web/public/.well-known/assetlinks.json`(PR) → 릴리스 서명·AAB·Play 업로드. 디버그 APK 는 assetlinks 가 없어 주소창이 보이는 게 정상.
+- 사람 작업: "사람 작업 대기" 11-10 ①~③(EAS 새 키 빌드 · Maps 키 앱 제한 · 옛 Expo 빌드 지우기).
+
 ## 2026-11-09b — 모바일 앱 웹 판(디자이너용) · EAS Hosting `https://nextspot.expo.app` · 시트 반영 preview APK
 
 - 도구·브랜치: Claude Code(i7, 구현 2 · 독립 검토 1) / `yunseong` · 커밋 `fc99dcd`·`dbe498f`·`3a38113` + 이 기록.
@@ -360,24 +373,6 @@ from checks order by seq;
 - 검증: mobile tsc · 테스트 16 · check:shared · expo-doctor 21/21 · expo export android · 에뮬레이터 화면. CI 에 `mobile` 잡 추가.
 - 다음·미결: 공용 층 검토 3렌즈(진행 중) 반영 → 2단계 화면 이식. 문서 `DEPLOY_AND_ENV.md` 의 운영 API 주소가 옛 오리건이다(앱은 nextspot-t2ib). 글꼴 TTF 6개(약 16MB)는 부분 집합으로 줄일지 출시 전에 정한다.
 - 사람 작업: Expo 조직(M6) · Google Maps 키(A21) · Supabase 익명 한도 30/h(A7') — "사람 작업 대기".
-
-## 2026-11-02 — 모바일 앱 계획 답 반영 · CI 시계 의존 테스트 수정
-
-- 도구·브랜치: Claude Code / `yunseong`
-- 커밋: `d9c6ad4`(테스트) + 이 기록(문서)
-- 한 것: 사용자 답을 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) 에 반영 — SDK 는 57 로 시작(스토어 빌드 조건을 맞추는 가장 낮은 버전, 2027-04 iOS 27 SDK 전에 58 이상으로), CAPTCHA 끔 확정, 폰 Z Fold7(접힘·펼침 점검 추가)·에뮬레이터 허락, 지도 키는 사용자 Google Cloud, 게스트 문의에 선택 이메일 칸 권장. CI api 잡이 11-02 부터 실패 — S4 때 넣은 보정 라우트 테스트가 고정 날짜 표본을 실제 시계 28일 창으로 잘라 `rank_gate` 가 'insufficient' 가 됐다. 라우트 경로도 고정 시각을 쓰게 테스트만 고쳤다.
-- 검증: api ruff · pytest 4004 · check-docs. 다른 파일의 시계 의존 테스트를 찾으려던 시계 이동 실행은 도구 충돌로 접었다(CI 로 잡는다).
-- 다음·미결: Expo 조직(M6) 생기면 모바일 1단계. 고정 `NOW` 를 쓰면서 라우트는 실제 시계를 쓰는 테스트가 다른 파일에도 있을 수 있다.
-- 사람 작업: "사람 작업 대기" 11-01 모바일 ① 갱신(Expo 조직 · Google Maps 키).
-
-## 2026-11-01c — 모바일 앱(iOS·Android) 재구현 계획(검토 대기)
-
-- 도구·브랜치: Claude Code(조사 에이전트 4 — 화면 목록 · 웹 전용 의존성 · 공유 가능 로직 · 외부 규정) / `yunseong`
-- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
-- 한 것: 사용자 요청 "현재 NextSpot 을 모바일 앱으로 재구현 — 범위·프레임워크·작업 방식 문서화"(조건: Expo · WebView 금지 · 지도 교체·위치 권한 문구 · EAS → TestFlight·Play 비공개 테스트, 진석 님 권한). [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md): v1 = 관광객 화면 전부(사장님·관제·개발자는 웹), Expo SDK 58(첫날 호환 확인, 막히면 57) + Expo Router + react-native-maps(래퍼로 교체 가능), 스타일은 NativeWind·Uniwind 확인 뒤, 웹 `lib` 순수 모듈 97개는 복사 없이 import, `apps/mobile` 은 루트 workspaces 에서 뺀 독립 패키지, 위치 권한 문구 4로케일 초안, 스토어 심사 점검표(4.8 Apple 로그인·토큰 철회, Play 12명×14일, 위치정보법 확인), 에이전트 단계 1~5.
-- 검증: 레드팀 에이전트 1개가 코드·공식 문서로 반박 검토(높음 6 · 중간 7 · 낮음 10 — 전부 반영). 결론을 바꾸는 지적은 코드로 재확인: 웹 `lib` 순수 모듈 일부가 API·Supabase 클라이언트를 import(→ Metro 어댑터 치환), 재설정 메일이 PKCE 라 다른 기기에서 실패(→ `token_hash` + `/auth/confirm`), 접속 로그·추천 기록 거리로 위치가 남음(→ M22), 위치 권한 안내 화면은 버튼 하나(Apple HIG). check-docs.
-- 다음·미결: ★ 질문 답 → 1단계(호환 확인 · 해석 설정 · Expo 뼈대 + 공용 층 에이전트 3). 위치정보법 법무 확인은 웹에도 걸린다(사람 작업 모바일 ②).
-- 사람 작업: "사람 작업 대기" 11-01 모바일 ①(계획 검토 · 스토어 권한 준비) · ②(위치정보법 확인). 10-31c ⑤(Turnstile 켜기)는 M7 답 전 보류 표시.
 
 ## 기록 규칙
 
