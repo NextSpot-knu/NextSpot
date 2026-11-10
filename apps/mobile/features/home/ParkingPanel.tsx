@@ -7,7 +7,7 @@
 // 자리: 웹 `absolute inset-x-0 px-4 bottom-[clearance]` → 탭 화면 안 bottom NAV_GAP, 좌우 16 + 안전 영역(H3a 스택과 같다).
 // 주차장 탭에서는 카드 스택·예측 띠가 없다(웹 activeFilter !== '주차장' 조건) — 이 판이 그 자리를 쓴다. 넣는 곳은 H3b.
 import { Car, X } from 'lucide-react-native';
-import { View } from 'react-native';
+import { View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { NAV_GAP } from '~/components/navigation/navMetrics';
@@ -34,9 +34,11 @@ export interface ParkingPanelProps {
   onClose: () => void;
   /** '다시 시도'(useParkingLots.reload). */
   onRetry: () => void;
+  /** 판 높이 — 홈이 지도 mapPadding(구글 로고)·카메라 띠 아래끝을 잴 때(판 위끝 = 화면 높이 − NAV_GAP − 높이). */
+  onLayout?: (event: LayoutChangeEvent) => void;
 }
 
-export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry }: ParkingPanelProps) {
+export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry, onLayout }: ParkingPanelProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
   const empty = lots.length === 0;
@@ -47,6 +49,7 @@ export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry 
   return (
     <View
       pointerEvents="box-none"
+      onLayout={onLayout}
       style={{
         position: 'absolute',
         left: SIDE + insets.left,
