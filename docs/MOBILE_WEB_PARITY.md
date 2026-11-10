@@ -263,7 +263,7 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 | A1 | 모달 시트 원인·Provider 순서·Card 기본값 | S | Opus | §3 답 | 아니오 | 끝(e89305a) |
 | A2 | SPOT ×100 · 직접 고른 곳 도보 분 · 킵 북마크 모양 | S–M | Sonnet | §3 답 | 아니오 | 끝(d897e37) |
 | A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 끝(60f0042, 일부 토큰은 요청 때) |
-| B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 진행 |
+| B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 끝(0d828f3) |
 | B2 | Button·Chip·Pressable·ErrorState | M | Sonnet | A1·A3 | 아니오 | 끝(f2d7a27) |
 | B3 | ModalSheet 선택 prop·AppToaster·confirmToast | M | Opus | A1·A3 | 아니오 | 진행 |
 | B4a | Glow·RingSpinner·마스코트·표지·CreditLine·RankBadge·GoldenHourBadge·자산 | M | Sonnet | A3 | 아니오 | 끝(8f21d81) |
