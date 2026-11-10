@@ -7,6 +7,7 @@ import { View } from 'react-native';
 
 import { Gradient, Icon, Pressable, Text, toast } from '~/components/ui';
 import { useBusyThreshold } from '~/lib/core/publicSettings';
+import { spotPoints } from '~/lib/core/spotPoints';
 import { useT, type TFunc } from '~/lib/i18n/I18nProvider';
 import { haptic } from '~/lib/platform/haptics';
 import { openDrivingDirections, openWalkingDirections } from '~/lib/platform/links';
@@ -362,7 +363,7 @@ export function StopRow({
               ) : null}
               <View className="self-start rounded-full border border-line bg-white px-[8px] py-[2px]">
                 <Text className="text-[11px] text-muk-soft" weight="semibold">
-                  {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
+                  {t('course.spotScore', { score: spotPoints(stop.spotScore) })}
                 </Text>
               </View>
             </View>

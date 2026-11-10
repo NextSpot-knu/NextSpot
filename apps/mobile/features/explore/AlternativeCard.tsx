@@ -9,6 +9,7 @@ import { View } from 'react-native';
 import { Button, Icon, Text } from '~/components/ui';
 import { Pressable } from '~/components/ui/Pressable';
 import type { RecommendationResponse } from '~/lib/core/apiClient';
+import { spotPoints } from '~/lib/core/spotPoints';
 import { useI18n } from '~/lib/i18n/I18nProvider';
 import { shadows } from '~/lib/theme/tokens';
 import { congestionKey, type CongestionKey } from '@/lib/congestionScale';
@@ -134,7 +135,7 @@ function AlternativeCardImpl(props: AlternativeCardProps) {
   const parking = area?.areaDemandParkingEvidence;
   const tourism = area?.areaDemandTourismEvidence;
   const hoursHint = needsHoursCheck(rec) && !props.hoursOpen;
-  const spot = Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore);
+  const spot = spotPoints(rec.spotScore);
   const whyLabel = t('card.whyToggle');
 
   return (

@@ -5,6 +5,7 @@
 import type { RecommendationResponse } from '~/lib/core/apiClient';
 import type { CardFacility, SheetCandidate } from '~/features/recommendation-card';
 
+import { haversineMeters } from '@/lib/map/geo';
 import type { HomeFacility } from './homeModel';
 
 /** 카드를 연 방식 — 웹 FacilityRecord.pickKind(+ 추천 1위로 자동으로 연 것). */
@@ -56,12 +57,15 @@ export function buildSelectedCandidate(
   facility: HomeFacility,
   kind: PickKind,
   visibleRecs: readonly RecommendationResponse[],
+  origin: { lat: number; lng: number },
 ): SheetCandidate {
   const rec = visibleRecs.find((r) => r.facility.id === facility.id);
   const forced = kind === 'search' || kind === 'place';
   if (rec && !forced) return rec;
   const place = cardFacilityFromHome(facility);
-  return rec ? { ...rec, facility: { ...rec.facility, ...place }, userPicked: true } : { facility: place, userPicked: true };
+  if (rec) return { ...rec, facility: { ...rec.facility, ...place }, userPicked: true };
+  // 목록 밖이면 서버 거리·도보 분이 없다 — 기준점에서 직선거리를 채워 카드가 도보 분을 추정하게 한다(웹 scoreFacility).
+  return { facility: place, userPicked: true, distanceM: haversineMeters(origin.lat, origin.lng, facility.latitude, facility.longitude) };
 }
 
 export type SheetStatus = 'ready' | 'loading';

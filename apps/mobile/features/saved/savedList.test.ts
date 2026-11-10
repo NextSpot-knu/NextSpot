@@ -7,6 +7,7 @@ import {
   compareBookmarks,
   facilityTypeOf,
   isRealRecommendationId,
+  normScore,
   savedCardInput,
   sortBookmarks,
   timelineOf,
@@ -96,3 +97,19 @@ assert.equal(noSpot.recommendationId, undefined);
 assert.equal(noSpot.spotScore, undefined);
 assert.equal(noSpot.breakdown, undefined);
 assert.ok(Number.isNaN(noSpot.facility.latitude));
+
+// 옛 앱 킵(0~1 점수·timeToService 없음)과 웹 모양(0~100)이 섞여도 같은 단위로 정렬 — G4a-R01
+const oldApp = (id: string, score01: number, travel: number) =>
+  b(id, { spot: { score: score01, preferencePercent: 50, expectedTravel: travel } });
+const mixedSaved = [
+  b('web40', { spot: spot(40) }),
+  oldApp('old55', 0.548, 3),
+  b('web70', { spot: spot(70) }),
+  oldApp('old55slow', 0.548, 9),
+  b('web55', { spot: spot(55, 2, 50, 2) }),
+];
+assert.deepEqual(sortBookmarks(mixedSaved).map((x) => x.id), ['web70', 'web55', 'old55', 'old55slow', 'web40']);
+assert.equal(normScore(0.548), 55);
+assert.equal(normScore(54.8), 55);
+assert.equal(savedCardInput(oldApp('o', 0.548, 3)).spotScore, 55);
+assert.equal(candidateFromBookmark(oldApp('o', 0.548, 3)).spotScore, 55);

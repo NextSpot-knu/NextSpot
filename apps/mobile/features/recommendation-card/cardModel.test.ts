@@ -95,4 +95,15 @@ assert.ok(cuisineEn.peekValueText.includes('compare.benefitWalk'), cuisineEn.pee
 // 메뉴 이름은 데이터라 그대로
 assert.ok(buildCardModel(base, ctx({ locale: 'en' })).peekValueText.includes('곱창'));
 
+// SPOT 점수 — 서버 0~1 은 점수(0~100)로, 이미 100 단위면 그대로, 없으면 0 (G3-03)
+assert.equal(buildCardModel({ ...base, spotScore: 0.548 }, ctx()).spotScore, 55);
+assert.equal(buildCardModel({ ...base, spotScore: 54.8 }, ctx()).spotScore, 55);
+assert.equal(buildCardModel({ ...base, spotScore: undefined }, ctx()).spotScore, 0);
+
+// 직접 고른 곳 — 서버 도보 분이 없으면 거리로 추정: 850m × 1.18 ÷ 66.67 ≈ 15.04 → 16분 (G3-R01)
+const pickedByDistance = buildCardModel({ ...base, breakdown: undefined, scoringMode: undefined, distanceM: 850, userPicked: true }, ctx());
+assert.equal(pickedByDistance.times.walkMin, 16);
+// 서버 값이 있으면 그것을 그대로 쓴다
+assert.equal(buildCardModel({ ...base, distanceM: 850 }, ctx()).times.walkMin, 4);
+
 console.log('cardModel.test OK');

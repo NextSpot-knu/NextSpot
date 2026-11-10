@@ -1,6 +1,7 @@
 // 카드 행동의 순수 판정 — 수락 폴백 · 알림 재료 · 다음 후보 · 북마크 모양 · 실험실 힌트 횟수. React Native 를 import 하지 않아 node 테스트가 돈다.
 // 부수효과(전송·저장·알림·길안내)는 actions.ts. 웹 원본: apps/web/app/main/page.tsx 의 handleAccept · handlePutOff · handleReject(기준 커밋 0d145a1).
 import { httpStatus } from '~/lib/core/httpCore';
+import { spotPoints } from '~/lib/core/spotPoints';
 import type { SavedRecord } from '~/lib/core/savedFacilities';
 
 import type { SheetCandidate } from './types';
@@ -92,8 +93,9 @@ export function bookmarkFrom(c: SheetCandidate, busyAt = 0.75): SavedRecord {
     waitTime: modelWait !== null ? `${modelWait}분` : null,
     waitEvidence: modelWait !== null ? 'verified_model' : undefined,
     spot: {
-      score: c.spotScore ?? 0,
+      score: spotPoints(c.spotScore),
       expectedTravel: c.breakdown?.travelTime ?? 0,
+      timeToService: Math.round(((c.breakdown?.travelTime ?? 0) + (modelWait !== null ? c.breakdown?.waitTime ?? 0 : 0)) * 10) / 10,
       expectedWait: modelWait ?? 0,
       preferencePercent: Math.round((c.breakdown?.preference ?? 0) * 100),
       scoringMode: c.scoringMode,

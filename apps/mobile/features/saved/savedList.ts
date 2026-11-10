@@ -1,12 +1,16 @@
 // 저장 목록의 순수 로직 — 웹 apps/web/app/saved/page.tsx 의 정렬·분류·타임라인 계산·상세 카드 입력 만들기를 React 없이 옮겼다
 // (테스트: savedList.test.ts). 저장소(로컬 + Supabase 동기화)는 lib/core/savedFacilities.
+import { spotPoints } from '~/lib/core/spotPoints';
 import type { SheetCandidate } from '~/features/recommendation-card';
 import { displayWalkingMinutes } from '~/features/waiting/boardData';
 
 /** 저장 당시의 Spot 중 목록이 읽는 필드(웹 lib/recommender.ts Spot 의 부분). */
 export interface SavedSpot {
+  /** 웹은 0~100. 앱이 옛날에 0~1 원값으로 저장한 행도 있다 — 읽을 때 normScore 로 맞춘다. */
   score: number;
-  timeToService: number;
+  /** 옛 앱 킵에는 없다 — 읽을 때 expectedTravel + expectedWait 로 채운다(spotTimeToService). */
+  timeToService?: number;
+  expectedWait?: number;
   preferencePercent: number;
   expectedTravel: number;
 }
@@ -47,11 +51,25 @@ export function facilityTypeOf(category: string): FacilityKind {
   return (CATEGORY_LABEL_TO_KEY[category] as FacilityKind | undefined) ?? 'restaurant';
 }
 
+/** 0~1 로 저장된 옛 행과 0~100 새 행을 같은 단위(정수 점수)로 맞춘다(웹 recToSpot 과 같은 규칙). */
+export function normScore(s: number): number {
+  return spotPoints(s);
+}
+
+/** 이용까지 걸리는 분 — 저장된 값이 없으면(옛 앱 킵) 이동 + 대기로 채운다. */
+function spotTimeToService(s: SavedSpot): number {
+  return typeof s.timeToService === 'number' ? s.timeToService : s.expectedTravel + (s.expectedWait ?? 0);
+}
+
 /** 점수 높은 순 → 이용까지 짧은 순 → 선호 높은 순 → 이동 짧은 순 → 이름. spot 이 없으면 이름. */
 export function compareBookmarks(a: SavedBookmark, b: SavedBookmark): number {
   if (!a.spot || !b.spot) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
-  if (b.spot.score !== a.spot.score) return b.spot.score - a.spot.score;
-  if (a.spot.timeToService !== b.spot.timeToService) return a.spot.timeToService - b.spot.timeToService;
+  const as = normScore(a.spot.score);
+  const bs = normScore(b.spot.score);
+  if (bs !== as) return bs - as;
+  const at = spotTimeToService(a.spot);
+  const bt = spotTimeToService(b.spot);
+  if (at !== bt) return at - bt;
   if (b.spot.preferencePercent !== a.spot.preferencePercent) return b.spot.preferencePercent - a.spot.preferencePercent;
   if (a.spot.expectedTravel !== b.spot.expectedTravel) return a.spot.expectedTravel - b.spot.expectedTravel;
   return (a.name || '').localeCompare(b.name || '', 'ko-KR');
@@ -163,7 +181,7 @@ export function savedCardInput(b: SavedBookmark): SavedCardInput {
     title: b.name,
     matchPercentage: 100,
     walkMinutes: displayWalkingMinutes(b.spot?.expectedTravel),
-    spotScore: b.spot?.score,
+    spotScore: b.spot ? normScore(b.spot.score) : undefined,
     preferencePercent: b.spot?.preferencePercent,
     expectedWait: wait,
     expectedTravel: travel,
@@ -206,7 +224,7 @@ export function candidateFromBookmark(b: SavedBookmark): SheetCandidate {
     },
   };
   if (spot) {
-    candidate.spotScore = spot.score;
+    candidate.spotScore = normScore(spot.score);
     candidate.breakdown = {
       preference: spot.preferencePercent / 100,
       travelTime: spot.expectedTravel,

@@ -1,4 +1,6 @@
 // 추천 카드가 그릴 것을 한 번에 계산한다 — 서버 추천 응답(SheetCandidate) → 화면 모델. 순수 함수(React Native 를 import 하지 않는다).
+import { spotPoints } from '../../lib/core/spotPoints';
+import { estimateWalkingMinutes } from '../explore/port/walking';
 //
 // 웹 원본: apps/web/components/RecommendationCard.tsx 본문 앞쪽의 계산(기준 커밋 0d145a1)과 apps/web/app/main/page.tsx 가 카드에 props 로
 // 흩어 넘기던 변환(spot · reason · dataSource …). 웹은 렌더 안에 흩어져 있던 것을 앱은 한 함수로 모아 node 테스트로 잠근다.
@@ -190,9 +192,11 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
 
   // 서버 breakdown → 카드 숫자(웹 page.tsx 의 spot). 대기는 학습 모델이 잰 값일 때만 보인다.
   const hasSpot = typeof c.spotScore === 'number';
-  const spotScore = Math.round(c.spotScore ?? 0);
+  const spotScore = spotPoints(c.spotScore);
   const preferencePercent = typeof b?.preference === 'number' ? Math.round(b.preference * 100) : null;
-  const expectedTravel = b?.travelTime;
+  // 서버가 도보 분을 안 준 카드(직접 고른 곳)는 거리로 추정한다 — 웹 recToSpot 과 같은 규칙.
+  const expectedTravel =
+    typeof b?.travelTime === 'number' ? b.travelTime : typeof c.distanceM === 'number' ? estimateWalkingMinutes(c.distanceM) : undefined;
   const modelWait = c.scoringMode === 'model' && c.congestionSource !== 'none' ? b?.waitTime ?? undefined : undefined;
   const times = cardTimes(expectedTravel, modelWait, now);
   const walk = times.walkMin;

@@ -11,6 +11,7 @@ const home = {
   congestionLevel: null, currentCount: null, lastUpdated: null, source: null, isStale: false,
 } as unknown as HomeFacility;
 
+const origin = { lat: 35.8, lng: 129.2 };
 const rec = { recommendationId: 'r1', facility: { id: 'f1', name: '카페', type: 'cafe', latitude: 35.8, longitude: 129.2, capacity: 10 }, spotScore: 80 } as unknown as RecommendationResponse;
 
 // null 은 undefined 로
@@ -20,16 +21,20 @@ assert.equal(card.congestionLevel, undefined);
 assert.equal(card.name, '카페');
 
 // 추천 목록에 있고 직접 고르지 않았으면 서버 응답 그대로 → 순위 배지
-assert.equal(buildSelectedCandidate(home, 'recommended', [rec]), rec);
-assert.equal(buildSelectedCandidate(home, 'pin', [rec]), rec);
+assert.equal(buildSelectedCandidate(home, 'recommended', [rec], origin), rec);
+assert.equal(buildSelectedCandidate(home, 'pin', [rec], origin), rec);
 // 검색으로 골랐으면 '선택한 장소' 지만 서버 항목은 유지
-const searched = buildSelectedCandidate(home, 'search', [rec]);
+const searched = buildSelectedCandidate(home, 'search', [rec], origin);
 assert.equal(searched.userPicked, true);
 assert.equal(searched.recommendationId, 'r1');
 // 목록 밖이면 장소만
-const outside = buildSelectedCandidate(home, 'pin', []);
+const outside = buildSelectedCandidate(home, 'pin', [], origin);
 assert.equal(outside.userPicked, true);
 assert.equal(outside.recommendationId, undefined);
+// 목록 밖이면 기준점에서 직선거리가 채워진다 — 위도 0.009° ≈ 1km
+const far = buildSelectedCandidate(home, 'pin', [], { lat: 35.791, lng: 129.2 });
+assert.ok(typeof far.distanceM === 'number' && far.distanceM > 950 && far.distanceM < 1050);
+assert.equal(outside.distanceM, 0);
 
 // 로딩 판
 assert.equal(sheetStatus({ hasFacilities: true, recsLoaded: false, hasSelection: false, searching: false }), 'loading');

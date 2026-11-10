@@ -7,6 +7,7 @@ import { View } from 'react-native';
 import { Icon, Text } from '~/components/ui';
 import { Pressable } from '~/components/ui/Pressable';
 import { explainRecommendation, type RecommendationQuestion, type RecommendationResponse } from '~/lib/core/apiClient';
+import { spotPoints } from '~/lib/core/spotPoints';
 import { useI18n } from '~/lib/i18n/I18nProvider';
 import { track } from '~/lib/platform/analytics';
 import { congestionKey } from '@/lib/congestionScale';
@@ -135,7 +136,7 @@ export function ComparisonSection({
     return display.level == null ? '—' : `${Math.round(display.level * 100)}%`;
   };
   const rows: { label: string; values: string[] }[] = [
-    { label: t('compare.spot'), values: top.map((r) => `${Math.round(r.spotScore * 100)}`) },
+    { label: t('compare.spot'), values: top.map((r) => `${spotPoints(r.spotScore)}`) },
     { label: t('compare.preference'), values: top.map((r) => `${Math.round((r.breakdown.preference ?? 0) * 100)}%`) },
     {
       label: t('compare.walkWait'),

@@ -557,8 +557,8 @@ export function HomeScreen() {
     goInstead({ facilityId: c.facility.id, type: c.facility.type, latitude: c.facility.latitude, longitude: c.facility.longitude });
   }, [goInstead]);
   const selectedCandidate = useMemo(
-    () => (selected && selection ? buildSelectedCandidate(selected, selection.kind, visibleRecs) : null),
-    [selected, selection, visibleRecs],
+    () => (selected && selection ? buildSelectedCandidate(selected, selection.kind, visibleRecs, { lat: userPoint.lat, lng: userPoint.lng }) : null),
+    [selected, selection, visibleRecs, userPoint.lat, userPoint.lng],
   );
   // 이 칩에 보여 줄 카드가 없을 때 — 지금 후보가 있는 다른 칩을 바로 고르게 한다(웹 category-suggestion).
   const suggestions = useMemo(() => {

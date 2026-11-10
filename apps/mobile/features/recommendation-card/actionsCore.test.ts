@@ -69,6 +69,15 @@ async function main() {
   assert.equal(bookmarkFrom(cand('z')).trafficStatus, 'unknown');
   assert.equal(bookmarkFrom(cand('z')).waitTime, null);
 
+  // 킵 북마크의 spot 은 웹 모양 — 점수 0~100, timeToService(이동 + 대기) 포함 (G3-03 · G4a-R01)
+  const kept = bookmarkFrom(cand('k', {
+    spotScore: 0.548, scoringMode: 'model', congestionSource: 'predicted',
+    breakdown: { preference: 0.8, travelTime: 3.2, waitTime: 4.1, incentive: 0 },
+  }));
+  const keptSpot = kept.spot as { score: number; timeToService: number };
+  assert.equal(keptSpot.score, 55);
+  assert.ok(Math.abs(keptSpot.timeToService - 7.3) < 0.01);
+
   // 실험실 힌트 — 상한 · 저장소 불가면 안 띄운다
   assert.equal(nextLabHintCount(null, true), 1);
   assert.equal(nextLabHintCount(String(LAB_HINT_MAX_SHOWS - 1), true), LAB_HINT_MAX_SHOWS);
