@@ -13,8 +13,8 @@
 // 지도 패딩(F12): 구글 로고가 카드 밑에 숨지 않게 스택 높이 + 8 을 8 단위로, 잠깐 기다렸다(흔들림 없이) 넘긴다.
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Building2, Car, Coffee, MapPin, Search, SlidersHorizontal, Utensils, X } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Keyboard, Platform, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { BackHandler, Dimensions, Keyboard, Platform, Pressable as RNPressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { facilityMatchesSearch } from '@/lib/placeSearch';
@@ -24,6 +24,7 @@ import { NextSpotMascot } from '~/components/NextSpotMascot';
 import { useNavInsets } from '~/components/navigation/navMetrics';
 import { pushMypageSub, useOpenMypageHome } from '~/components/navigation/useOpenMypage';
 import { Card, Glass, GlassBlurProvider, GlassBlurTarget, Icon, Pressable, RingSpinner, Text } from '~/components/ui';
+import { ANDROID_GLASS_BLUR } from '~/components/ui/glassSurface';
 import { fontStyleFor } from '~/components/ui/textStyle';
 import {
   declutterPins,
@@ -258,6 +259,10 @@ export function HomeScreen() {
   // 지도 핀만 거르는 편의 조건(🅿) — 추천 조건이 아니라 저장하지 않는다(웹 showParkingFilter).
   const [parkingFilter, setParkingFilter] = useState(false);
   const [cuisineId, setCuisineId] = useState<string | null>(null);
+  // 추천 점수에 넘길 음식 의도(웹 cuisineIntentRef) — 첫 설정 음식으로 시작, 칩을 바꾸면 비우고, 음식 칩을 고르면 그 칩의 kw.
+  const [cuisineIntent, setCuisineIntent] = useState<string | null>(() => cuisineIntentOf(stored));
+  const cuisineIntentRef = useRef(cuisineIntent);
+  cuisineIntentRef.current = cuisineIntent;
   const [selection, setSelection] = useState<Selection | null>(null);
   const [recs, setRecs] = useState<RecommendationResponse[] | null>(null);
   // 추천 요청이 실패했다(G3-26 — 카드 자리에 오류 판). 다시 시도는 recsNonce 로 같은 조건을 다시 묻는다.
@@ -289,6 +294,7 @@ export function HomeScreen() {
   const [mapPaddingBottom, setMapPaddingBottom] = useState(0);
   // 키보드가 이 화면 아래를 가린 두께 — 진행 중 여행 카드의 '상황 변경' 입력 칸이 키보드 밑으로 숨지 않게 카드 최대 높이를 줄인다.
   const rootRef = useRef<View>(null);
+  const searchInputRef = useRef<TextInput>(null);
   const bottomInsetRef = useRef(insets.bottom);
   bottomInsetRef.current = insets.bottom;
   const [keyboardCover, setKeyboardCover] = useState(0);
@@ -335,6 +341,7 @@ export function HomeScreen() {
       setParkingTab(false);
       setCategory(homeFilterSeed(nextStored).category);
       setCuisineId(null);
+      setCuisineIntent(cuisineIntentOf(nextStored));
       setSelection(null);
       pickedRef.current = false;
     }
@@ -535,6 +542,8 @@ export function HomeScreen() {
   const userKey = `${userPoint.lat.toFixed(4)},${userPoint.lng.toFixed(4)}`;
   // 지난 요청의 칩·기준 — 같은 칩·기준의 재요청(위치·시설 갱신 · 다시 시도)은 떠 있던 카드를 지우지 않고 그대로 둔다(H3a 검토 L3).
   const lastRequestRef = useRef<{ tab: string; basis: string } | null>(null);
+  const recsRef = useRef(recs);
+  recsRef.current = recs;
   const keepSelectionRef = useRef(false);
   useEffect(() => {
     const tabKey = parkingTab ? 'parking' : category;
@@ -564,17 +573,19 @@ export function HomeScreen() {
       setRecs([]);
       return;
     }
+    // 웹 rankContext(page.tsx 2049-2053 · 2167) — 칩 안에서 엄격한 조건으로 0곳이면 이미 도보 제한을 푼 조건으로 묻는다.
+    const rankContext = eligible.context;
     // 거절·저장 id 는 요청 때의 값(ref)으로 — 거절할 때마다 다시 묻지 않는다(웹도 dep 에서 뺐다).
     const excludeIds = [...excludedRef.current];
-    const intent = cuisineIntentOf(storedRef.current);
+    const intent = cuisineIntentRef.current;
     const assumedAt = strip.assumedAtIso();
     const request = (context: TravelContext) =>
       recommendByType(category, userPoint, excludeIds, 5, context, intent, controller.signal, RECOMMENDATION_TIMEOUT_MS, assumedAt);
     (async () => {
       try {
-        let res = await request(travelContext);
-        // 서버는 실제 걷는 길로 도보 제한을 잰다 — 0곳이면 도보 제한만 풀어 한 번 더(웹 relaxWalkLimit).
-        const relaxed = res.length === 0 ? relaxWalkLimit(travelContext) : null;
+        let res = await request(rankContext);
+        // 서버는 실제 걷는 길로 도보 제한을 잰다 — 0곳이고 아직 도보 제한이 걸려 있으면 그것만 풀어 한 번 더(웹 relaxWalkLimit).
+        const relaxed = res.length === 0 ? relaxWalkLimit(rankContext) : null;
         if (relaxed && !cancelled) res = await request(relaxed);
         if (cancelled) return;
         const known = new Set(facilitiesRef.current.map((f) => f.id));
@@ -585,6 +596,13 @@ export function HomeScreen() {
         // 실패 — 화면 안에서 점수를 지어내지 않고 카드 자리에 오류 판 + 다시 시도(G3-26, 'SPOT 은 백엔드 단일 소스').
         if (cancelled) return;
         abandonRecalc();
+        // 같은 칩의 재요청(+N시간 · 조건 · 위치 갱신)이 실패하면 보던 목록·카드를 그대로 두고 알린다 — 카드가 순위·고리를 말없이
+        // 잃지 않게. 첫 요청(칩이 바뀜 · 목록 없음)이면 같은 자리에 오류 판(직접 고른 카드는 그대로).
+        if (!tabChanged && (recsRef.current?.length ?? 0) > 0) {
+          showToast(t('recommend.loadFailed'));
+          return;
+        }
+        if (!pickedRef.current) setSelection(null);
         setRecsFailed(true);
         setRecs([]);
       }
@@ -672,6 +690,7 @@ export function HomeScreen() {
     setSelection(null);
     setActiveGroup(null);
     setCuisineId(null);
+    setCuisineIntent(null); // 웹 selectCategory 가 cuisineIntentRef 를 비운다(page.tsx 3320)
     setFestival(null);
     parking.select(null);
     sessionSet(MAP_SESSION_KEYS.filter, FILTER_IDS[next]);
@@ -779,11 +798,14 @@ export function HomeScreen() {
 
   const selectCuisine = useCallback((chip: (typeof CUISINE_CHIPS)[number]) => {
     haptic('selection');
-    if (cuisineId === chip.id) { setCuisineId(null); return; }
+    if (cuisineId === chip.id) { setCuisineId(null); setCuisineIntent(null); return; }
     const pool = filtered.filter((f) => matchesCuisineChip(f, chip) && !excludedRef.current.has(f.id));
     if (pool.length === 0) { showToast(t('cuisine.noMatch')); return; }
+    // 웹 applyCuisineChip(3356-3370) — 밤의 첫 화면 전환을 끄고, 음식 의도를 그 칩으로.
+    firstViewPendingRef.current = false;
     setCategory('restaurant');
     setCuisineId(chip.id);
+    setCuisineIntent(chip.kw);
     setFilterOpen(false);
     const first = nearestOf(pool);
     if (first && select(first, 'pin')) focusOn(first.latitude, first.longitude);
@@ -791,7 +813,6 @@ export function HomeScreen() {
 
   // ── 핀 ───────────────────────────────────────────────────────────────
   // 놓는 순서 = 서버 순위 먼저, 같은 순위 안에서는 SPOT 점수(웹 computeDisplayFacilities, G2-03).
-  const cuisineIntent = useMemo(() => cuisineIntentOf(stored), [stored]);
   const forecastLevelOf = useCallback((id: string, ranked: boolean) => forecastLevelFor(strip.forecast, id, ranked), [strip.forecast]);
   const parkingPool = useMemo(() => {
     const q = query.trim();
@@ -877,6 +898,13 @@ export function HomeScreen() {
     setActiveGroup(null);
     if (member && select(member, 'pin')) focusOn(member.latitude, member.longitude);
   }, [activeGroup, select, focusOn]);
+
+  // 안드로이드 뒤로 = 말풍선 닫기(이 화면이 앞에 있을 때만) — 웹은 X 없이 바깥 누름으로 닫는다.
+  useFocusEffect(useCallback(() => {
+    if (!activeGroup) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setActiveGroup(null); return true; });
+    return () => sub.remove();
+  }, [activeGroup]));
 
   const onMapPress = useCallback((_: LatLng) => {
     Keyboard.dismiss();
@@ -1005,7 +1033,12 @@ export function HomeScreen() {
   const comparison = comparisonFor(comparisons, selectedCandidate, visibleRecs);
   const comparisonReason = comparison ? formatSpotComparison(t, comparison) : undefined;
   const status = cardStatus({ hasFacilities, recsLoaded: recs !== null, recsFailed, hasSelection: selection !== null, searching });
-  const retryRecs = useCallback(() => setRecsNonce((n) => n + 1), []);
+  // 오류 판의 '다시 시도' — 오류를 걷고 스켈레톤부터 다시(그대로 두면 같은 판이 아무 표시 없이 남는다).
+  const retryRecs = useCallback(() => {
+    setRecsFailed(false);
+    setRecs(null);
+    setRecsNonce((n) => n + 1);
+  }, []);
 
   // 가정 시각 라벨·배지·예측 혼잡(웹 page.tsx 4793-4799 · 4880-4890).
   const assumedTimeLabel = strip.hours > 0
@@ -1093,7 +1126,7 @@ export function HomeScreen() {
     <View ref={rootRef} className="flex-1 bg-hanji" onLayout={(e) => setContainerH(Math.round(e.nativeEvent.layout.height))}>
       <GlassBlurProvider>
         {/* 지도 — 유리(검색·칩·상단 묶음)가 흐릴 대상(D14 · G2-G03 — 안드로이드 흐림은 Fold7 시험 전까지 꺼져 있다). */}
-        <GlassBlurTarget style={StyleSheet.absoluteFill}>
+        <MapLayer style={StyleSheet.absoluteFill}>
           <NextSpotMap
             ref={mapRef}
             style={{ flex: 1 }}
@@ -1111,7 +1144,7 @@ export function HomeScreen() {
             popover={popover}
             onPopoverPick={onPopoverPick}
           />
-        </GlassBlurTarget>
+        </MapLayer>
 
         {/* 상단 묶음 — 언어 · 출처(왼쪽 열) · KST 시계(오른쪽), G2-10. */}
         <HomeTopCluster />
@@ -1121,7 +1154,14 @@ export function HomeScreen() {
           pointerEvents="box-none"
           className="absolute inset-x-0 top-0"
           style={[{ paddingTop: insets.top + HEADER_TOP }, sideStyle]}
-          onLayout={(e) => setHeaderH(Math.round(e.nativeEvent.layout.height))}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            const shrank = h < headerRef.current - 2;
+            headerRef.current = h;
+            setHeaderH(h);
+            // 검색 결과를 고르면 결과 판이 닫혀 머리가 짧아진다 — 방금 옮긴 핀을 새 띠로 다시 맞춘다.
+            if (shrank) refocusIfRecent();
+          }}
         >
           <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">
             {/* 지도 SDK 실패 안내(G2-08 — 웹 :4017-4023). 추천 카드는 지도 없이도 동작한다. */}
@@ -1135,9 +1175,17 @@ export function HomeScreen() {
 
             {/* 검색창(G2-11) — 유리 · 높이 58 · 좌우 16 · 돋보기 20 + 12 · 마스코트 36. 키 낮은 폰은 낮추고 마스코트를 숨기며 날씨를 옆에. */}
             <View pointerEvents="box-none" className={short ? 'flex-row items-center gap-[8px]' : undefined}>
-              <Glass className={`flex-row items-center ${short ? 'min-h-[38px] flex-1 px-[12px]' : 'min-h-[58px] px-[16px]'}`}>
+              {/* 키 낮은 폰은 웹 short:max-md:py-2(38) — 보이는 높이는 38, 누르는 영역은 위아래 3씩 넓혀 44(누름 축소 효과 없는 RN Pressable). */}
+              <RNPressable
+                accessible={false}
+                hitSlop={short ? { top: 3, bottom: 3 } : undefined}
+                onPress={() => searchInputRef.current?.focus()}
+                style={short ? { flex: 1 } : undefined}
+              >
+              <Glass className={`flex-row items-center ${short ? 'min-h-[38px] px-[12px]' : 'min-h-[58px] px-[16px]'}`}>
                 <Icon icon={Search} size={20} color="muk-soft" />
                 <TextInput
+                  ref={searchInputRef}
                   value={query}
                   onChangeText={(v) => { setQuery(v); setPanelOpen(true); }}
                   onSubmitEditing={onSubmitSearch}
@@ -1146,7 +1194,7 @@ export function HomeScreen() {
                   accessibilityLabel={t('map.searchPlaceholder')}
                   returnKeyType="search"
                   autoCorrect={false}
-                  className="ml-[12px] min-h-[44px] flex-1 text-[14px] text-muk"
+                  className={`ml-[12px] flex-1 text-[14px] text-muk ${short ? 'min-h-[36px]' : 'min-h-[44px]'}`}
                   style={[searchFont, { paddingVertical: 0, paddingHorizontal: 0 }]}
                 />
                 {query ? (
@@ -1162,6 +1210,7 @@ export function HomeScreen() {
                 ) : null}
                 {short ? null : <NextSpotMascot size={36} style={{ marginLeft: 12 }} />}
               </Glass>
+              </RNPressable>
               {short ? weatherPill : null}
             </View>
 
@@ -1439,6 +1488,15 @@ export function HomeScreen() {
       </GlassBlurProvider>
     </View>
   );
+}
+
+/**
+ * 지도 층 — 안드로이드 유리 흐림(D14 ①)이 켜졌을 때만 흐릴 대상(BlurTargetView)으로 감싼다. 꺼져 있으면(Fold7 시험 전, 기본)
+ * 보통 View — 흐리지도 않는 대상 뷰를 지도 밑에 두지 않는다. iOS·웹 빌드는 대상 없이 흐린다.
+ */
+function MapLayer({ style, children }: { style: StyleProp<ViewStyle>; children: ReactNode }) {
+  if (Platform.OS === 'android' && ANDROID_GLASS_BLUR) return <GlassBlurTarget style={style}>{children}</GlassBlurTarget>;
+  return <View style={style}>{children}</View>;
 }
 
 /** 웹 제안 버튼 — `border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk`, 탭 영역은 hitSlop 으로 44. */
