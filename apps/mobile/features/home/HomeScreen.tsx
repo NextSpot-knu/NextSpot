@@ -416,15 +416,22 @@ export function HomeScreen() {
   useEffect(() => () => { if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current); }, []);
 
   const strip = useForecastStrip({
-    onChange: (c) => startRecalc(
-      c.kind === 'hours'
-        ? (c.hours ? t('forecast.ahead', { h: c.hours }) : t('forecast.now'))
-        : t(assumedPresetLabelKey(c.id)),
-    ),
+    // ✨ 테마가 켜져 있으면 띠를 바꿔도 다시 묻지 않으니(아래 requestBasis) 다시 계산 스켈레톤도 띄우지 않는다.
+    onChange: (c) => {
+      if (activeDiscoveryRef.current) return;
+      startRecalc(
+        c.kind === 'hours'
+          ? (c.hours ? t('forecast.ahead', { h: c.hours }) : t('forecast.now'))
+          : t(assumedPresetLabelKey(c.id)),
+      );
+    },
     onFail: () => { abandonRecalc(); showToast(t('map.predictFail')); },
   });
   // 순위 기준(웹 rankBasis) — +N시간·다른 시간·여행 조건. 바뀌면 직접 고른 카드도 놓아준다(웹 1901).
   const rankBasis = `${strip.basisKey}|${JSON.stringify(travelContext)}`;
+  // 추천 요청의 기준 — ✨ 테마 요청은 가정 시각(assumedAt)을 보내지 않으니 띠 기준을 빼고 여행 조건만 본다. 웹은 띠를 바꾸면 같은
+  // 테마 요청을 다시 보내고 '다시 계산했어요' 를 띄우지만 결과가 같을 수밖에 없어 앱은 다시 묻지 않는다(의도한 차이 — F2 검토 L1).
+  const requestBasis = activeDiscovery && !parkingTab ? `theme|${JSON.stringify(travelContext)}` : rankBasis;
 
   // ── 카메라 ───────────────────────────────────────────────────────────
   const searching = query.trim() !== '';
@@ -571,17 +578,17 @@ export function HomeScreen() {
     const tabKey = discoveryRequestKey(discovery) ?? (parkingTab ? 'parking' : category);
     const prev = lastRequestRef.current;
     const tabChanged = prev?.tab !== tabKey;
-    const basisChanged = prev?.basis !== rankBasis;
+    const basisChanged = prev?.basis !== requestBasis;
     if (parkingTab) {
       // 주차장 탭은 추천을 묻지 않는다 — 다시 계산도 말없이 거둔다(웹 1904-1909).
-      lastRequestRef.current = { tab: tabKey, basis: rankBasis };
+      lastRequestRef.current = { tab: tabKey, basis: requestBasis };
       setRecs(null);
       setSelection(null);
       abandonRecalc();
       return;
     }
     if (!hasFacilities) { abandonRecalc(); return; }
-    lastRequestRef.current = { tab: tabKey, basis: rankBasis };
+    lastRequestRef.current = { tab: tabKey, basis: requestBasis };
     if (basisChanged) pickedRef.current = false;
     keepSelectionRef.current = !tabChanged && !basisChanged;
     if (tabChanged) { setRecs(null); setRecsFailed(false); }
@@ -667,7 +674,7 @@ export function HomeScreen() {
     return () => { cancelled = true; controller.abort(); };
     // userPoint 는 userKey 로, facilities 는 ref 로 본다 — 목록이 갱신될 때마다 다시 묻지 않는다. strip.assumedAtIso 는 rankBasis 로.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasFacilities, parkingTab, category, userKey, rankBasis, recsNonce, activeDiscovery]);
+  }, [hasFacilities, parkingTab, category, userKey, requestBasis, recsNonce, activeDiscovery]);
 
   const visibleRecs = useMemo(() => (recs ?? []).filter((r) => !excluded.has(r.facility.id)), [recs, excluded]);
   const rankById = useMemo(() => {
@@ -748,12 +755,14 @@ export function HomeScreen() {
     setActiveGroup(null);
     setCuisineId(null);
     setCuisineIntent(null); // 웹 selectCategory 가 cuisineIntentRef 를 비운다(page.tsx 3320)
+    // 테마 요청이 아직 오는 중이면 테마 다시 계산을 거둔다 — 남겨 두면 칩 추천이 끝날 때 '<테마> 기준으로 다시 계산했어요' 가 뜬다.
+    if (activeDiscoveryRef.current) abandonRecalc();
     setActiveDiscovery(null);
     setDiscoveryLoading(false);
     setFestival(null);
     parking.select(null);
     sessionSet(MAP_SESSION_KEYS.filter, FILTER_IDS[next]);
-  }, [parking]);
+  }, [parking, abandonRecalc]);
 
   /**
    * ✨ 테마를 켠다(웹 activateDiscoveryTheme) — 기준 명소가 지도에 없으면 토스트만. 켜면 그 테마의 종류 칩으로 옮기고, 카드 자리에
@@ -785,14 +794,17 @@ export function HomeScreen() {
     });
   }, [parking, startRecalc, showToast, t]);
   /** 일반 추천으로 돌아간다(웹 clearDiscoveryTheme) — 지금 칩으로 다시 묻는다(요청 열쇠가 바뀐다). */
+  // 선택을 바꾸는 누름이라 분류 칩처럼 햅틱(여닫기만 하는 ✨ 알약 · 판 ✕ 는 날씨 · 필터 알약처럼 없음).
   const clearTheme = useCallback(() => {
+    haptic('selection');
+    abandonRecalc(); // 테마 요청 중에 끄면 테마 다시 계산을 거둔다(아니면 '<테마> 기준으로 다시 계산했어요' 오보)
     pickedRef.current = false;
     setCuisineIntent(null); // 웹 clearDiscoveryTheme — cuisineIntentRef = null
     setActiveDiscovery(null);
     setDiscoveryLoading(false);
     setSelection(null);
     setExhausted(null);
-  }, []);
+  }, [abandonRecalc]);
   const onTabChip = useCallback((next: HomeTab) => {
     haptic('selection');
     // 웹 selectCategory 는 이용 이벤트를 보내지 않는다 — 같은 동작에 웹에 없는 쓰기를 더하지 않는다.
@@ -904,6 +916,7 @@ export function HomeScreen() {
     if (pool.length === 0) { showToast(t('cuisine.noMatch')); return; }
     // 웹 applyCuisineChip(3356-3370) — 밤의 첫 화면 전환을 끄고, 음식 의도를 그 칩으로.
     firstViewPendingRef.current = false;
+    if (activeDiscoveryRef.current) abandonRecalc(); // 오는 중인 테마 다시 계산을 거둔다(F2 검토 L2)
     setActiveDiscovery(null);
     setDiscoveryLoading(false);
     setCategory('restaurant');
@@ -912,7 +925,7 @@ export function HomeScreen() {
     setFilterOpen(false);
     const first = nearestOf(pool);
     if (first && select(first, 'pin')) focusOn(first.latitude, first.longitude);
-  }, [cuisineId, filtered, nearestOf, select, focusOn, t, showToast]);
+  }, [cuisineId, filtered, nearestOf, select, focusOn, t, showToast, abandonRecalc]);
 
   // ── 핀 ───────────────────────────────────────────────────────────────
   // 놓는 순서 = 서버 순위 먼저, 같은 순위 안에서는 SPOT 점수(웹 computeDisplayFacilities, G2-03).
@@ -1286,11 +1299,12 @@ export function HomeScreen() {
           style={[{ paddingTop: insets.top + HEADER_TOP }, sideStyle]}
           onLayout={(e) => {
             const h = Math.round(e.nativeEvent.layout.height);
-            const shrank = h < headerRef.current - 2;
+            const changed = Math.abs(h - headerRef.current) > 2;
             headerRef.current = h;
             setHeaderH(h);
-            // 검색 결과를 고르면 결과 판이 닫혀 머리가 짧아진다 — 방금 옮긴 핀을 새 띠로 다시 맞춘다.
-            if (shrank) refocusIfRecent();
+            // 머리 높이가 바뀌면(검색 결과 판이 닫혀 짧아짐 · ✨ 테마 판이 '비교 중' 줄에서 대안 칸으로 자라남) 방금 옮긴 핀을
+            // 새 띠로 다시 맞춘다 — 자랄 때 안 맞추면 1위 핀이 테마 판 밑에 깔린다(F2 검토 M1).
+            if (changed) refocusIfRecent();
           }}
         >
           <View pointerEvents="box-none" style={overlayWidth} className="gap-[8px]">

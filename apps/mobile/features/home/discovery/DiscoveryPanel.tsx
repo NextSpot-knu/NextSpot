@@ -11,13 +11,16 @@ import { Glass, Icon, Pressable, RingSpinner, Text } from '~/components/ui';
 import { useI18n } from '~/lib/i18n/I18nProvider';
 import { colors } from '~/lib/theme/tokens';
 
-import { CHIP_HIT_SLOP } from '../ToolChips';
 import { DISCOVERY_THEMES, getDiscoveryTheme, type ActiveDiscovery, type DiscoveryResultItem, type DiscoveryTheme } from './discoveryModel';
 
 /** 웹 shadow-[0_8px_28px_rgba(43,35,32,0.13)] — 두 판이 같이 쓴다. */
 const PANEL_SHADOW = '0px 8px 28px rgba(43, 35, 32, 0.13)';
 /** 웹 결과 칸 min-w-[148px]. */
 const RESULT_MIN_WIDTH = 148;
+/** ✨ 알약은 보이는 높이 32 — 위아래 6 씩 넓혀 44 탭 영역(웹 .tap-target · 디자인 규칙 11). */
+const ENTRY_HIT_SLOP = { top: 6, bottom: 6, left: 0, right: 0 } as const;
+/** 테마 칩은 보이는 높이 34(py 8 + 16 + 테두리) — 위아래 6 을 넓혀 46(옆은 칩 사이 8 과 겹치지 않게 그대로). */
+const THEME_CHIP_HIT_SLOP = ENTRY_HIT_SLOP;
 
 /** 날씨 줄 끝의 ✨ 알약(웹 :4113-4126 — liquid-glass h-8 px-3 12px extrabold · ✨ 14 · ▾ 14 gold-deep). 키 낮은 폰은 글자를 숨긴다(sr-only). */
 export function DiscoveryChip({ open, compact, onToggle }: { open: boolean; compact: boolean; onToggle: () => void }) {
@@ -28,7 +31,7 @@ export function DiscoveryChip({ open, compact, onToggle }: { open: boolean; comp
       accessibilityLabel={t('discovery.entry')}
       accessibilityHint={t('discovery.entryHint')}
       accessibilityState={{ expanded: open }}
-      hitSlop={CHIP_HIT_SLOP}
+      hitSlop={ENTRY_HIT_SLOP}
       onPress={onToggle}
       className="min-w-0 shrink rounded-full"
     >
@@ -84,6 +87,9 @@ export function DiscoveryThemePanel({ onPick, onClose }: { onPick: (theme: Disco
           <Pressable
             key={theme.id}
             accessibilityRole="button"
+            // 이름에 이모지를 넣지 않는다(웹은 이모지 span 을 aria-hidden 으로 둔다).
+            accessibilityLabel={t(`discovery.theme.${theme.id}`)}
+            hitSlop={THEME_CHIP_HIT_SLOP}
             onPress={() => onPick(theme)}
             className="shrink-0 rounded-full border border-line bg-hanji px-[12px] py-[8px]"
           >
@@ -127,7 +133,7 @@ export function DiscoveryActivePanel({
     >
       <View className="flex-row items-start justify-between gap-[12px]">
         <View className="min-w-0 flex-1">
-          <Text className="text-[10px] text-jade" weight="extrabold">{`${theme.emoji} ${t(`discovery.theme.${theme.id}`)}`}</Text>
+          <Text className="text-[10px] text-jade" weight="extrabold" accessibilityLabel={t(`discovery.theme.${theme.id}`)}>{`${theme.emoji} ${t(`discovery.theme.${theme.id}`)}`}</Text>
           <Text className="mt-[4px] text-[14px] leading-[20px]" weight="extrabold" numberOfLines={1}>
             {t('discovery.activeTitle', { anchor: active.anchorName })}
           </Text>
@@ -146,6 +152,7 @@ export function DiscoveryActivePanel({
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           className="mt-[12px]"
           contentContainerStyle={{ flexGrow: 1, gap: 8, paddingBottom: 4 }}
         >
