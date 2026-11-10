@@ -37,6 +37,37 @@ export const colors = {
   // 주요 버튼 그라데이션(흰 글자 전 구간 4.5:1 이상)
   'cta-from': '#8a6a1c',
   'cta-to': '#a8462f',
+  /**
+   * 금 단색 버튼 바탕(Button variant="gold" 가 이것 하나만 읽는다) — 흰 글자 대비 6.78:1.
+   * 웹 bg-gold(#c19a3e)는 흰 글자 2.64:1 이라 D2(a)② 로 웹·앱 모두 금 진으로 바꾼다(docs/MOBILE_WEB_PARITY.md §3.2).
+   */
+  'button-gold': '#705819',
+
+  // 바탕 그라데이션 끝색 — sunset-1 을 hanji 위에 섞은 값(tokens.test.ts 가 계산식으로 잠근다)
+  /** 랜딩: color-mix(sunset-1 25%, hanji). */
+  'landing-sunset-end': '#f6dac8',
+  /** 로그인·가입: color-mix(sunset-1 20%, hanji). */
+  'auth-sunset-end': '#f6dfcf',
+
+  // 카카오 로그인 버튼(카카오 디자인 가이드 색)
+  'kakao-yellow': '#fee500',
+  'kakao-ink': '#191600',
+
+  // 혼잡 혜택 띠(웹 globals.css .benefit-relaxed·.benefit-quiet) — 테두리 /35 · 바탕 /10 는 base, 글자는 ink
+  'benefit-relaxed': '#10b981',
+  'benefit-relaxed-ink': '#047857',
+  'benefit-quiet': '#1d4ed8',
+  'benefit-quiet-ink': '#1d4ed8',
+
+  // 웹 Tailwind v4 기본 색(sRGB) — NativeWind(Tailwind 3.4) 의 같은 이름은 값이 달라서 *-web 으로 따로 둔다
+  'emerald-500-web': '#00bc7d',
+  'sky-500-web': '#00a6f4',
+  'sky-700-web': '#0069a8',
+  'sky-800-web': '#00598a',
+  'sky-900-web': '#024a70',
+  'indigo-500-web': '#615fff',
+  'indigo-700-web': '#432dd7',
+  'indigo-900-web': '#312c85',
 
   // 유리 위 보조 글자 — 유리 안에서만 쓴다
   'glass-muk-soft': '#463b34',
@@ -94,6 +125,20 @@ export const gradients = {
   goldTerracotta: { colors: [colors.gold, colors.terracotta], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
   /** 노을 — sunset-1 → sunset-2. */
   sunset: { colors: [colors['sunset-1'], colors['sunset-2']], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
+  /** 랜딩 바탕 — 위에서 아래로 hanji → hanji-deep → 노을 끝. */
+  landing: { colors: [colors.hanji, colors['hanji-deep'], colors['landing-sunset-end']], start: { x: 0.5, y: 0 }, end: { x: 0.5, y: 1 } },
+  /** 로그인·가입 바탕 — 위에서 아래로 hanji → hanji-deep → 노을 끝. */
+  auth: { colors: [colors.hanji, colors['hanji-deep'], colors['auth-sunset-end']], start: { x: 0.5, y: 0 }, end: { x: 0.5, y: 1 } },
+  /** 1위 순위 배지 — 135deg 금 → 금 진. */
+  goldRank: { colors: [colors.gold, colors['gold-deep']], start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+  /** 마이 임팩트 카드 — 90deg 금 15% → hanji → 옥 10%. */
+  impactCard: { colors: ['rgba(193, 154, 62, 0.15)', colors.hanji, 'rgba(62, 124, 106, 0.10)'], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
+  /** 마이 절약 띠 — 90deg 금 15% → hanji-deep 60% → 옥 10%. */
+  savedBanner: { colors: ['rgba(193, 154, 62, 0.15)', 'rgba(241, 231, 211, 0.6)', 'rgba(62, 124, 106, 0.10)'], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
+  /** 실험실 카드 — 90deg 옥 12% → hanji → 금 10%. */
+  labCard: { colors: ['rgba(62, 124, 106, 0.12)', colors.hanji, 'rgba(193, 154, 62, 0.10)'], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
+  /** 게스트 계정 카드(웹 merchant 카드와 같은 틀) — 90deg 금 15% → hanji → 주칠 10%. */
+  merchantCard: { colors: ['rgba(193, 154, 62, 0.15)', colors.hanji, 'rgba(193, 85, 59, 0.10)'], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
 } as const;
 
 /** 그림자 — RN 0.76+ 의 boxShadow 문자열(새 아키텍처). 웹 클래스에서 그대로 옮겼다. */
@@ -104,6 +149,14 @@ export const shadows = {
   surface: '0px 1px 2px rgba(43, 35, 32, 0.05), 0px 10px 30px rgba(43, 35, 32, 0.10)',
   /** 주 버튼 — shadow-[0_4px_14px_rgba(168,70,47,0.28)] */
   cta: '0px 4px 14px rgba(168, 70, 47, 0.28)',
+  /** 큰 주 버튼(설정 시작하기 등) — shadow-[0_8px_20px_rgba(168,70,47,0.28)] */
+  ctaLg: '0px 8px 20px rgba(168, 70, 47, 0.28)',
+  /** 랜딩 바로 시작 — shadow-[0_8px_24px_rgba(168,70,47,0.28)] */
+  ctaHero: '0px 8px 24px rgba(168, 70, 47, 0.28)',
+  /** 금 테두리 요소의 옅은 빛 — 0 2 10 금 .16 */
+  goldSoft: '0px 2px 10px rgba(193, 154, 62, 0.16)',
+  /** 순위 배지 — shadow-[0_2px_8px_rgba(193,154,62,0.45)] */
+  goldBadge: '0px 2px 8px rgba(193, 154, 62, 0.45)',
   /** 유리 판 */
   glass: '0px 6px 22px rgba(43, 35, 32, 0.16)',
   rail: '0px 6px 22px rgba(0, 0, 0, 0.28)',
@@ -157,6 +210,14 @@ export const springs = {
   /** 시트. */
   sheet: { stiffness: 380, damping: 32, mass: 0.82 },
 } as const;
+
+/**
+ * 하단 탭 막대 높이(pt, 안전 영역 제외) — 웹 BottomNav 실측(안내 줄 32 + 탭 48 + 여백, 390px).
+ * 화면은 이 값을 직접 쓰지 말고 components/navigation/navMetrics 의 NAV_GAP·useNavInsets() 를 쓴다.
+ */
+export const NAV_BAR_HEIGHT = 101;
+/** 웹 --tourist-nav-clearance(모바일 폭) — 웹이 막대 밑 내용에 주는 아래 여백. tokens.test.ts 가 globals.css 와 대조한다. */
+export const NAV_CLEARANCE = 116;
 
 /** 탭 영역 최소(pt) — docs/DESIGN_PRINCIPLES.md 측정 기준. */
 export const MIN_TAP = 44;

@@ -260,9 +260,9 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 
 | 묶음 | 내용 | 크기 | 모델 | 선행 | 재빌드 | 상태 |
 |---|---|---|---|---|---|---|
-| A1 | 모달 시트 원인·Provider 순서·Card 기본값 | S | Opus | §3 답 | 아니오 | 대기 |
-| A2 | SPOT ×100 · 직접 고른 곳 도보 분 · 킵 북마크 모양 | S–M | Sonnet | §3 답 | 아니오 | 대기 |
-| A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 대기 |
+| A1 | 모달 시트 원인·Provider 순서·Card 기본값 | S | Opus | §3 답 | 아니오 | 진행 |
+| A2 | SPOT ×100 · 직접 고른 곳 도보 분 · 킵 북마크 모양 | S–M | Sonnet | §3 답 | 아니오 | 진행 |
+| A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 끝(일부 토큰은 요청 때) |
 | B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 대기 |
 | B2 | Button·Chip·Pressable·ErrorState | M | Sonnet | A1·A3 | 아니오 | 대기 |
 | B3 | ModalSheet 선택 prop·AppToaster·confirmToast | M | Opus | A1·A3 | 아니오 | 대기 |
@@ -343,6 +343,8 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 - 새 파일 `components/navigation/navMetrics.ts`: `NAV_GAP`, `isTabRoute(pathname)`, `useNavInsets()`(→ `gap`·`onTab`·`barHeight`·`toastBottom`·`fromScreenBottom(px)`).
 - 문구: §5.5 새 키.
 - 소유: 토큰 두 파일, i18n JSON ×4, `navMetrics.ts`. 게이트: 모바일 + 웹.
+- **한 것(2026-11-11)**: 색 `button-gold`(#705819)·노을 끝 둘(계산식 대조)·카카오 둘·`benefit-relaxed`/`-ink`·`benefit-quiet`/`-ink`(globals.css 대조)·`emerald-500-web`·`sky-*-web`·`indigo-*-web` / 그림자 `ctaLg`·`ctaHero`·`goldSoft`·`goldBadge` / 그라데이션 `landing`·`auth`·`goldRank`·`impactCard`·`savedBanner`·`labCard`·`merchantCard` / `NAV_BAR_HEIGHT`·`NAV_CLEARANCE`(웹 모바일 폭 116 대조) / `components/navigation/navMetrics.ts`(훅) + `navMetricsCore.ts`(순수 계산·테스트) / 새 키 4개.
+- **미룬 것**: 발견·검토에 값이 적혀 있지 않은 그림자·그라데이션(`goldToggle`·`pill`·`pillStrong`·`langPill`·`tabBar`·`homeToast`·`toast`·`modal`·`floatCard`·`sheetTop`·`valueBox`·`goldLine`)과 ja·zh·웹 빌드 글꼴 목록. 쓰는 묶음이 웹 실측값을 요청 목록에 적으면 메인이 넣는다(§5.1 '요청 목록으로').
 
 **B1 글자·유리** — Opus, L
 - ID: G2-G03(Glass·글자색 컨텍스트), G2-G04, G2-G05, G2-G06(R1 — CSS), G2-G08(입력 테두리 CSS), G2-R03, G5a-13(닫힘), G4a-02·G5b-12(Icon `fill`).

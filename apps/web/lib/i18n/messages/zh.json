@@ -230,7 +230,8 @@
     "shareCourse": "看看这条庆州定制旅行路线 · NextSpot",
     "back": "返回",
     "shareFailed": "无法分享 — 请手动复制下面的链接",
-    "cityPhotoCredit": "照片：庆州市"
+    "cityPhotoCredit": "照片：庆州市",
+    "languageSelect": "选择语言"
   },
   "nav": {
     "home": "首页",
@@ -1643,7 +1644,8 @@
   "app": {
     "auth": {
       "iosSocialNote": "使用 Google 或 Kakao 注册的账号暂时无法在 iOS 应用中登录。请使用邮箱账号或以访客身份使用。",
-      "resetOpensOnWeb": "邮件中的链接会在网页浏览器中打开。请在网页上设置新密码，然后用该密码登录应用。"
+      "resetOpensOnWeb": "邮件中的链接会在网页浏览器中打开。请在网页上设置新密码，然后用该密码登录应用。",
+      "emailRequired": "请输入电子邮箱。"
     },
     "consent": {
       "title": "同意使用位置信息",
@@ -1806,6 +1808,12 @@
       "limitTitle": "第8条 准确性",
       "limitBody": "位置可能因设备和网络环境存在误差，推荐、距离和时间仅供参考。",
       "effective": "生效日期：{date}"
+    },
+    "error": {
+      "retryHint": "请稍后再试。"
+    },
+    "support": {
+      "required": "请填写此字段。"
     }
   }
 }

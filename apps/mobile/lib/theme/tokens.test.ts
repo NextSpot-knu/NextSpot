@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { colors, fontFamilies, ratios, springs, weightClassToName } from './tokens';
+import { NAV_BAR_HEIGHT, NAV_CLEARANCE, colors, fontFamilies, ratios, springs, weightClassToName } from './tokens';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MOBILE = resolve(HERE, '../..');
@@ -29,7 +29,7 @@ const C = colors as Record<string, string>;
 
 // 1) :root(라이트) 의 모든 변수 — 색은 같은 hex, 퍼센트는 ratios, 웹 배치 전용 값만 이유를 달고 뺀다.
 const LAYOUT_ONLY = new Set([
-  '--tourist-nav-clearance', // 웹 하단 탭 높이 — 앱은 탭 내비게이터가 정한다
+  '--tourist-nav-clearance', // 웹 하단 탭 여백(넓은 화면 80) — 모바일 폭 116 은 아래 3d 에서 NAV_CLEARANCE 와 대조
   '--rail-gutter', // 웹 데스크톱 왼쪽 캡슐 여백 — 앱에는 데스크톱 배치가 없다
 ]);
 const PERCENT_TO_RATIO: Record<string, keyof typeof ratios> = {
@@ -91,6 +91,39 @@ for (const tile of ['slate', 'indigo', 'stone'] as const) {
 }
 assert.equal(colors['glass-bg'], rgba(colors.hanji, ratios.glassTint), 'glass-bg = hanji × glass-tint');
 assert.ok(colors['glass-bg-solid'].startsWith(rgba(colors.hanji, 0).slice(0, -2)), 'glass-bg-solid 는 한지색이어야 한다');
+assert.equal(colors['landing-sunset-end'], mix(colors['sunset-1'], 0.25, colors.hanji), 'landing-sunset-end = color-mix(sunset-1 25%, hanji)');
+assert.equal(colors['auth-sunset-end'], mix(colors['sunset-1'], 0.2, colors.hanji), 'auth-sunset-end = color-mix(sunset-1 20%, hanji)');
+
+// 3a) 금 버튼 — 흰 글자 4.5:1 이상(D2: 웹 #c19a3e 는 2.64:1 이라 금 진으로).
+function luminance(hex: string): number {
+  const [r, g, b] = rgb(hex).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrastOnWhite = (hex: string) => 1.05 / (luminance(hex) + 0.05);
+assert.ok(contrastOnWhite(colors['button-gold']) >= 4.5, `button-gold 위 흰 글자 ${contrastOnWhite(colors['button-gold']).toFixed(2)}:1`);
+assert.ok(contrastOnWhite(colors.gold) < 4.5, 'gold 가 흰 글자 4.5:1 을 넘게 바뀌었다 — D2 결정을 다시 본다');
+
+// 3c) 혼잡 혜택 띠 — 웹 .benefit-relaxed·.benefit-quiet 의 rgb(r g b / a) 바탕·테두리와 글자색.
+function hexOfRgb(body: string): string {
+  const m = /rgb\((\d+)\s+(\d+)\s+(\d+)/.exec(body);
+  assert.ok(m, `rgb() 를 찾지 못했다: ${body}`);
+  return `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+}
+for (const name of ['relaxed', 'quiet'] as const) {
+  const body = block(new RegExp(`\\n\\.benefit-${name}\\s*\\{`));
+  assert.equal(C[`benefit-${name}`], hexOfRgb(/background-color:\s*([^;]+);/.exec(body)?.[1] ?? ''), `.benefit-${name} 바탕`);
+  assert.equal(C[`benefit-${name}`], hexOfRgb(/border-color:\s*([^;]+);/.exec(body)?.[1] ?? ''), `.benefit-${name} 테두리`);
+  assert.equal(C[`benefit-${name}-ink`], /(?:^|[\s;])color:\s*(#[0-9a-f]{6})/i.exec(body)?.[1]?.toLowerCase(), `.benefit-${name} 글자`);
+}
+
+// 3d) 탭 막대 여백 — 웹 모바일 폭 --tourist-nav-clearance 와 앱 NAV_CLEARANCE.
+const navMedia = /@media\s*\(max-width:\s*767px\)\s*\{\s*:root\s*\{\s*--tourist-nav-clearance:\s*(\d+)px/.exec(css);
+assert.ok(navMedia, '웹 모바일 폭 --tourist-nav-clearance 를 찾지 못했다');
+assert.equal(NAV_CLEARANCE, Number(navMedia[1]), 'NAV_CLEARANCE ↔ 웹 모바일 --tourist-nav-clearance');
+assert.ok(NAV_BAR_HEIGHT < NAV_CLEARANCE, 'NAV_BAR_HEIGHT 는 NAV_CLEARANCE 보다 작아야 한다(NAV_GAP > 0)');
 
 // 3b) 스프링 — 웹 lib/motion.ts 와 같은 값.
 const motion = readFileSync(resolve(MOBILE, '../web/lib/motion.ts'), 'utf8');

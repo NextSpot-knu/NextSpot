@@ -230,7 +230,8 @@
     "shareCourse": "경주 맞춤 여행 코스를 확인해보세요 · NextSpot",
     "back": "뒤로",
     "shareFailed": "공유하지 못했어요 — 아래 주소를 직접 복사해 주세요",
-    "cityPhotoCredit": "사진: 경주시"
+    "cityPhotoCredit": "사진: 경주시",
+    "languageSelect": "언어 선택"
   },
   "nav": {
     "home": "홈",
@@ -1643,7 +1644,8 @@
   "app": {
     "auth": {
       "iosSocialNote": "구글·카카오로 가입한 계정은 아직 iOS 앱에서 로그인할 수 없어요. 이메일 계정이나 게스트로 이용해 주세요.",
-      "resetOpensOnWeb": "메일의 링크는 웹 브라우저에서 열려요. 새 비밀번호는 웹에서 정한 뒤, 앱에서 그 비밀번호로 로그인해 주세요."
+      "resetOpensOnWeb": "메일의 링크는 웹 브라우저에서 열려요. 새 비밀번호는 웹에서 정한 뒤, 앱에서 그 비밀번호로 로그인해 주세요.",
+      "emailRequired": "이메일을 입력해 주세요."
     },
     "consent": {
       "title": "위치정보 이용 동의",
@@ -1806,6 +1808,12 @@
       "limitTitle": "제8조 정확도",
       "limitBody": "위치는 기기와 통신 환경에 따라 오차가 있을 수 있고, 추천·거리·시간은 참고용이에요.",
       "effective": "시행일: {date}"
+    },
+    "error": {
+      "retryHint": "잠시 후 다시 시도해 주세요."
+    },
+    "support": {
+      "required": "이 항목을 채워 주세요."
     }
   }
 }

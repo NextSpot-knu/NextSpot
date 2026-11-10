@@ -230,7 +230,8 @@
     "shareCourse": "Check out this tailored Gyeongju route · NextSpot",
     "back": "Back",
     "shareFailed": "Couldn't share — copy the link below instead",
-    "cityPhotoCredit": "Photo: Gyeongju City"
+    "cityPhotoCredit": "Photo: Gyeongju City",
+    "languageSelect": "Select language"
   },
   "nav": {
     "home": "Home",
@@ -1643,7 +1644,8 @@
   "app": {
     "auth": {
       "iosSocialNote": "Accounts created with Google or Kakao can't sign in on the iOS app yet. Please use an email account or continue as a guest.",
-      "resetOpensOnWeb": "The link in the email opens in your web browser. Set your new password there, then sign in to the app with it."
+      "resetOpensOnWeb": "The link in the email opens in your web browser. Set your new password there, then sign in to the app with it.",
+      "emailRequired": "Enter your email."
     },
     "consent": {
       "title": "Consent to use location information",
@@ -1806,6 +1808,12 @@
       "limitTitle": "Article 8. Accuracy",
       "limitBody": "Location may be inaccurate depending on your device and network, and recommendations, distances and times are for reference only.",
       "effective": "Effective: {date}"
+    },
+    "error": {
+      "retryHint": "Please try again in a moment."
+    },
+    "support": {
+      "required": "Please fill out this field."
     }
   }
 }
