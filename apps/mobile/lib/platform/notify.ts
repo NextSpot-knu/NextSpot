@@ -9,7 +9,7 @@
 // - 예약은 기기에 남는다(재부팅 뒤에도 — 라이브러리가 RECEIVE_BOOT_COMPLETED 로 다시 건다). 그래서 웹(탭 닫으면 사라짐)과 달리
 //   다시 열어도 '예약됨'을 보여 줄 수 있다.
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsTypes from 'expo-notifications';
 
 import {
   GOLDEN_CHANNEL_ID,
@@ -25,18 +25,35 @@ import {
 
 export type { GoldenNotifyOutcome, GoldenNotifyState } from './notifyCore';
 
-// 앱이 앞에 있을 때 온 알림도 보이게 한다 — 핸들러가 없으면 앞에 있는 동안 알림이 버려진다.
-// 가져올 때 한 번 건다(권한을 묻지 않는다). 이 앱의 알림은 골든타임 하나뿐이다.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+type NotificationsModule = typeof NotificationsTypes;
+let loaded: NotificationsModule | null | undefined;
 
-function snapshot(p: Notifications.NotificationPermissionsStatus): PermissionSnapshot {
+/**
+ * expo-notifications 를 처음 쓸 때 불러온다. 네이티브 모듈이 없는 빌드(F1 이전 개발 빌드·Expo Go)에서는 가져오기만으로
+ * 앱이 죽으므로 try 로 감싸고, 없으면 null — 버튼을 숨긴다('hidden'). 재빌드 뒤에는 그대로 동작한다.
+ * 불러올 때 한 번 앞 화면 알림 핸들러를 건다(권한을 묻지 않는다) — 없으면 앱이 앞에 있는 동안 온 알림이 버려진다.
+ */
+function N(): NotificationsModule | null {
+  if (loaded !== undefined) return loaded;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('expo-notifications') as NotificationsModule;
+    mod.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+    loaded = mod;
+  } catch {
+    loaded = null;
+  }
+  return loaded;
+}
+
+function snapshot(Notifications: NotificationsModule, p: NotificationsTypes.NotificationPermissionsStatus): PermissionSnapshot {
   const iosStatus = p.ios?.status;
   const iosAllowed =
     iosStatus === Notifications.IosAuthorizationStatus.PROVISIONAL ||
@@ -44,7 +61,7 @@ function snapshot(p: Notifications.NotificationPermissionsStatus): PermissionSna
   return { granted: p.granted || iosAllowed, canAskAgain: p.canAskAgain };
 }
 
-async function isScheduled(facilityId: string): Promise<boolean> {
+async function isScheduled(Notifications: NotificationsModule, facilityId: string): Promise<boolean> {
   const id = goldenNotificationId(facilityId);
   const all = await Notifications.getAllScheduledNotificationsAsync();
   return all.some((r) => r.identifier === id);
@@ -52,20 +69,24 @@ async function isScheduled(facilityId: string): Promise<boolean> {
 
 /** 그리기 전 처음 모양(동기) — 네이티브는 알림을 쓸 수 있으니 누를 수 있음으로 시작하고, 아래 확인으로 고친다. */
 export function initialGoldenNotifyState(): GoldenNotifyState {
-  return 'available';
+  return N() ? 'available' : 'hidden';
 }
 
 /** 이미 예약했는지 · 설정에서 막혔는지를 본다(권한을 묻지 않는다). 실패하면 누를 수 있음. */
 export async function getGoldenNotifyState(facilityId: string): Promise<GoldenNotifyState> {
+  const Notifications = N();
+  if (!Notifications) return 'hidden';
   try {
-    const [perm, scheduled] = await Promise.all([Notifications.getPermissionsAsync(), isScheduled(facilityId)]);
-    return stateFromPermission(snapshot(perm), scheduled);
+    const [perm, scheduled] = await Promise.all([Notifications.getPermissionsAsync(), isScheduled(Notifications, facilityId)]);
+    return stateFromPermission(snapshot(Notifications, perm), scheduled);
   } catch {
     return 'available';
   }
 }
 
 export function scheduleGolden(input: GoldenNotifyInput): Promise<GoldenNotifyOutcome> {
+  const Notifications = N();
+  if (!Notifications) return Promise.resolve('failed');
   return scheduleGoldenNotify(input, {
     prepare: async () => {
       if (Platform.OS !== 'android') return;
@@ -74,9 +95,10 @@ export function scheduleGolden(input: GoldenNotifyInput): Promise<GoldenNotifyOu
         importance: Notifications.AndroidImportance.HIGH,
       });
     },
-    getPermission: async () => snapshot(await Notifications.getPermissionsAsync()),
+    getPermission: async () => snapshot(Notifications, await Notifications.getPermissionsAsync()),
     requestPermission: async () =>
       snapshot(
+        Notifications,
         await Notifications.requestPermissionsAsync({
           ios: { allowAlert: true, allowSound: true, allowBadge: false },
         }),
