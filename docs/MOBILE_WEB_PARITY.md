@@ -269,7 +269,7 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 | B4a | Glow·RingSpinner·마스코트·표지·CreditLine·RankBadge·GoldenHourBadge·자산 | M | Sonnet | A3 | 아니오 | 끝(8f21d81) |
 | B4b | SelectField·LanguageSwitcher·NowChip·LoadingReveal·BackCircleButton·ShareButton·가정 시간 | M | Sonnet | A3 | 아니오 | 끝(528ba50) |
 | B5 | 지도 래퍼 | L | Opus | A3 | 아니오 | 끝(613ac09) |
-| B6 | 탭 막대·탭 안 이동·하위 머리·공지·점검 | L | Opus | A1·A3 | 아니오 | 진행 |
+| B6 | 탭 막대·탭 안 이동·하위 머리·공지·점검 | L | Opus | A1·A3 | 아니오 | 끝(c5cee3b) |
 | D1 | 게이트·인증·랜딩·서비스 소개·404·오류 화면 | L–XL | Opus | B1·B2·B3·B4a·B4b·B6 | 아니오 | 대기 |
 | D2 | 저장 목록 | M | Sonnet | A2·B2·B3·B4a·B4b | 아니오 | 대기 |
 | D3 | 대안 화면 | M | Sonnet | A2·B2·B4a·B4b·B5·B6 | 아니오 | 대기 |
