@@ -7,13 +7,15 @@
 //   - 기기 언어는 navigator.languages 대신 expo-localization getLocales() 의 languageTag(선호 순).
 //   - en·ja·zh 사전은 동기 require 라 언어 바꾸기에 경합이 없다(웹의 requestRef 가 필요 없다).
 //   - 관제·사장님·개발자 콘솔 경로 예외가 없다 — 앱은 관광객 화면만 있다.
-//   - document.documentElement.lang 대신 localeState(이용 기록의 locale 칸이 읽는다).
+//   - 이용 기록의 locale 칸은 document.documentElement.lang 대신 localeState 를 읽는다.
+//   - <html lang> 은 웹 빌드에서만 바꾼다(documentLang.ts — 첫 렌더 전·언어를 바꿀 때, G2-G06). 네이티브는 할 일이 없다.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getLocales } from 'expo-localization';
 import type { Locale } from '@/lib/i18n/config';
 import { ensureMessages } from './catalog';
+import { applyDocumentLang } from './documentLang';
 import { LOCALE_STORAGE_KEY, pickInitialLocale } from './initialLocale';
-import { setCurrentLocale } from './localeState';
+import { getCurrentLocale, setCurrentLocale } from './localeState';
 import { createTranslator, type TFunc } from './translate';
 
 export type { TFunc, TranslateVars } from './translate';
@@ -43,6 +45,7 @@ function initialLocale(): Locale {
   const locale = pickInitialLocale(readSavedLocale(), deviceLanguageTags());
   ensureMessages(locale);
   setCurrentLocale(locale);
+  applyDocumentLang(locale);
   return locale;
 }
 
@@ -51,12 +54,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setCurrentLocale(locale);
+    applyDocumentLang(locale);
   }, [locale]);
 
   const setLocale = useCallback((next: Locale) => {
     ensureMessages(next);
     // 렌더 전에 먼저 — useEffect 로만 알리면 언어를 바꾼 첫 렌더가 이전 언어의 한국어 낱말 단위 줄바꿈 설정으로 그려진다.
     setCurrentLocale(next);
+    applyDocumentLang(next);
     setLocaleState(next);
     try {
       globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, next);
@@ -77,6 +82,14 @@ export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext);
   if (!ctx) throw new Error('useI18n must be used within <I18nProvider>');
   return ctx;
+}
+
+/**
+ * 지금 언어 — Provider 밖(오류 화면 등)에서도 던지지 않는다(그때는 모듈 상태 localeState).
+ * 공용 Text 가 쓴다: 언어가 바뀌면 글꼴(ja·zh)·줄바꿈 규칙이 따라 바뀌어야 해서 컨텍스트를 구독한다.
+ */
+export function useOptionalLocale(): Locale {
+  return useContext(I18nContext)?.locale ?? getCurrentLocale();
 }
 
 /** 문자열 조회 훅 — const t = useT(); t('nav.home'). */
