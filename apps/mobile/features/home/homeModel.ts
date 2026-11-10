@@ -156,11 +156,6 @@ export function applyConvenience<T extends Featured>(list: readonly T[], c: Conv
   return out;
 }
 
-/** 적재 데이터에 반려동물 값이 하나라도 있는가 — 없으면 🐾 칩을 숨긴다(웹과 같다). */
-export function petDataExists(list: readonly Featured[]): boolean {
-  return list.some((f) => parseAvailability((f.features?.chk_pet ?? f.features?.chkPet) as string | null | undefined) !== null);
-}
-
 /** 카테고리 + 검색 — 검색어가 있으면 종류와 무관하게 이름·주소·메뉴로 찾는다(웹 computeDisplayFacilities). */
 export function selectByCategoryOrSearch<T extends Featured & { type: string; name: string; address: string | null }>(
   list: readonly T[],
@@ -267,6 +262,13 @@ export interface PinContext {
   now: Date;
   /** 같은 건물 묶음 핀의 접근성 이름 — t('map.placesInBuilding', { count }). */
   groupName: (count: number) => string;
+  /** 혼잡 예측 띠가 +N 예측을 보이는 중인가(웹 forecastMode — 순위 핀이 점선 고리). */
+  forecastMode?: boolean;
+  /**
+   * 그 핀에 칠할 예측 혼잡도(forecastStripModel.forecastLevelFor) — id 는 하나짜리면 장소 id, 묶음이면 묶음 키(웹 f.id),
+   * ranked 는 순위 핀인가. 예측이 없으면 null.
+   */
+  forecastLevelOf?: (id: string, ranked: boolean) => number | null;
 }
 
 /** 놓기로 한 묶음(declutterPins 결과) → 지도 핀. 묶음 값은 웹과 같다: 24시간 안에 잰 구성원 중 가장 붐비는 곳의 값. */
@@ -295,7 +297,11 @@ export function buildPinMarkers(clusters: readonly PinCluster<HomeFacility>[], c
       rank = ranks.length > 0 ? Math.min(...ranks) : null;
     }
     const selected = isGroup ? ctx.activeGroupId === cluster.key : ctx.selectedId === anchor.id;
-    const pin = pinDisplay({ type: anchor.type, level, observedAt, source, rank, selected, phone: true, busyAt: ctx.busyAt, now: ctx.now });
+    const forecastLevel = ctx.forecastLevelOf ? ctx.forecastLevelOf(isGroup ? cluster.key : anchor.id, rank !== null) : null;
+    const pin = pinDisplay({
+      type: anchor.type, level, observedAt, source, rank, selected, phone: true, busyAt: ctx.busyAt, now: ctx.now,
+      forecastMode: ctx.forecastMode ?? false, forecastLevel,
+    });
     return {
       kind: 'pin' as const,
       id: cluster.key,
@@ -311,44 +317,22 @@ export function buildPinMarkers(clusters: readonly PinCluster<HomeFacility>[], c
   });
 }
 
-// ── 지금 한산 ────────────────────────────────────────────────────────────
+/** 검색 이름표 상한(웹 검색 중 핀 상한과 같은 12 — 구글 마커 이름표 비용). */
+export const SEARCH_LABEL_CAP = 12;
 
-export interface CalmSpot {
-  id: string;
-  name: string;
-  type: string;
-  latitude: number;
-  longitude: number;
-  congestionLevel: number;
-  distM: number;
-}
-
-/** 웹 TodayCalmSpots — level<0.3 · '지금' 판정 통과 · 취향 종류 우선 → 더 한산 → 가까운 순, 상위 3. */
-export function calmSpots(
-  facilities: readonly HomeFacility[],
-  origin: { lat: number; lng: number },
-  preferredTypes: readonly string[] = [],
-): CalmSpot[] {
-  const list: CalmSpot[] = [];
-  for (const f of facilities) {
-    if (typeof f.congestionLevel !== 'number' || f.congestionIsCurrent === false || f.congestionLevel >= 0.3) continue;
-    list.push({
-      id: f.id, name: f.name, type: f.type, latitude: f.latitude, longitude: f.longitude,
-      congestionLevel: f.congestionLevel,
-      distM: haversineMeters(origin.lat, origin.lng, f.latitude, f.longitude),
-    });
-  }
-  list.sort((a, b) => {
-    const ap = preferredTypes.includes(a.type) ? 0 : 1;
-    const bp = preferredTypes.includes(b.type) ? 0 : 1;
-    return ap - bp || a.congestionLevel - b.congestionLevel || a.distM - b.distM;
-  });
-  return list.slice(0, 3);
-}
-
-/** 카드 상단 혼잡 pill 과 같은 경계(한산<0.25 / 여유). */
-export function calmKey(level: number): 'quiet' | 'relaxed' {
-  return level >= 0.25 ? 'relaxed' : 'quiet';
+/**
+ * 검색 중 일치 핀마다 이름표(웹 searchMatchLabels — page.tsx 3188-3201, G2-19). 지도 래퍼의 label variant 'search' 가
+ * 웹 모양(흰 95% 알약 · 금 50% 테 · 11px bold)을 그린다. 누를 수 없다.
+ */
+export function searchLabelMarkers(pins: readonly PinMarker[], cap = SEARCH_LABEL_CAP): NextSpotMarker[] {
+  return pins.slice(0, cap).map((p) => ({
+    kind: 'label' as const,
+    variant: 'search' as const,
+    id: `search-label:${p.id}`,
+    coordinate: p.coordinate,
+    text: p.title ?? '',
+    zIndex: 80,
+  }));
 }
 
 // ── 축제 ─────────────────────────────────────────────────────────────────

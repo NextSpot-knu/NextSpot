@@ -1,25 +1,21 @@
-// 지도 위 보조 칩 — 날씨(유리 알약 + 팝오버) · 축제 · 화장실 · 지금 한산. 각자 자료를 받아 비어 있으면 스스로 숨는다(웹과 같다).
-// 웹 원본(0d145a1): apps/web/components/main/{WeatherChip,FestivalBanner,RestroomChip,TodayCalmSpots}.tsx
+// 지도 위 보조 칩 — 날씨(유리 알약 + 팝오버) · 화장실. 각자 자료를 받아 비어 있으면 스스로 숨는다(웹과 같다).
+// 웹 원본(0d145a1): apps/web/components/main/{WeatherChip,RestroomChip}.tsx
 // 바꾼 것: 포털 모달 → ModalSheet, hover·ring·framer-motion 버림, 포스터는 expo-image, 링크는 lib/platform/links(카카오맵 앱 → 시스템 브라우저).
 // H2a(G2-13·15·16·17·18): 날씨 칩은 유리 알약 + ▾, 펼침은 칩 아래 팝오버(자리는 홈 루트 — 아래 '연결'), 축제·화장실은 웹 모양 칩 + 시트(축제는 festival.ts·
-// FestivalSheet.tsx·FestivalBanner.tsx 로 추출), 지금 한산(CalmChip)은 폰 폭에서 그리지 않는다(웹은 lg 이상만 — H3b 가 호출을 뺀다).
+// FestivalSheet.tsx·FestivalBanner.tsx 로 추출). 지금 한산은 폰 폭에서 그리지 않는다(웹은 lg 이상만 — H3b 에서 지웠다).
 //
-// 연결(H3b): 첫 칩 줄 = `useWeather()` 자료로 `<WeatherPill … onToggle={(anchor) => setWeatherAnchor(anchor)} />`(+ ✨ 는 H2b·F2) 한 줄(가로 스크롤 아님).
-// 팝오버는 칩 줄 안이 아니라 HomeScreen 루트의 여정 판·아래 스택·시트보다 위 층에 `<WeatherPopover data anchor … onClose />` 로 둔다(스크롤·클리핑 회피).
-// 축제·화장실 칩은 ToolsSheet(HomeOverlays) 안에 있다. 아래 옛 `WeatherChip`·`FestivalChip`·`RestroomChip`·`CalmChip` 은 H3b 가 홈에서 떼어 낼 때까지 남겨 둔다.
-import { ChevronDown, ChevronUp, Leaf, MapPin, Toilet, Umbrella } from 'lucide-react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+// 홈 연결: 첫 칩 줄 = `useWeather()` 자료로 `<WeatherPill … />`(+ ✨ 는 F2) 한 줄(가로 스크롤 아님). 팝오버는 HomeScreen 루트의
+// 여정 판·아래 스택·시트보다 위 층에 `<WeatherPopover … />`(스크롤·클리핑 회피). 축제·화장실 칩은 ToolsSheet(HomeOverlays) 안에 있다.
+import { ChevronDown, ChevronUp, MapPin, Toilet, Umbrella } from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable as RNPressable, View, useWindowDimensions } from 'react-native';
 
-import { formatDistance } from '@/lib/map/geo';
 import { Glass, Icon, MODAL_SHEET_CLOSE_BOX, ModalSheet, Pressable, SheetScrollView, Text } from '~/components/ui';
 import { apiClient } from '~/lib/core/apiClient';
 import { useI18n } from '~/lib/i18n/I18nProvider';
 import { openKakaoHandoff } from '~/lib/platform/links';
 
-import { FestivalBanner } from './FestivalBanner';
 import type { FestivalEvent } from './festival';
-import { calmKey, calmSpots, type CalmSpot, type HomeFacility } from './homeModel';
 import { kstHourLabel, type ClockLocale } from './kstClock';
 
 export type { FestivalEvent };
@@ -27,11 +23,9 @@ export type { FestivalEvent };
 /** 칩은 보이는 높이가 36pt 다 — 위아래 4pt 씩 넓혀 44pt 탭 영역을 채운다(디자인 규칙 11, 웹 .tap-target). */
 export const CHIP_HIT_SLOP = { top: 4, bottom: 4, left: 0, right: 0 } as const;
 
-const CHIP = 'min-h-[36px] shrink-0 flex-row items-center gap-[6px] rounded-full border border-line bg-white px-[12px] py-[6px]';
 /** 웹 시트 칩(fractal-glass 흰 80%) — 필터·편의 시트 맨 아래 줄의 화장실·축제. */
 export const SHEET_CHIP_CLASS = 'shrink-0 flex-row items-center gap-[8px] rounded-full border border-line px-[14px] py-[8px]';
 export const SHEET_CHIP_STYLE = { backgroundColor: 'rgba(255, 255, 255, 0.8)', boxShadow: '0px 2px 14px rgba(43, 35, 32, 0.06)' } as const;
-const LIST_MAX_HEIGHT = 420;
 type Point = { lat: number; lng: number };
 
 function SheetHeader({ title, subtitle, closeBox }: { title: string; subtitle?: string; closeBox?: number }) {
@@ -196,28 +190,7 @@ export function WeatherPopover({ data, anchor, indoorRequired, onIndoorRequiredC
   );
 }
 
-/** 옛 홈이 쓰는 자기완결 날씨 칩 — 칩 줄 가로 스크롤 안이라 팝오버 대신 시트로 연다(H3b 가 WeatherPill + WeatherPopover 로 바꾼다). */
-export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoorRequired: boolean; onIndoorRequiredChange: (required: boolean) => void }) {
-  const { t } = useI18n();
-  const data = useWeather();
-  const [open, setOpen] = useState(false);
-  if (!data) return null;
-  return (
-    <>
-      <WeatherPill data={data} expanded={open} onToggle={() => setOpen(true)} />
-      <ModalSheet open={open} onClose={() => setOpen(false)} handleLabel={t('common.close')} closeLabel={t('common.close')}>
-        <WeatherDetails data={data} indoorRequired={indoorRequired} onIndoorRequiredChange={onIndoorRequiredChange} />
-      </ModalSheet>
-    </>
-  );
-}
-
 // ── 축제 ────────────────────────────────────────────────────────────────
-
-/** 옛 홈이 쓰는 축제 칩 — 이제 웹 chip 모양 하나(한 줄형 제거, G2-13). 시트는 FestivalSheet. */
-export function FestivalChip({ location, onFocus }: { location?: Point | null; onFocus?: (event: FestivalEvent) => void }) {
-  return <FestivalBanner variant="chip" location={location} onFocus={onFocus} />;
-}
 
 // ── 화장실 ──────────────────────────────────────────────────────────────
 
@@ -302,51 +275,6 @@ export function RestroomChip({ location }: { location: Point }) {
         <Text className="text-[13px] text-muk-soft" weight="medium">{`${t('restroom.chip')} ${items.length}`}</Text>
       </Pressable>
       <RestroomSheet open={open} onClose={() => setOpen(false)} items={items} />
-    </>
-  );
-}
-
-// ── 지금 한산 ───────────────────────────────────────────────────────────
-
-/** 폰 폭(<1024)에서는 그리지 않는다(웹 lg 이상만, G2-13) — H3b 가 홈 호출을 뺀다. 그때까지는 옛 홈이 부른다. */
-export function CalmChip({ facilities, location, onFocus }: { facilities: readonly HomeFacility[]; location: Point; onFocus: (spot: CalmSpot) => void }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const spots = useMemo(() => calmSpots(facilities, location), [facilities, location]);
-  if (spots.length === 0) return null;
-  return (
-    <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('calm.chipAria', { n: String(spots.length) })} onPress={() => setOpen(true)} hitSlop={CHIP_HIT_SLOP} className={CHIP}>
-        <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🍃</Text>
-        <Text className="text-[13px] text-muk-soft" weight="medium">{t('calm.chip')}</Text>
-        <Text className="text-[11px] text-jade" weight="bold">{String(spots.length)}</Text>
-      </Pressable>
-      <ModalSheet open={open} onClose={() => setOpen(false)} handleLabel={t('common.close')} closeLabel={t('common.close')}>
-        <SheetHeader title={`🍃 ${t('calm.title')}`} subtitle={t('calm.subtitle')} />
-        <View className="gap-[12px]">
-          {spots.map((spot) => (
-            <Pressable
-              key={spot.id}
-              accessibilityRole="button"
-              accessibilityLabel={t('calm.showOnMapAria', { name: spot.name })}
-              onPress={() => { onFocus(spot); setOpen(false); }}
-              className="min-h-[64px] flex-row items-center gap-[12px] rounded-2xl border border-line bg-white p-[14px]"
-            >
-              <View className="h-[36px] w-[36px] items-center justify-center rounded-full border border-jade/25 bg-jade/10">
-                <Icon icon={Leaf} size="lg" color="jade" />
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="text-[14px]" weight="bold" numberOfLines={1}>{spot.name}</Text>
-                <View className="mt-[4px] flex-row flex-wrap items-center gap-[6px]">
-                  <Text className="rounded-md bg-hanji-deep px-[6px] py-[2px] text-[11px] text-muk-soft" weight="semibold">{t(`category.${spot.type}`)}</Text>
-                  <Text className="rounded-md border border-jade/25 bg-jade/10 px-[6px] py-[2px] text-[11px] text-jade" weight="bold">{t(`congestion.${calmKey(spot.congestionLevel)}`)}</Text>
-                  {Number.isFinite(spot.distM) ? <Text className="text-[11px] text-muk-soft">{formatDistance(spot.distM)}</Text> : null}
-                </View>
-              </View>
-            </Pressable>
-          ))}
-        </View>
-      </ModalSheet>
     </>
   );
 }

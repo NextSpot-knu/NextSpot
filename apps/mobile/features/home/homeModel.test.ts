@@ -5,7 +5,6 @@ import {
   applyConvenience,
   buildInsteadHref,
   buildPinMarkers,
-  calmSpots,
   canSeeInstead,
   estimatesFromFeed,
   festivalFocus,
@@ -19,6 +18,7 @@ import {
   JOURNEY_MIN_HEIGHT,
   keyboardCoverFor,
   resolveUserLocation,
+  searchLabelMarkers,
   selectByCategoryOrSearch,
   shouldAskExternal,
   walkingMinutes,
@@ -120,20 +120,21 @@ const stale = buildPinMarkers([{ key: 'x', anchor: fac({ id: 'x', congestionLeve
 assert.equal(stale[0].pin.style, 'hollow', '24시간 넘은 관측은 칠하지 않는다');
 assert.equal(stale[0].selected, true);
 
-// 지금 한산.
-const calm = calmSpots(
-  [
-    fac({ id: 'q1', congestionLevel: 0.1 }),
-    fac({ id: 'q2', congestionLevel: 0.28 }),
-    fac({ id: 'q3', congestionLevel: 0.05, congestionIsCurrent: false }),
-    fac({ id: 'q4', congestionLevel: 0.5 }),
-    fac({ id: 'q5', congestionLevel: null }),
-    fac({ id: 'q6', type: 'cafe', congestionLevel: 0.2 }),
-  ],
-  { lat: 35.8362, lng: 129.2095 },
-  ['cafe'],
-);
-assert.deepEqual(calm.map((c) => c.id), ['q6', 'q1', 'q2']);
+// 예측 띠 +N — 순위 핀은 점선 고리(예측 값), 묶음은 묶음 키로 묻는다.
+const asked: string[] = [];
+const forecastPins = buildPinMarkers(clusters, {
+  rankById: new Map([['b', 2], ['a', 4]]), selectedId: null, activeGroupId: null, busyAt: 0.75, now,
+  groupName: (n) => `building ${n}`, forecastMode: true,
+  forecastLevelOf: (id, ranked) => { asked.push(id); return ranked ? 0.9 : null; },
+});
+assert.equal(forecastPins.find((m) => m.id === group.key)!.pin.ring, 'dashed');
+assert.ok(asked.includes(group.key));
+
+// 검색 이름표 — 핀마다 하나, 상한 12, 웹 zIndex 80.
+const labels = searchLabelMarkers(markers);
+assert.equal(labels.length, markers.length);
+assert.deepEqual(labels[0], { kind: 'label', variant: 'search', id: `search-label:${markers[0].id}`, coordinate: markers[0].coordinate, text: markers[0].title, zIndex: 80 });
+assert.equal(searchLabelMarkers(Array.from({ length: 20 }, () => markers[0])).length, 12);
 
 // 축제.
 assert.equal(isAreaLevelAddress('경상북도 경주시 황남동'), true);
