@@ -52,10 +52,16 @@ export function normalizeKakaoPlaceId(id: string | number | null | undefined): s
   return KAKAO_PLACE_ID.test(s) ? s : null;
 }
 
+/** 카카오맵 이름 검색 — 좌표가 없을 때(웹 saved/page.tsx 와 같다). */
+function kakaoSearchUrl(name: string): string {
+  return `https://map.kakao.com/?q=${encodeURIComponent(name)}`;
+}
+
 /** 도보 — 웹과 같이 목적지 지도를 연다. 출발지를 알면 앱에서는 도보 길찾기(by=foot)로 바로 연다. */
 export function kakaoWalkingHandoff(dest: KakaoDestination, origin?: LatLng | null): KakaoHandoff {
+  const { name } = dest;
   // 좌표가 없으면(옛 저장 북마크 등) 이름 검색으로 — 웹 saved/page.tsx 와 같다. NaN 좌표 주소는 깨진 지도를 연다.
-  if (!validPoint(dest)) return { app: null, web: `https://map.kakao.com/?q=${encodeURIComponent(dest.name)}` };
+  if (!validPoint(dest)) return { app: null, web: kakaoSearchUrl(name) };
   const web = `https://map.kakao.com/link/map/${encodeURIComponent(dest.name)},${dest.latitude},${dest.longitude}`;
   if (validPoint(origin)) return { app: `kakaomap://route?sp=${point(origin)}&ep=${point(dest)}&by=foot`, web };
   const placeId = normalizeKakaoPlaceId(dest.kakaoPlaceId);
@@ -68,7 +74,8 @@ export function kakaoWalkingHandoff(dest: KakaoDestination, origin?: LatLng | nu
  * 출발지를 알 때만 앱으로 연다(by=car). 모르면 웹 주소만 — 카카오 모바일 웹이 앱 열기를 다시 제안한다.
  */
 export function kakaoDrivingHandoff(dest: KakaoDestination, origin?: LatLng | null): KakaoHandoff {
-  if (!validPoint(dest)) return { app: null, web: `https://map.kakao.com/?q=${encodeURIComponent(dest.name)}` };
+  const { name } = dest;
+  if (!validPoint(dest)) return { app: null, web: kakaoSearchUrl(name) };
   const web = `https://map.kakao.com/link/to/${encodeURIComponent(dest.name)},${dest.latitude},${dest.longitude}`;
   if (validPoint(dest) && validPoint(origin)) {
     return { app: `kakaomap://route?sp=${point(origin)}&ep=${point(dest)}&by=car`, web };
