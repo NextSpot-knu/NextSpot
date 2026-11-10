@@ -282,6 +282,43 @@ export function fitPaddingForInsets(insets: Partial<BandInsets>, size: ViewSize)
   };
 }
 
+// ── 지도 패딩(구글 mapPadding) ─────────────────────────────────────────────────────────────────
+// 구글 지도에 패딩을 주면 로고·저작권이 패딩 안쪽으로 올라오지만(약관 — 카드·시트 밑에 숨지 않게), 카메라도 패딩 안쪽 사각형을
+// 기준으로 움직인다(newLatLngBounds 는 그 사각형에 맞추고, 카메라 가운데도 그 사각형 가운데). 화면들은 '지도 상자 전체' 기준으로
+// 영역을 주고받으므로, 래퍼가 보낼 때는 전체 → 안쪽, 받을 때는 안쪽 → 전체로 바꾼다.
+
+/** 패딩 값 정리 — 음수·NaN 은 0, 모두 0 이면 null(패딩 없음). */
+export function normalizePadding(padding: Partial<EdgePadding> | null | undefined): EdgePadding | null {
+  if (!padding) return null;
+  const v = (n: number | undefined) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
+  const p = { top: v(padding.top), right: v(padding.right), bottom: v(padding.bottom), left: v(padding.left) };
+  return p.top || p.right || p.bottom || p.left ? p : null;
+}
+
+/** 패딩 안쪽 사각형 크기(최소 1). */
+export function innerSize(size: ViewSize, padding: EdgePadding): ViewSize {
+  return {
+    width: Math.max(1, size.width - padding.left - padding.right),
+    height: Math.max(1, size.height - padding.top - padding.bottom),
+  };
+}
+
+/** 상자 전체 영역 → 패딩 안쪽 사각형이 보여 주는 영역(공급자에 보낼 값). */
+export function regionInsidePadding(full: Region, size: ViewSize, padding: EdgePadding): Region {
+  const inner = innerSize(size, padding);
+  const ne = unprojectFromView({ x: padding.left + inner.width, y: padding.top }, full, size);
+  const sw = unprojectFromView({ x: padding.left, y: padding.top + inner.height }, full, size);
+  return regionFromCorners(ne, sw);
+}
+
+/** 패딩 안쪽 사각형의 영역 → 상자 전체 영역(regionInsidePadding 의 역 — 공급자가 알려 준 값을 화면 기준으로). */
+export function regionOutsidePadding(inner: Region, size: ViewSize, padding: EdgePadding): Region {
+  const s = innerSize(size, padding);
+  const ne = unprojectFromView({ x: s.width + padding.right, y: -padding.top }, inner, s);
+  const sw = unprojectFromView({ x: -padding.left, y: s.height + padding.bottom }, inner, s);
+  return regionFromCorners(ne, sw);
+}
+
 /** 웹 CourseMap 의 영역 맞춤 패딩(setBounds(bounds, 80, 40, 40, 40)) 과 확대 하한(level 4). */
 export const COURSE_FIT_PADDING: EdgePadding = { top: 80, right: 40, bottom: 40, left: 40 };
 export const COURSE_FIT_MIN_LEVEL = 4;

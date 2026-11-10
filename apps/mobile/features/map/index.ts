@@ -26,4 +26,4 @@ export {
   type PinCluster,
   type Viewport,
 } from './declutter';
-export { MAP_COLORS } from './pins';
+export { MAP_COLORS, MAP_UNAVAILABLE_GRADIENT } from './pins';

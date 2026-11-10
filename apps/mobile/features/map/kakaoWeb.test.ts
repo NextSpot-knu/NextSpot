@@ -9,6 +9,7 @@ import {
   kakaoCameraForFit,
   kakaoCameraForRegion,
   kakaoSdkUrl,
+  needsLevelChange,
   overlayAnchor,
   parseCssColor,
   type KakaoLoaderDeps,
@@ -106,6 +107,13 @@ assert.equal(clampKakaoLevel(Number.NaN), 14);
 assert.deepEqual(overlayAnchor('bottom'), { xAnchor: 0.5, yAnchor: 1 });
 assert.deepEqual(overlayAnchor('center'), { xAnchor: 0.5, yAnchor: 0.5 });
 assert.deepEqual(overlayAnchor('above'), { xAnchor: 0.5, yAnchor: 1.35 });
+// 확대 경합(G4b-R01) — 애니메이션 중 getLevel() 이 시작 level(6→4 요청 뒤에도 6)을 돌려줘도 마지막 요청과 비교한다.
+assert.equal(needsLevelChange(null, 6, 6), false, '요청 없음 → 지도 level');
+assert.equal(needsLevelChange(null, 4, 6), true);
+assert.equal(needsLevelChange(6, 4, 6), false, '6 으로 가는 중 → 같은 6 요청은 이동만');
+assert.equal(needsLevelChange(6, 4, 4), true, '6 으로 가는 중 → 4 요청은 지도가 아직 4 라고 해도 확대를 바꾼다');
+assert.deepEqual(overlayAnchor('search'),{ xAnchor: 0.5, yAnchor: 3.2 }, '웹 검색 이름표');
+assert.deepEqual(overlayAnchor('popover'), { xAnchor: 0.5, yAnchor: 1.3 }, '웹 묶음 핀 말풍선');
 
 // ── loader ──
 interface Fake {

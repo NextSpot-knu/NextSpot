@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 
 import { pinDisplay } from '@/lib/map/markerSvg';
 
-import { markerAnchor, numberMarkerSize, pinContentKey, pinXml, svgXmlFromDataUri } from './pins';
+import {
+  DEFAULT_PIN,
+  DEFAULT_PIN_XML,
+  MAP_UNAVAILABLE_GRADIENT,
+  markerAnchor,
+  numberMarkerSize,
+  pinContentKey,
+  pinXml,
+  searchLabelAnchor,
+  svgXmlFromDataUri,
+  USER_DOT,
+  userHaloStops,
+} from './pins';
 
 const now = new Date('2026-11-02T03:00:00Z');
 const fresh = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
@@ -46,5 +58,40 @@ assert.deepEqual(numberMarkerSize(true), { size: 34, fontSize: 14 });
 assert.deepEqual(numberMarkerSize(false), { size: 28, fontSize: 12 });
 assert.deepEqual(markerAnchor('bottom', 50), { anchor: { x: 0.5, y: 1 }, centerOffset: { x: 0, y: -25 } });
 assert.deepEqual(markerAnchor('center', 20).anchor, { x: 0.5, y: 0.5 });
+// 검색 이름표 — 웹 yAnchor 3.2. 애플 centerOffset 은 그림 가운데를 (3.2 − 0.5)×높이 위로.
+{
+  const a = markerAnchor('search', 26.5);
+  assert.deepEqual(a.anchor, { x: 0.5, y: 3.2 });
+  assert.ok(Math.abs(a.centerOffset.y - -26.5 * 2.7) < 1e-9);
+  const zero = searchLabelAnchor(0);
+  assert.ok(Math.abs(zero.anchor.y - 3.2) < 1e-9 && Math.abs(zero.centerOffset.y - a.centerOffset.y) < 1e-9, '여백 0 = markerAnchor');
+  // 여백 12 를 둘러도 좌표는 이름표 위끝 + 3.2×26.5 자리.
+  const padded = searchLabelAnchor(12);
+  assert.ok(Math.abs(padded.anchor.y * (26.5 + 24) - (12 + 3.2 * 26.5)) < 1e-9);
+}
+// 카카오 기본 마커 — 그림 29×42 의 (14, 39)가 좌표(웹 실측 margin -39px 0 0 -14px).
+{
+  assert.deepEqual(DEFAULT_PIN, { width: 29, height: 42, anchorX: 14, anchorY: 39 });
+  const a = markerAnchor('defaultPin', 0);
+  assert.deepEqual(a.anchor, { x: 14 / 29, y: 39 / 42 });
+  assert.deepEqual(a.centerOffset, { x: 0.5, y: -18 });
+  assert.ok(DEFAULT_PIN_XML.startsWith('<svg') && DEFAULT_PIN_XML.includes('width="29" height="42"'));
+  assert.ok(DEFAULT_PIN_XML.includes('#238cfa'), '카카오 기본 마커 파랑');
+}
+// 내 위치 점 — 웹 halo 100 · 코스 plain 먹 8 + 흰 테 3(= 14) + 번짐 4(= 22).
+{
+  assert.equal(USER_DOT.halo.outer, 100);
+  assert.equal(USER_DOT.plain.core + USER_DOT.plain.border * 2, 14);
+  assert.equal(USER_DOT.plain.outer, 22);
+  // CSS radial-gradient(circle) 는 farthest-corner(√2·r) — 원 반지름 기준 정지점 0 · 0.707 · 1(투명도 ≈ 0.062).
+  const stops = userHaloStops();
+  assert.equal(stops.length, 3);
+  assert.deepEqual(stops[0], { offset: 0, opacity: 0.6 });
+  assert.ok(Math.abs(stops[1].offset - Math.SQRT1_2) < 1e-9 && stops[1].opacity === 0.2);
+  assert.equal(stops[2].offset, 1);
+  assert.ok(Math.abs(stops[2].opacity - 0.2 * (1 - (1 - Math.SQRT1_2) / (0.8 * Math.SQRT2 - Math.SQRT1_2))) < 1e-9);
+  assert.ok(stops[2].opacity > 0.05 && stops[2].opacity < 0.07);
+}
+assert.equal(MAP_UNAVAILABLE_GRADIENT.length, 3);
 
 console.log('pins.test OK');

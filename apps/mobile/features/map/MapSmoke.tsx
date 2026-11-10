@@ -1,5 +1,7 @@
 // 지도 래퍼 눈 확인용 — 에뮬레이터에 붙여 핀 모양(등급·빈 핀·순위 고리·예측 점선·선택·묶음), 코스 번호·점선,
 // 축제 600m 점선 원·라벨, 내 위치 점, 핀 겹침 줄이기(확대·축소하며 핀 수가 5·7·12 로 바뀌는지)를 본다.
+// B5: 묶음 핀을 누르면 지도 위 말풍선(popover), 'Search' 로 검색 이름표, 'Pad 140' 으로 mapPadding(구글 로고가 위로 오는지 ·
+// 지도가 밀리지 않는지), 미니맵은 카카오 기본 마커(kind 'default').
 // 개발용이다 — 화면 라우트에는 붙이지 않는다. 문구는 고정 영어(i18n 밖).
 
 import { useMemo, useRef, useState } from 'react';
@@ -12,7 +14,7 @@ import { declutterPins, type DeclutterItem } from './declutter';
 import { COURSE_FIT_MIN_LEVEL, COURSE_FIT_PADDING } from './geometry';
 import { NextSpotMap } from './NextSpotMap';
 import { MAP_COLORS } from './pins';
-import type { MapViewport, NextSpotMapHandle, NextSpotMarker, NextSpotPolyline } from './types';
+import type { MapPopover, MapViewport, NextSpotMapHandle, NextSpotMarker, NextSpotPolyline } from './types';
 
 interface SmokePlace extends DeclutterItem {
   id: string;
@@ -61,6 +63,9 @@ export function MapSmoke() {
   const [selected, setSelected] = useState<string | null>(null);
   const [lastEvent, setLastEvent] = useState('—');
   const [forecastMode, setForecastMode] = useState(false);
+  const [searchLabels, setSearchLabels] = useState(false);
+  const [padded, setPadded] = useState(false);
+  const [popover, setPopover] = useState<MapPopover | null>(null);
 
   const markers = useMemo<NextSpotMarker[]>(() => {
     const now = new Date();
@@ -99,8 +104,13 @@ export function MapSmoke() {
       { kind: 'dot', id: 'fest-dot', coordinate: { latitude: 35.8348, longitude: 129.2265 }, color: MAP_COLORS.festivalUpcoming },
       { kind: 'label', id: 'fest-pin-label', coordinate: { latitude: 35.8348, longitude: 129.2265 }, text: '🏮 Pinned festival', color: MAP_COLORS.festivalUpcoming, above: true },
     ];
-    return [...pins, ...course, ...festival];
-  }, [places, viewport, selected, forecastMode]);
+    const search: NextSpotMarker[] = searchLabels
+      ? places.slice(2, 6).map((f) => ({
+        kind: 'label', variant: 'search', id: `search-${f.id}`, coordinate: { latitude: f.latitude, longitude: f.longitude }, text: f.name,
+      }))
+      : [];
+    return [...pins, ...course, ...festival, ...search];
+  }, [places, viewport, selected, forecastMode, searchLabels]);
 
   const polylines = useMemo<NextSpotPolyline[]>(() => [
     { id: 'course', coordinates: COURSE, strokeColor: MAP_COLORS.gold, strokeWidth: 3, dashed: true },
@@ -123,8 +133,20 @@ export function MapSmoke() {
           setLastEvent(`idle level=${v.level} gesture=${info.isGesture}`);
         }}
         onMarkerPress={(m) => { setSelected(m.id); setLastEvent(`marker ${m.id}`); }}
-        onGroupPress={(m) => { setSelected(m.id); setLastEvent(`group ${m.groupIds?.join(',')}`); }}
-        onMapPress={(c) => { setSelected(null); setLastEvent(`map ${c.latitude.toFixed(4)},${c.longitude.toFixed(4)}`); }}
+        onGroupPress={(m) => {
+          setSelected(m.id);
+          setLastEvent(`group ${m.groupIds?.join(',')}`);
+          setPopover({
+            coordinate: m.coordinate,
+            title: `${m.groupIds?.length ?? 0} places in this building`,
+            items: (m.groupIds ?? []).map((id) => ({ id, label: places.find((p) => p.id === id)?.name ?? id })),
+          });
+        }}
+        onMapPress={(c) => { setSelected(null); setPopover(null); setLastEvent(`map ${c.latitude.toFixed(4)},${c.longitude.toFixed(4)}`); }}
+        popover={popover}
+        onPopoverPick={(id) => { setPopover(null); setLastEvent(`popover ${id}`); }}
+        mapPadding={padded ? { bottom: 140 } : undefined}
+        onUnavailable={() => setLastEvent('unavailable')}
       />
       <View style={styles.bar}>
         <Text style={styles.status}>{lastEvent}</Text>
@@ -133,16 +155,17 @@ export function MapSmoke() {
           <SmokeButton label="Center (band)" onPress={() => mapRef.current?.animateTo({ latitude: REGION.center.lat, longitude: REGION.center.lng }, { insets: { top: 120, bottom: 260 }, level: 4 })} />
           <SmokeButton label={forecastMode ? 'Now' : 'Forecast'} onPress={() => setForecastMode((v) => !v)} />
         </View>
+        <View style={styles.row}>
+          <SmokeButton label={searchLabels ? 'No search' : 'Search'} onPress={() => setSearchLabels((v) => !v)} />
+          <SmokeButton label={padded ? 'No pad' : 'Pad 140'} onPress={() => setPadded((v) => !v)} />
+        </View>
       </View>
       <View style={styles.mini}>
         <NextSpotMap
           interactive={false}
           muted={false}
           initialRegion={{ latitude: REGION.center.lat, longitude: REGION.center.lng, latitudeDelta: 0.004, longitudeDelta: 0.004 }}
-          markers={[{
-            kind: 'pin', id: 'mini', coordinate: { latitude: REGION.center.lat, longitude: REGION.center.lng },
-            pin: pinDisplay({ type: 'cafe', level: null, phone: true }), placeType: 'cafe',
-          }]}
+          markers={[{ kind: 'default', id: 'mini', coordinate: { latitude: REGION.center.lat, longitude: REGION.center.lng } }]}
           style={StyleSheet.absoluteFill}
         />
       </View>

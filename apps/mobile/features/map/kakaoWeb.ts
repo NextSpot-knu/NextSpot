@@ -55,11 +55,38 @@ export interface KakaoMap {
   relayout(): void;
   setDraggable(draggable: boolean): void;
   setZoomable(zoomable: boolean): void;
+  getProjection(): KakaoMapProjection;
+}
+
+/** 지도 상자 안 점(px, 왼쪽 위 원점). 카카오 Point 는 x·y 를 그대로 갖는다. */
+export interface KakaoPoint {
+  x: number;
+  y: number;
+}
+
+export interface KakaoMapProjection {
+  containerPointFromCoords(latlng: KakaoLatLng): KakaoPoint;
 }
 
 export interface KakaoOverlay {
   setMap(map: KakaoMap | null): void;
 }
+
+/** 위치·zIndex 를 바꿀 수 있는 오버레이(CustomOverlay·기본 Marker). */
+export interface KakaoPositionedOverlay extends KakaoOverlay {
+  setPosition(latlng: KakaoLatLng): void;
+  setZIndex(zIndex: number): void;
+}
+
+export interface KakaoMarkerOptions {
+  position: KakaoLatLng;
+  title?: string;
+  zIndex?: number;
+  clickable?: boolean;
+}
+
+/** 카카오 기본 마커(파란 물방울) — 웹 대안 화면 미니맵 `new kakao.maps.Marker({ position })`. */
+export type KakaoMarker = KakaoPositionedOverlay;
 
 export interface KakaoCustomOverlayOptions {
   position: KakaoLatLng;
@@ -70,10 +97,8 @@ export interface KakaoCustomOverlayOptions {
   clickable?: boolean;
 }
 
-export interface KakaoCustomOverlay extends KakaoOverlay {
-  setPosition(latlng: KakaoLatLng): void;
+export interface KakaoCustomOverlay extends KakaoPositionedOverlay {
   setContent(content: HTMLElement | string): void;
-  setZIndex(zIndex: number): void;
 }
 
 export interface KakaoCircleOptions {
@@ -105,6 +130,7 @@ export interface KakaoMapsNamespace {
   LatLng: new (lat: number, lng: number) => KakaoLatLng;
   Map: new (container: HTMLElement, options: KakaoMapOptions) => KakaoMap;
   CustomOverlay: new (options: KakaoCustomOverlayOptions) => KakaoCustomOverlay;
+  Marker: new (options: KakaoMarkerOptions) => KakaoMarker;
   Circle: new (options: KakaoCircleOptions) => KakaoOverlay;
   Polyline: new (options: KakaoPolylineOptions) => KakaoOverlay;
   event: {
@@ -275,9 +301,22 @@ export function kakaoCameraForBand(
   return { center: { latitude: region.latitude, longitude: region.longitude }, level: lv };
 }
 
-/** 마커 앵커 → 카카오 CustomOverlay xAnchor·yAnchor(pins.markerAnchor 와 같은 규칙 — 핀은 아래 끝, 라벨 위는 1.35). */
-export function overlayAnchor(kind: 'bottom' | 'center' | 'above'): { xAnchor: number; yAnchor: number } {
+/**
+ * 카메라를 옮길 때 확대 단계도 바꿔야 하는가 — `map.getLevel()` 은 확대 애니메이션 중에 시작 level 을 돌려주므로(코스 확대 경합,
+ * 검토 R2 G4b-R01) 마지막으로 요청한 level(아직 도착 전이면)과 비교한다. 요청이 없으면 지도의 level.
+ */
+export function needsLevelChange(requestedLevel: number | null, mapLevel: number, targetLevel: number): boolean {
+  return (requestedLevel ?? mapLevel) !== targetLevel;
+}
+
+/**
+ * 마커 앵커 → 카카오 CustomOverlay xAnchor·yAnchor(pins.markerAnchor 와 같은 규칙 — 핀은 아래 끝, 축제 라벨 위는 1.35,
+ * 검색 이름표는 3.2, 묶음 말풍선은 1.3).
+ */
+export function overlayAnchor(kind: 'bottom' | 'center' | 'above' | 'search' | 'popover'): { xAnchor: number; yAnchor: number } {
   if (kind === 'bottom') return { xAnchor: 0.5, yAnchor: 1 };
   if (kind === 'above') return { xAnchor: 0.5, yAnchor: 1.35 };
+  if (kind === 'search') return { xAnchor: 0.5, yAnchor: 3.2 };
+  if (kind === 'popover') return { xAnchor: 0.5, yAnchor: 1.3 };
   return { xAnchor: 0.5, yAnchor: 0.5 };
 }

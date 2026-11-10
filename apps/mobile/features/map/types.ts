@@ -4,9 +4,9 @@
 import type { PinDisplay } from '@/lib/map/markerSvg';
 import type { BandInsets } from '@/lib/map/visibleBand';
 
-import type { EdgePadding, LatLng, Region, ViewSize } from './geometry';
+import type { EdgePadding, LatLng, Region, ScreenPoint, ViewSize } from './geometry';
 
-export type { BandInsets, EdgePadding, LatLng, PinDisplay, Region, ViewSize };
+export type { BandInsets, EdgePadding, LatLng, PinDisplay, Region, ScreenPoint, ViewSize };
 
 interface MarkerBase {
   /** 지도 안에서 겹치지 않는 키(React key 로도 쓴다). */
@@ -46,15 +46,41 @@ export interface DotMarker extends MarkerBase {
   size?: number;
 }
 
-/** 말풍선 라벨(축제 이름 등). above=true 면 좌표 위에 뜨고, false 면 좌표 가운데에 선다. */
+/**
+ * 말풍선 라벨.
+ * - variant 'festival'(기본): 축제 이름 — color 바탕 + 흰 테·흰 글자. above=true 면 좌표 위(웹 yAnchor 1.35), false 면 좌표 가운데.
+ * - variant 'search': 검색 중 일치 핀 위 이름표 — 웹 /main(`page.tsx` searchMatchLabels) 모양 그대로(흰 95% 알약 · 금 50% 테 ·
+ *   11px bold 먹 · 그림자, yAnchor 3.2, zIndex 80). color·above 는 쓰지 않고, 누를 수 없다(웹 clickable:false).
+ */
 export interface LabelMarker extends MarkerBase {
   kind: 'label';
   text: string;
-  color: string;
+  /** festival 의 바탕색(필수였던 값 — search 는 쓰지 않는다). 없으면 금색. */
+  color?: string;
   above?: boolean;
+  variant?: 'festival' | 'search';
 }
 
-export type NextSpotMarker = PinMarker | NumberMarker | DotMarker | LabelMarker;
+/**
+ * 카카오 기본 마커(파란 물방울) — 웹 대안 화면 미니맵의 `new kakao.maps.Marker({ position })`.
+ * 웹 빌드는 카카오 Marker 를 그대로, 네이티브는 같은 크기(29×42)·기준점(14, 39)의 SVG(pins.DEFAULT_PIN).
+ */
+export interface DefaultMarker extends MarkerBase {
+  kind: 'default';
+}
+
+export type NextSpotMarker = PinMarker | NumberMarker | DotMarker | LabelMarker | DefaultMarker;
+
+/**
+ * 지도 위 말풍선 목록 — 웹 /main 같은 건물 묶음 핀을 누르면 뜨는 CustomOverlay(yAnchor 1.3, zIndex 50, `page.tsx` isGroup 분기).
+ * 좌표 위에 가운데 맞춰 뜬다. 닫기는 화면이 popover 를 null 로(웹: 빈 지도·다른 핀·가게를 누르면 닫힘 — X 없음).
+ */
+export interface MapPopover {
+  coordinate: LatLng;
+  /** 머리 줄(웹 `map.placesInBuilding` — "이 건물의 장소 N곳"). */
+  title: string;
+  items: { id: string; label: string }[];
+}
 
 export interface NextSpotCircle {
   id: string;
@@ -79,8 +105,9 @@ export interface NextSpotPolyline {
 }
 
 /**
- * 내 위치 점. showsUserLocation 을 쓰지 않는다 — 경주 밖이면 화면이 위치를 황리단길 중심으로 옮겨 넘기기 때문이다.
- * halo = /main 의 금빛 점(흰 테두리 + 금빛 번짐), plain = 코스 지도의 먹색 점.
+ * 내 위치 점. showsUserLocation 을 쓰지 않는다 — 화면이 넘긴 좌표에만 그린다(위치 거부·경주 밖이면 화면이 넘기지 않는다 — 결정 D3 d-③,
+ * 사실과 다른 자리에 '내 위치'를 그리지 않음).
+ * halo = /main 의 금빛 점(100 번짐 + 흰 테두리 28 + 금 14 — 웹 빌드는 맥박, 네이티브는 정적), plain = 코스 지도의 먹색 점(14 + 번짐 4).
  */
 export interface UserLocationDot extends LatLng {
   variant?: 'halo' | 'plain';
@@ -122,4 +149,9 @@ export interface NextSpotMapHandle {
   getRegion(): Region | null;
   /** 영역 + 상자 크기 + level. 상자 크기를 모르면 null. */
   getViewport(): MapViewport | null;
+  /**
+   * 좌표 → 지도 상자 안 점(dp, 왼쪽 위 원점) — 웹 `getProjection().containerPointFromCoords`.
+   * 네이티브는 react-native-maps pointForCoordinate(비동기, 안드로이드도 dp). 지도가 없으면 null.
+   */
+  pointForCoordinate(coordinate: LatLng): Promise<ScreenPoint | null>;
 }

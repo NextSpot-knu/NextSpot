@@ -18,6 +18,10 @@ import {
   regionForKakaoLevel,
   regionFromCorners,
   unprojectFromView,
+  innerSize,
+  normalizePadding,
+  regionInsidePadding,
+  regionOutsidePadding,
 } from './geometry';
 import { haversineMeters } from '@/lib/map/geo';
 
@@ -139,6 +143,32 @@ assert.deepEqual(fitPaddingForInsets({ top: 900, bottom: 900, right: 50 }, size)
   assert.equal(ring.length, 37);
   assert.deepEqual(ring[0], ring[36]);
   for (const p of ring) near(haversineMeters(center.latitude, center.longitude, p.latitude, p.longitude), 600, 3);
+}
+
+// ── 지도 패딩(구글 mapPadding) — 전체 ↔ 안쪽 영역 ──
+{
+  assert.equal(normalizePadding(undefined), null);
+  assert.equal(normalizePadding({ top: 0, bottom: -3 }), null, '모두 0 이하면 패딩 없음');
+  assert.deepEqual(normalizePadding({ bottom: 120, left: Number.NaN }), { top: 0, right: 0, bottom: 120, left: 0 });
+  const pad = { top: 40, right: 10, bottom: 200, left: 30 };
+  assert.deepEqual(innerSize(size, pad), { width: 360, height: 560 });
+  const full = regionForKakaoLevel(center, 4, size);
+  const inner = regionInsidePadding(full, size, pad);
+  // 안쪽 영역은 같은 축척(level)이고, 안쪽 사각형의 가운데가 전체 상자에서 보이던 그 자리다.
+  near(kakaoLevelOf(inner, innerSize(size, pad)), 4, 1e-4, '안쪽도 같은 축척(가운데 위도가 달라 cos 만큼)');
+  const innerCenterPx = projectToView(inner, full, size);
+  near(innerCenterPx.x, pad.left + 180, 1e-6, '안쪽 가운데 x');
+  near(innerCenterPx.y, pad.top + 280, 0.05, '안쪽 가운데 y(영역 가운데는 위도 중간 — 메르카토르 중간과 0.01px 차)');
+  // 왕복
+  const back = regionOutsidePadding(inner, size, pad);
+  near(back.latitude, full.latitude, 1e-9);
+  near(back.longitude, full.longitude, 1e-9);
+  near(back.latitudeDelta, full.latitudeDelta, 1e-9);
+  near(back.longitudeDelta, full.longitudeDelta, 1e-9);
+  // 아래 패딩만 있으면 안쪽 가운데는 전체 가운데보다 북쪽(위)이다.
+  const bottomOnly = regionInsidePadding(full, size, { top: 0, right: 0, bottom: 200, left: 0 });
+  assert.ok(bottomOnly.latitude > full.latitude);
+  near(bottomOnly.longitude, full.longitude, 1e-12);
 }
 
 console.log('geometry.test OK');
