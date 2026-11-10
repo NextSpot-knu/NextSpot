@@ -1,9 +1,19 @@
-import { Navigation, RefreshCw, X } from 'lucide-react-native';
+import { Navigation, RefreshCw } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Keyboard, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AppState,
+  Keyboard,
+  ScrollView,
+  TextInput,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
-import { Button, Card, Chip, Icon, IconButton, Pressable, Text } from '~/components/ui';
+import { Icon, Pressable, Text, cn, useReduceMotion } from '~/components/ui';
 import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { parseTravelContext, recommendByType, type PlaceCategory, type TravelContext } from '~/lib/core/apiClient';
 import type { RequiredAttribute } from '~/lib/core/travelContextTypes';
@@ -11,6 +21,7 @@ import { queueRecommendationOutcome } from '~/lib/core/recommendationOutcomes';
 import { haptic } from '~/lib/platform/haptics';
 import { openDrivingDirections, openWalkingDirections } from '~/lib/platform/links';
 import { track } from '~/lib/platform/analytics';
+import { shadows, springs } from '~/lib/theme/tokens';
 import { classifyReplanOutcome, replanNotice, type ReplanOutcome } from '@/lib/replanOutcome';
 
 import { displayWalkMinutes } from './cardTimes';
@@ -43,8 +54,15 @@ import { useT } from '~/lib/i18n/I18nProvider';
 export interface ActiveJourneyCardProps {
   /** 내 위치(없으면 이 카드는 재계획을 못 한다 — 길안내 다시 열기 · 도착은 그대로). 홈이 넘긴다. */
   location: { lat: number; lng: number };
-  /** 위치·크기(홈이 지도 위에 띄운다) — 예: 'absolute left-4 right-4 top-24'. */
+  /** 위치·크기(홈이 지도 위에 띄운다) — 예: 'absolute left-4 right-4'. */
   className?: string;
+  /** 위치를 계산값으로 줄 때(예: top: insets.top + 96) — 바깥 상자에 붙는다. */
+  style?: StyleProp<ViewStyle>;
+  /**
+   * 카드 최대 높이(pt). 주면 카드 안이 스크롤된다(웹 `max-h-[calc(100dvh-7rem)] overflow-y-auto`).
+   * 없으면 내용 높이 그대로 그린다(부르는 쪽이 스크롤을 맡는다).
+   */
+  maxHeight?: number;
   /** 도착을 눌렀다 — 방문 확인(VisitCheckCard)이 바로 이어진다. */
   onArrived?: () => void;
   /** 그릴 것이 생기거나 없어질 때(길안내 중 여정 · '아직 가는 중'으로 닫음) — 홈이 카드 자리를 고른다. */
@@ -57,17 +75,29 @@ export interface ActiveJourneyCardProps {
 
 /** 이번 앱 실행에서 'trip_resumed' 를 이미 보낸 여정(tripKey). 카드를 다시 붙여도 여정마다 한 번만 보낸다. */
 const resumedTrips = new Set<string>();
-/** 이번 앱 실행에서 '아직 가는 중'으로 닫은 여정(tripKey) — 다시 읽어도 그 여정은 띄우지 않는다. */
-const hiddenTrips = new Set<string>();
+
+/** 웹 text-[11px] 은 줄 높이를 정하지 않아 본문 1.5 배를 물려받는다(16.5px). */
+const LEADING_11 = 'leading-[16.5px]';
 
 /**
  * 진행 중 여행 카드 — 도착했어요 · 아직 가는 중 · 상황 변경(자연어·칩으로 조건을 바꿔 다른 곳으로 갈아타기) · 길안내 다시 열기.
- * 웹 components/main/ActiveJourneyCard.tsx(기준 커밋 0d145a1). 저장소·이벤트는 tripLoop, 판정은 journeyCore.
+ * 웹 components/main/ActiveJourneyCard.tsx 가 기준이다(모양·순서·크기 — G3-28·29). 저장소·이벤트는 tripLoop, 판정은 journeyCore.
  * 자유 문장 해석(POST /travel-context/parse)은 서버가 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
- * (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
+ * (App Store 5.1.2(i), features/aiConsent — 결정 D4 ①로 웹과 다르게 남긴다). 허용하지 않아도 칩으로 조건을 고르는 길은 그대로다.
+ * '아직 가는 중'은 웹처럼 이 카드의 상태만 비운다(G3-32 나) — 앱이 앞으로 오거나 화면에 돌아오거나 길안내가 다시 시작되면 다시 뜬다.
  */
-export function ActiveJourneyCard({ location, className, onArrived, onActiveChange, onInputFocus, onInputBlur }: ActiveJourneyCardProps) {
+export function ActiveJourneyCard({
+  location,
+  className,
+  style,
+  maxHeight,
+  onArrived,
+  onActiveChange,
+  onInputFocus,
+  onInputBlur,
+}: ActiveJourneyCardProps) {
   const t = useT();
+  const reduceMotion = useReduceMotion();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
@@ -95,9 +125,9 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
 
   // 다시 읽는 때: 앱이 앞으로 올 때 · 화면에 돌아올 때 · 길안내 시작 · 도착 · 방문 확인으로 여정이 끝남(trip-cleared).
   // 방문 확인을 끝까지 마치면 저장소의 여정이 지워지는데, 이 카드가 옛 여정을 들고 있으면 홈에 다시 뜨고 '도착했어요'가
-  // 결과 보고를 두 번 보냈다.
+  // 결과 보고를 두 번 보냈다. '아직 가는 중'으로 비운 여정도 여기서 다시 읽혀 돌아온다(웹 규칙).
   const sync = useCallback(() => {
-    const active = visibleTrip(getActiveTrip(), hiddenTrips);
+    const active = visibleTrip(getActiveTrip());
     setTrip(active);
     if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
   }, []);
@@ -122,6 +152,68 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
   useEffect(() => {
     onActiveChangeRef.current?.(isActive);
   }, [isActive]);
+
+  // 등장 — 웹 initial {opacity 0, y −12, scale .98} → sheetSpring. 동작 줄이기면 바로 보인다.
+  const enter = useSharedValue(0);
+  useEffect(() => {
+    if (!isActive) {
+      enter.value = 0;
+      return;
+    }
+    enter.value = reduceMotion ? 1 : withSpring(1, springs.sheet);
+  }, [isActive, reduceMotion, enter]);
+  const enterStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(1, enter.value),
+    transform: [{ translateY: -12 * (1 - enter.value) }, { scale: 0.98 + 0.02 * enter.value }],
+  }));
+
+  // 상황 변경 펼침 — 웹 height 0 → auto · opacity · y −8(interactionSpring). 닫을 때도 접은 뒤에 내린다.
+  const [panelShown, setPanelShown] = useState(false);
+  const panel = useSharedValue(0);
+  const panelH = useSharedValue(0);
+  useEffect(() => {
+    if (changeOpen) {
+      setPanelShown(true);
+      panel.value = reduceMotion ? 1 : withSpring(1, springs.interaction);
+      return;
+    }
+    if (reduceMotion) {
+      panel.value = 0;
+      setPanelShown(false);
+      return;
+    }
+    panel.value = withSpring(0, { ...springs.interaction, overshootClamping: true }, (finished) => {
+      if (finished) runOnJS(setPanelShown)(false);
+    });
+  }, [changeOpen, reduceMotion, panel]);
+  const panelStyle = useAnimatedStyle(() => ({
+    height: panelH.value * Math.max(0, panel.value),
+    opacity: Math.min(1, Math.max(0, panel.value)),
+  }));
+  const panelInnerStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -8 * (1 - panel.value) }] }));
+  const onPanelLayout = useCallback((e: LayoutChangeEvent) => {
+    panelH.value = e.nativeEvent.layout.height;
+  }, [panelH]);
+
+  // 카드 안 스크롤(maxHeight 를 받았을 때) — 입력 칸에 초점이 가면 그 칸이 보이게 올린다.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollContentRef = useRef<View>(null);
+  const inputRef = useRef<TextInput>(null);
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (revealTimer.current) clearTimeout(revealTimer.current);
+  }, []);
+  const revealInput = useCallback(() => {
+    if (maxHeight == null) return;
+    if (revealTimer.current) clearTimeout(revealTimer.current);
+    // 키보드가 올라와 홈이 줄어든 뒤에 잰다.
+    revealTimer.current = setTimeout(() => {
+      const input = inputRef.current;
+      const content = scrollContentRef.current;
+      if (!input || !content) return;
+      input.measureLayout(content, (_x, y) => scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), () => undefined);
+    }, 350);
+  }, [maxHeight]);
 
   const arrived = useCallback(() => {
     if (!trip) return;
@@ -228,6 +320,9 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
   };
   const notice = outcome ? replanNotice(outcome) : null;
   const car = trip.navigationMode === 'car';
+  const confirmLabel = busy ? t('common.loading') : t('trip.confirmContext');
+  const parseDisabled = busy || !aiAllowed || !changeText.trim();
+  const draftReplanDisabled = busy || !hasCondition(draft);
 
   const resume = () => {
     if (trip.lat == null || trip.lng == null) return;
@@ -238,120 +333,246 @@ export function ActiveJourneyCard({ location, className, onArrived, onActiveChan
     queueRecommendationOutcome(trip.recommendationId, 'navigation_started');
   };
 
-  // 접은 판·펼친 판을 따로 두지 않는다 — 판은 하나이고, 홈이 남은 높이 안에서 스크롤로 보여 준다(자리가 좁으면 위쪽만).
-  // 그래서 가장 중요한 것(이름 · 도착했어요 · 아직 가는 중 · 상황 변경)을 맨 위에 둔다.
-  return (
-    <Card elevation="surface" className={className ?? ''} accessibilityLabel={t('trip.active')}>
-      {/* '진행 중' 꼬리표는 이름 줄 앞에 붙인다 — 자리가 좁아도 이름 줄 + 행동 줄이 함께 보이게(homeModel TRIP_CARD_HEIGHT.journey). */}
-      <Text className="pr-[4px] text-[16px] leading-[22px]" weight="bold" numberOfLines={2}>
-        <Text className="text-[12px] text-jade" weight="bold">{`${t('trip.active')} · `}</Text>
-        {t('trip.heading', { name: trip.name })}
-      </Text>
+  // 웹 순서: 활성 여정 → 이름 → 도보/자동차 → 3칸 버튼 → (상황 변경) → 길안내 다시 열기.
+  const body = (
+    <>
+      <Text className="text-[12px] leading-[16px] text-jade" weight="bold">{t('trip.active')}</Text>
+      <Text className="mt-[4px] text-[16px] leading-[24px]" weight="bold" numberOfLines={1}>{t('trip.heading', { name: trip.name })}</Text>
+      {!car && trip.walkMinutes != null && (
+        <Text className="mt-[2px] text-[12px] leading-[16px] text-muk-soft">{t('trip.walkEstimate', { n: displayWalkMinutes(trip.walkMinutes) })}</Text>
+      )}
+      {car && <Text className="mt-[2px] text-[12px] leading-[16px] text-muk-soft">{t('trip.driveBasisHint')}</Text>}
 
-      <View className="mt-[10px] flex-row gap-[8px]">
-        <Pressable accessibilityRole="button" accessibilityLabel={t('trip.arrived')} onPress={arrived} className="min-h-[44px] flex-1 items-center justify-center rounded-xl bg-jade px-[6px]">
+      {/* 웹 grid-cols-3 gap-2 mt-3 · rounded-xl py-2 — 보이는 높이 약 34, 탭 영역은 hitSlop 으로 44. */}
+      <View className="mt-[12px] flex-row gap-[8px]">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('trip.arrived')}
+          onPress={arrived}
+          hitSlop={ROW_SLOP}
+          className="flex-1 items-center justify-center rounded-xl bg-jade px-[4px] py-[8px]"
+        >
           <Text className="text-center text-[12px] leading-[16px] text-white" weight="bold">{t('trip.arrived')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('trip.stillGoing')}
-          onPress={() => { haptic('selection'); hiddenTrips.add(tripKey(trip)); setTrip(null); }}
-          className="min-h-[44px] flex-1 items-center justify-center rounded-xl border border-line px-[6px]"
+          onPress={() => { haptic('selection'); Keyboard.dismiss(); setTrip(null); }}
+          hitSlop={ROW_SLOP}
+          className="flex-1 items-center justify-center rounded-xl border border-line px-[4px] py-[8px]"
         >
           <Text className="text-center text-[12px] leading-[16px]" weight="bold">{t('trip.stillGoing')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('trip.changed')}
+          accessibilityState={{ disabled: busy, expanded: changeOpen }}
           disabled={busy}
           onPress={() => { haptic('selection'); setChangeOpen(true); setDraft({}); setParseError(false); }}
-          className="min-h-[44px] flex-1 flex-row items-center justify-center gap-[4px] rounded-xl border border-gold/40 bg-gold/10 px-[6px]"
+          hitSlop={ROW_SLOP}
+          className="flex-1 flex-row items-center justify-center gap-[4px] rounded-xl border border-gold/40 bg-gold/10 px-[4px] py-[8px]"
         >
-          <Icon icon={RefreshCw} size="xs" />
+          <Icon icon={RefreshCw} size={12} />
           <Text className="text-center text-[12px] leading-[16px]" weight="bold">{t('trip.changed')}</Text>
         </Pressable>
       </View>
 
-      {!car && trip.walkMinutes != null && (
-        <Text className="mt-[8px] text-[12px] leading-[16px] text-muk-soft">{t('trip.walkEstimate', { n: displayWalkMinutes(trip.walkMinutes) })}</Text>
-      )}
-      {car && <Text className="mt-[8px] text-[12px] leading-[16px] text-muk-soft">{t('trip.driveBasisHint')}</Text>}
-
-      {changeOpen && (
-        <View className="mt-[12px] gap-[8px] border-t border-line pt-[4px]">
-          {/* 펼친 상황 변경은 길다 — 맨 위에서 바로 닫을 수 있게(아래 '취소' 는 조건을 고르기 시작해야 보인다). */}
-          <View className="flex-row items-center gap-[8px]">
-            <Text className="min-w-0 flex-1 text-[12px] leading-[16px]" weight="bold">{t('trip.changeTitle')}</Text>
-            <IconButton icon={X} accessibilityLabel={t('common.close')} onPress={() => { haptic('selection'); Keyboard.dismiss(); setChangeOpen(false); }} />
-          </View>
-          <Button label={busy ? t('common.loading') : t('trip.confirmContext')} loading={busy} onPress={() => void replan()} />
-          {notice && (
-            <View accessibilityLiveRegion="polite" className="rounded-xl bg-terracotta/10 px-[12px] py-[8px]">
-              <Text className="text-[12px] leading-[17px] text-terracotta">{t(notice.messageKey)}</Text>
-              {notice.retryable && (
-                <Button className="mt-[6px]" variant="secondary" label={t('common.retry')} loading={busy} onPress={() => { haptic('selection'); void replan(lastContext.current); }} />
+      {panelShown && (
+        <Animated.View style={[{ overflow: 'hidden' }, panelStyle]}>
+          {/* 안쪽은 자기 높이대로 그려지고(onLayout 으로 잰다) 바깥이 그 높이까지 펼친다. */}
+          <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0 }, panelInnerStyle]}>
+            {/* onLayout 높이는 margin 을 빼므로 위 간격(웹 mt-3)은 바깥 padding 으로 잰다. */}
+            <View onLayout={onPanelLayout} className="pt-[12px]">
+            <View className="border-t border-line pt-[12px]">
+              <Text className="text-[12px] leading-[16px]" weight="bold">{t('trip.changeTitle')}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={confirmLabel}
+                accessibilityState={{ disabled: busy, busy }}
+                disabled={busy}
+                onPress={() => void replan()}
+                hitSlop={ROW_SLOP}
+                className={cn('mt-[8px] items-center justify-center rounded-xl bg-jade py-[8px]', busy && 'opacity-50')}
+              >
+                <Text className="text-[12px] leading-[16px] text-white" weight="bold">{confirmLabel}</Text>
+              </Pressable>
+              {notice && (
+                <View accessibilityLiveRegion="polite" className="mt-[8px] rounded-xl bg-terracotta/10 px-[12px] py-[8px]">
+                  <Text className="text-[12px] leading-[16px] text-terracotta">{t(notice.messageKey)}</Text>
+                  {/* 장애일 때만 재시도를 준다. 0건은 다시 눌러도 같은 답이라 조건을 바꾸는 쪽이 맞다. */}
+                  {notice.retryable && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('common.retry')}
+                      accessibilityState={{ disabled: busy, busy }}
+                      disabled={busy}
+                      onPress={() => { haptic('selection'); void replan(lastContext.current); }}
+                      hitSlop={RETRY_SLOP}
+                      className={cn('mt-[6px] items-center justify-center rounded-lg border border-terracotta/40 py-[6px]', busy && 'opacity-50')}
+                    >
+                      <Text className="text-[12px] leading-[16px] text-terracotta" weight="bold">{busy ? t('common.loading') : t('common.retry')}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              <AiConsentNotice className="mt-[8px]" />
+              <TextInput
+                ref={inputRef}
+                accessibilityLabel={t('trip.changeTitle')}
+                accessibilityState={{ disabled: !aiAllowed }}
+                editable={aiAllowed}
+                maxLength={300}
+                multiline
+                textAlignVertical="top"
+                value={changeText}
+                onChangeText={setChangeText}
+                onFocus={() => { inputFocused.current = true; onInputFocus?.(); revealInput(); }}
+                onBlur={releaseInput}
+                placeholder={t('trip.changePlaceholder')}
+                placeholderTextColor="#8a7f78"
+                className={aiAllowed
+                  ? 'mt-[8px] min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[12px] leading-[16px] text-muk'
+                  : 'mt-[8px] min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[12px] leading-[16px] text-muk-soft'}
+                maxFontSizeMultiplier={1.6}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={busy ? t('trip.parsing') : t('trip.parse')}
+                accessibilityState={{ disabled: parseDisabled, busy }}
+                disabled={parseDisabled}
+                onPress={() => void parseChange()}
+                hitSlop={ROW_SLOP}
+                className={cn('mt-[8px] items-center justify-center rounded-xl border border-jade/30 bg-jade/5 py-[8px]', parseDisabled && 'opacity-50')}
+              >
+                <Text className="text-[12px] leading-[16px] text-jade" weight="bold">{busy ? t('trip.parsing') : t('trip.parse')}</Text>
+              </Pressable>
+              {draft && (
+                <View className="mt-[8px]">
+                  <Text className={cn('text-[11px] text-muk-soft', LEADING_11)}>{parseError ? t('trip.noContext') : t('trip.manualHint')}</Text>
+                  <View className="mt-[8px] flex-row flex-wrap gap-[6px]">
+                    {REPLAN_CATEGORIES.map((c: PlaceCategory) => (
+                      <ChoiceChip key={c} active={draft.categories?.includes(c) ?? false} onPress={() => update((d) => ({ ...d, categories: toggled(d.categories, c) }))}>
+                        {t(`category.${c}`)}
+                      </ChoiceChip>
+                    ))}
+                  </View>
+                  <View className="mt-[8px] flex-row flex-wrap gap-[6px]">
+                    {REPLAN_WALKS.map((m) => (
+                      <ChoiceChip key={m} active={draft.maxWalkMinutes === m} onPress={() => update((d) => ({ ...d, maxWalkMinutes: m }))}>
+                        {t('trip.walkChip', { n: m })}
+                      </ChoiceChip>
+                    ))}
+                  </View>
+                  <View className="mt-[8px] flex-row flex-wrap gap-[6px]">
+                    {REPLAN_AVAILABLE.map((m) => (
+                      <ChoiceChip key={m} active={draft.availableMinutes === m} onPress={() => update((d) => ({ ...d, availableMinutes: m }))}>
+                        {m === 120 ? t('setup.twoHoursPlus') : t('trip.availableChip', { n: m })}
+                      </ChoiceChip>
+                    ))}
+                  </View>
+                  <View className="mt-[8px] flex-row flex-wrap gap-[6px]">
+                    {REPLAN_ATTRIBUTES.map((a: RequiredAttribute) => (
+                      <ChoiceChip key={a} active={draft.requiredAttributes?.includes(a) ?? false} onPress={() => update((d) => ({ ...d, requiredAttributes: toggled(d.requiredAttributes, a) }))}>
+                        {t(`trip.attribute.${a}`)}
+                      </ChoiceChip>
+                    ))}
+                    <ChoiceChip active={draft.excludeVisited === true} onPress={() => update((d) => ({ ...d, excludeVisited: !d.excludeVisited }))}>
+                      {t('setup.excludeVisited')}
+                    </ChoiceChip>
+                  </View>
+                  <View className="mt-[8px] flex-row gap-[8px]">
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={t('common.cancel')}
+                      onPress={() => { haptic('selection'); Keyboard.dismiss(); setChangeOpen(false); }}
+                      hitSlop={ROW_SLOP}
+                      className="flex-1 items-center justify-center rounded-xl border border-line py-[8px]"
+                    >
+                      <Text className="text-[12px] leading-[16px]" weight="bold">{t('common.cancel')}</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={confirmLabel}
+                      accessibilityState={{ disabled: draftReplanDisabled, busy }}
+                      disabled={draftReplanDisabled}
+                      onPress={() => void replan(draft)}
+                      hitSlop={ROW_SLOP}
+                      className={cn('flex-1 items-center justify-center rounded-xl bg-jade py-[8px]', draftReplanDisabled && 'opacity-50')}
+                    >
+                      <Text className="text-center text-[12px] leading-[16px] text-white" weight="bold">{confirmLabel}</Text>
+                    </Pressable>
+                  </View>
+                </View>
               )}
             </View>
-          )}
-          <AiConsentNotice />
-          <TextInput
-            accessibilityLabel={t('trip.changeTitle')}
-            accessibilityState={{ disabled: !aiAllowed }}
-            editable={aiAllowed}
-            maxLength={300}
-            multiline
-            value={changeText}
-            onChangeText={setChangeText}
-            onFocus={() => { inputFocused.current = true; onInputFocus?.(); }}
-            onBlur={releaseInput}
-            placeholder={t('trip.changePlaceholder')}
-            placeholderTextColor="#8a7f78"
-            className={aiAllowed ? 'min-h-[64px] rounded-xl border border-line px-[12px] py-[8px] text-[13px] text-muk' : 'min-h-[64px] rounded-xl border border-line bg-hanji-deep px-[12px] py-[8px] text-[13px] text-muk-soft'}
-            maxFontSizeMultiplier={1.6}
-          />
-          <Button variant="secondary" label={busy ? t('trip.parsing') : t('trip.parse')} disabled={busy || !aiAllowed || !changeText.trim()} onPress={() => void parseChange()} />
-          {draft && (
-            <View className="gap-[8px]">
-              <Text className="text-[11px] leading-[15px] text-muk-soft">{parseError ? t('trip.noContext') : t('trip.manualHint')}</Text>
-              <View className="flex-row flex-wrap gap-[6px]">
-                {REPLAN_CATEGORIES.map((c: PlaceCategory) => (
-                  <Chip key={c} label={t(`category.${c}`)} selected={draft.categories?.includes(c) ?? false} onPress={() => update((d) => ({ ...d, categories: toggled(d.categories, c) }))} />
-                ))}
-              </View>
-              <View className="flex-row flex-wrap gap-[6px]">
-                {REPLAN_WALKS.map((m) => (
-                  <Chip key={m} label={t('trip.walkChip', { n: m })} selected={draft.maxWalkMinutes === m} onPress={() => update((d) => ({ ...d, maxWalkMinutes: m }))} />
-                ))}
-              </View>
-              <View className="flex-row flex-wrap gap-[6px]">
-                {REPLAN_AVAILABLE.map((m) => (
-                  <Chip key={m} label={m === 120 ? t('setup.twoHoursPlus') : t('trip.availableChip', { n: m })} selected={draft.availableMinutes === m} onPress={() => update((d) => ({ ...d, availableMinutes: m }))} />
-                ))}
-              </View>
-              <View className="flex-row flex-wrap gap-[6px]">
-                {REPLAN_ATTRIBUTES.map((a: RequiredAttribute) => (
-                  <Chip key={a} label={t(`trip.attribute.${a}`)} selected={draft.requiredAttributes?.includes(a) ?? false} onPress={() => update((d) => ({ ...d, requiredAttributes: toggled(d.requiredAttributes, a) }))} />
-                ))}
-                <Chip label={t('setup.excludeVisited')} selected={draft.excludeVisited === true} onPress={() => update((d) => ({ ...d, excludeVisited: !d.excludeVisited }))} />
-              </View>
-              <View className="flex-row gap-[8px]">
-                <Button className="flex-1" variant="secondary" label={t('common.cancel')} onPress={() => setChangeOpen(false)} />
-                <Button className="flex-1" label={busy ? t('common.loading') : t('trip.confirmContext')} disabled={busy || !hasCondition(draft)} onPress={() => void replan(draft)} />
-              </View>
             </View>
-          )}
-        </View>
+          </Animated.View>
+        </Animated.View>
       )}
 
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t(car ? 'trip.resumeDriving' : 'trip.resumeDirections')}
         onPress={resume}
-        className="mt-[8px] min-h-[44px] flex-row items-center justify-center gap-[4px]"
+        hitSlop={RESUME_SLOP}
+        className="mt-[8px] flex-row items-center justify-center gap-[4px]"
       >
-        <Icon icon={Navigation} size="xs" color="gold-deep" />
+        <Icon icon={Navigation} size={12} color="gold-deep" />
         <Text className="text-[12px] leading-[16px] text-gold-deep" weight="bold">{t(car ? 'trip.resumeDriving' : 'trip.resumeDirections')}</Text>
       </Pressable>
-    </Card>
+    </>
+  );
+
+  // 틀: 웹 rounded-2xl border-jade/30 bg-white/95 p-4 toss-surface. 바깥(className·style)은 홈이 자리를 정한다.
+  return (
+    <View className={className} style={style}>
+      <Animated.View style={enterStyle}>
+        <View
+          accessibilityLabel={t('trip.active')}
+          className="rounded-2xl border border-jade/30 bg-white/95"
+          style={{ boxShadow: shadows.surface }}
+        >
+          {maxHeight != null ? (
+            <ScrollView
+              ref={scrollRef}
+              style={{ maxHeight: Math.max(0, maxHeight - 2), flexGrow: 0 }}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              <View ref={scrollContentRef} className="p-[16px]">{body}</View>
+            </ScrollView>
+          ) : (
+            <View className="p-[16px]">{body}</View>
+          )}
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+/** 3칸 버튼 등 32~34pt 버튼의 탭 영역을 44 로(위아래만 — 옆 버튼과 겹치지 않게). */
+const ROW_SLOP = { top: 5, bottom: 5, left: 0, right: 0 };
+/** 재시도(약 30pt). */
+const RETRY_SLOP = { top: 7, bottom: 7, left: 0, right: 0 };
+/** 길안내 다시 열기 — 글자 한 줄(16pt). */
+const RESUME_SLOP = { top: 14, bottom: 14, left: 12, right: 12 };
+/** 칩(약 27pt) — 줄 사이 간격이 6~8 이라 44 까지 채우면 이웃 줄과 크게 겹친다. 반쯤만 넓힌다. */
+const CHIP_SLOP = { top: 6, bottom: 6, left: 2, right: 2 };
+
+/** 상황 변경 칩 — 웹 ActiveJourneyCard 의 ChoiceChip 값 그대로(공용 Chip 과 크기·색이 달라 카드 안에만 둔다). */
+function ChoiceChip({ active, onPress, children }: { active: boolean; onPress: () => void; children: ReactNode }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={() => { haptic('selection'); onPress(); }}
+      hitSlop={CHIP_SLOP}
+      className={active
+        ? 'rounded-full border border-jade bg-jade/10 px-[10px] py-[4px]'
+        : 'rounded-full border border-line bg-white px-[10px] py-[4px]'}
+    >
+      <Text className={cn('text-[11px]', LEADING_11, active ? 'text-jade' : 'text-muk-soft')} weight="semibold">{children}</Text>
+    </Pressable>
   );
 }

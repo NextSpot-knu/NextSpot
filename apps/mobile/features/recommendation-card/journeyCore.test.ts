@@ -81,7 +81,7 @@ assert.equal(replanNotice('replaced'), null);
   assert.equal(firstSighting(seen, tripKey({ facilityId: 'f1', acceptedAt: 2 })), true);
 }
 
-// '아직 가는 중'으로 닫은 여정은 다시 띄우지 않는다 — 새 여정은 보인다
+// hidden 에 든 여정은 띄우지 않는다 — 새 여정은 보인다
 {
   const t1 = { facilityId: 'f1', acceptedAt: 1, status: 'navigating' };
   const hidden = new Set([tripKey(t1)]);
@@ -90,6 +90,14 @@ assert.equal(replanNotice('replaced'), null);
   assert.equal(visibleTrip({ ...t1, status: 'arrived' }, new Set()), null);
   assert.equal(visibleTrip(null, new Set()), null);
   assert.equal(visibleTrip(t1, new Set()), t1);
+}
+
+// 카드는 hidden 없이 부른다(G3-32 나 — '아직 가는 중'으로 비운 여정도 다시 읽으면 돌아온다, 웹과 같다)
+{
+  const t1 = { facilityId: 'f1', acceptedAt: 1, status: 'navigating' };
+  assert.equal(visibleTrip(t1), t1);
+  assert.equal(visibleTrip({ ...t1, status: 'arrived' }), null);
+  assert.equal(visibleTrip(null), null);
 }
 
 console.log('journeyCore.test OK');

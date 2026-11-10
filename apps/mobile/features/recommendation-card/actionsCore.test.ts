@@ -7,6 +7,7 @@ import {
   acceptNotices,
   bookmarkFrom,
   greetingKey,
+  nextAfterKeep,
   nextCandidateAfter,
   nextLabHintCount,
   postAcceptWithFallback,
@@ -55,6 +56,16 @@ async function main() {
   assert.equal(nextCandidateAfter(list, 'a', new Set(['b']))?.facility.id, 'c');
   assert.equal(nextCandidateAfter(list, 'c', new Set(['a', 'b'])), null);
   assert.equal(nextCandidateAfter([], 'a', new Set()), null);
+
+  // 거절은 오늘 휴무 '확정' 곳을 건너뛴다 — 킵은 거르지 않는다 (G3-24)
+  const todayRest = `매주 ${'일월화수목금토'[new Date().getDay()]}요일`;
+  const withClosed = [cand('a'), cand('b', { facility: { ...cand('b').facility, features: { rest_date_raw: todayRest } } }), cand('c')];
+  assert.equal(nextCandidateAfter(withClosed, 'a', new Set(), { skipClosedToday: true })?.facility.id, 'c');
+  assert.equal(nextCandidateAfter(withClosed, 'a', new Set())?.facility.id, 'b');
+  // 킵이 후보를 다 쓰면 순위 맨 앞(지금 장소 포함)으로 되돈다
+  assert.equal(nextAfterKeep(list, 'c', new Set(['a', 'b']))?.facility.id, 'a');
+  assert.equal(nextAfterKeep(list, 'a', new Set())?.facility.id, 'b');
+  assert.equal(nextAfterKeep([], 'a', new Set()), null);
 
   // 북마크 모양
   const bm = bookmarkFrom(cand('a', {

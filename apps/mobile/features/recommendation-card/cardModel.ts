@@ -26,7 +26,8 @@ import {
   showFaceCrowdChip,
 } from './compareHeader';
 import { congestionDisplay, formatEstimateTime, formatLastObserved, isBaselinePrediction } from './congestionEstimate';
-import { creditForDisplayedPhoto, creditedPhotoUrls, merchantPhotoUrl, type PhotoCredit } from './photoCredit';
+// 사진 출처 판정은 대안 화면과 같은 port 판 하나를 쓴다(docs/MOBILE_WEB_PARITY.md §4.3 '출처 판정 모듈').
+import { creditForDisplayedPhoto, creditedPhotoUrls, merchantPhotoUrl, type PhotoCredit } from '../explore/port/photoCredit';
 import type { CompareAnchor, SheetCandidate } from './types';
 
 export type TFn = (key: string, vars?: Record<string, string | number>) => string;
@@ -68,6 +69,13 @@ export interface CardContext {
   addressToken?: string;
   /** 현재 언어 — 소개 번역(features.overview_i18n)을 고른다. */
   locale?: string;
+  /**
+   * 비교 첫 줄(가치 상자·음식 문장·미리보기 문장)을 쓸지 — 웹 RecommendationCard 의 showCompare. 홈은 true(기본),
+   * 저장 상세처럼 대신할 기준 명소가 없는 화면은 false(G3-12 · G3-R02).
+   */
+  showCompare?: boolean;
+  /** 순위 배지를 목록 순위로 말할지 — 웹 showListRank. 홈 true(기본), 저장 상세 false('AI 추천'). */
+  showListRank?: boolean;
 }
 
 export interface FaceChip {
@@ -100,6 +108,20 @@ export interface CardModel {
   benefitParts: string[];
   /** 미리보기 가치 문장(이름 뺀 것). */
   peekValueText: string;
+  /** 미리보기에 가치 문장을 그리는가 — showCompare 일 때만(웹 peekValueShown). */
+  peekValueShown: boolean;
+  /** 화살표 비교 문장('A 혼잡 → B 여유'). 없으면 null. */
+  compareHeaderText: string | null;
+  /** 음식 문장('지금 곱창 먹으러 …'). showCompare 이고 음식점일 때만. */
+  foodHeadline: string | null;
+  /** 도보 분의 출처 — 실제 걷는 길(osm_pedestrian) · 직선거리 추정. 서버가 안 주면 null. */
+  travelSource: 'osm_pedestrian' | 'estimated' | null;
+  /** 이름 줄의 근거 칩 — 주변 수요를 질적으로 말할 수 있을 때만(웹 chipArrivalAction). */
+  chipArrivalAction: 'choose_calmer' | 'wait_then_go' | null;
+  /** 카카오 장소 페이지(검색 링크가 아닌 실제 장소) — 상세의 '상세 리뷰 보기'. */
+  reviewUrl: string | null;
+  /** 영업 증거 칩 색 — 열림 jade · 닫힘 terracotta. 증거가 없으면 null. */
+  availabilityOpen: boolean | null;
   crowdChip: CrowdChip | null;
   crowdChipOnFace: boolean;
   faceChips: FaceChip[];
@@ -183,6 +205,8 @@ function relText(rel: ReturnType<typeof relativeParts>, t: TFn): string | null {
 
 export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
   const { t, now } = ctx;
+  const showCompare = ctx.showCompare ?? true;
+  const showListRank = ctx.showListRank ?? true;
   const busyAt = ctx.busyAt ?? DEFAULT_BUSY_THRESHOLD;
   const f = c.facility;
   const b = c.breakdown;
@@ -311,7 +335,7 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
   // 쓰지 않고 compareHeaderText / 혜택 줄(compare.benefitWalk)로 내려간다. 메뉴 이름(kind 'menu')은 데이터 그대로라 유지.
   const cuisineInForeignLocale = faceMenu?.kind === 'cuisine' && !!ctx.locale && ctx.locale !== 'ko';
   const foodName = facilityType === 'restaurant' && !cuisineInForeignLocale ? faceMenu?.items[0] : null;
-  const foodHeadline = foodName
+  const foodHeadline = showCompare && foodName
     ? isOpenNow
       ? waitMins !== null && waitMins > 0
         ? t('compare.foodWithWait', { food: foodName, total: times.totalMin })
@@ -381,7 +405,7 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
     anchorGrade: anchorCrowd.grade,
     anchorBasis: anchorCrowd.basis,
     candidateGrade: candidateCrowdGrade,
-    valueLineSaysCrowd: foodHeadline === null && compareHeaderText !== null,
+    valueLineSaysCrowd: showCompare && foodHeadline === null && compareHeaderText !== null,
   });
 
   // 혜택 칩(얼굴)
@@ -389,10 +413,11 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
   const couponRate = typeof f.couponRate === 'number' && f.couponRate > 0 ? Math.round(f.couponRate * 100) : null;
   const faceChips: FaceChip[] = [];
   if (crowdChipOnFace && crowdChip) faceChips.push({ key: 'crowd', tone: crowdTone(crowdChip.grade), text: crowdChip.text, dashed: crowdChip.dashed });
-  if (displayedOpenStatus === 'open_expected' && compareHeaderText) faceChips.push({ key: 'open', tone: 'jade', text: t('compare.benefitOpen') });
+  // 웹 RecommendationCard faceChips 와 같은 조건 — 혜택 문장이 이미 '도착 시 영업'을 말하면 칩으로 되풀이하지 않는다(G3-12).
+  if (displayedOpenStatus === 'open_expected' && showCompare && compareHeaderText) faceChips.push({ key: 'open', tone: 'jade', text: t('compare.benefitOpen') });
   if (displayedOpenStatus === 'closing_soon' || likelyClosedUnknown) {
     faceChips.push({ key: 'closing', tone: 'terracotta', text: t(`card.arrivalStatus.${displayedOpenStatus}`) });
-  } else if (displayedOpenStatus === 'open_expected' && !compareHeaderText && foodHeadline === null) {
+  } else if (displayedOpenStatus === 'open_expected' && !showCompare) {
     faceChips.push({ key: 'open', tone: 'jade', text: t('card.arrivalStatus.open_expected') });
   }
   if (closedToday) faceChips.push({ key: 'closed', tone: 'terracotta', text: t('card.closedToday') });
@@ -403,8 +428,12 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
     : couponRate !== null ? t('recommend.spotComparison.coupon', { n: couponRate }) : null;
 
   // 순위 배지
-  const rankText = cardRankText(cardRankLabel(c.userPicked ? null : ctx.listRank));
-  const rankIsListed = !c.userPicked && typeof ctx.listRank === 'number' && ctx.listRank >= 1;
+  // 목록이 없는 화면(저장 상세)은 웹처럼 'AI 추천' — 순위를 주면 그 순위.
+  const rank = c.userPicked ? null : ctx.listRank;
+  const rankText = showListRank
+    ? cardRankText(cardRankLabel(rank))
+    : rank ? { key: rank === 1 ? 'card.rankBadgeTop' : 'card.rankBadge', vars: { rank } } : { key: 'card.aiRec' };
+  const rankIsListed = typeof rank === 'number' && rank >= 1;
 
   // 신선도 한 줄
   const freshnessStamp = (() => {
@@ -475,6 +504,14 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
     valueSentence,
     benefitParts,
     peekValueText,
+    peekValueShown: showCompare && !!peekValueText,
+    compareHeaderText,
+    foodHeadline,
+    travelSource: b?.travelSource === 'osm_pedestrian' || b?.travelSource === 'estimated' ? b.travelSource : null,
+    chipArrivalAction: demand.showQualitativeLevel && (b?.arrivalAction === 'choose_calmer' || b?.arrivalAction === 'wait_then_go')
+      ? b.arrivalAction : null,
+    reviewUrl: rawPlaceUrl?.replace(/^http:\/\/place\.map\.kakao\.com/i, 'https://place.map.kakao.com') ?? null,
+    availabilityOpen: availabilityLine && availabilityEvidence ? availabilityEvidence.status === 'open' : null,
     crowdChip,
     crowdChipOnFace,
     faceChips,

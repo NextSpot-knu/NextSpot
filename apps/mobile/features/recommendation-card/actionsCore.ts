@@ -1,6 +1,7 @@
 // 카드 행동의 순수 판정 — 수락 폴백 · 알림 재료 · 다음 후보 · 북마크 모양 · 실험실 힌트 횟수. React Native 를 import 하지 않아 node 테스트가 돈다.
 // 부수효과(전송·저장·알림·길안내)는 actions.ts. 웹 원본: apps/web/app/main/page.tsx 의 handleAccept · handlePutOff · handleReject(기준 커밋 0d145a1).
 import { httpStatus } from '~/lib/core/httpCore';
+import { isClosedToday } from '@/lib/restDate';
 import { spotPoints } from '~/lib/core/spotPoints';
 import { estimateWalkingMinutes } from '~/features/explore/port/walking';
 import type { SavedRecord } from '~/lib/core/savedFacilities';
@@ -53,18 +54,44 @@ export function greetingKey(type: string | null | undefined): string {
   return 'map.greetingDefault';
 }
 
-/** 지금 장소 다음에 보일 후보 — 이미 킵·거절한 곳과 지금 장소는 건너뛴다. 없으면 null(빈 상태). */
+function featureText(c: SheetCandidate, ...keys: string[]): string | undefined {
+  const features = (c.facility.features ?? null) as Record<string, unknown> | null;
+  for (const k of keys) {
+    const v = features?.[k];
+    if (typeof v === 'string' && v.trim()) return v;
+  }
+  return undefined;
+}
+
+/**
+ * 지금 장소 다음에 보일 후보 — 이미 킵·거절한 곳과 지금 장소는 건너뛴다. 없으면 null(빈 상태).
+ * skipClosedToday — 오늘 휴무 '확정' 곳도 건너뛴다(웹 handleReject 의 openToday — 거절 경로만, G3-24). 판정 불가(null)는 거르지 않는다.
+ */
 export function nextCandidateAfter(
   candidates: readonly SheetCandidate[],
   currentId: string,
   excluded: ReadonlySet<string>,
+  opts: { skipClosedToday?: boolean } = {},
 ): SheetCandidate | null {
   for (const c of candidates) {
     const id = String(c.facility.id);
     if (id === String(currentId) || excluded.has(id)) continue;
+    if (opts.skipClosedToday && isClosedToday(featureText(c, 'rest_date_raw', 'restDateRaw')) === true) continue;
     return c;
   }
   return null;
+}
+
+/**
+ * 킵 뒤에 보일 후보 — 남은 후보가 없으면 순위 맨 앞(지금 장소 포함)으로 되돈다(웹 handlePutOff 의 루프백, G3-24).
+ * 휴무는 거르지 않는다(웹 킵과 같다). 후보가 하나도 없으면 null.
+ */
+export function nextAfterKeep(
+  candidates: readonly SheetCandidate[],
+  currentId: string,
+  excluded: ReadonlySet<string>,
+): SheetCandidate | null {
+  return nextCandidateAfter(candidates, currentId, excluded) ?? candidates[0] ?? null;
 }
 
 const CATEGORY_LABEL: Record<string, string> = {

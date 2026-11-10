@@ -106,4 +106,39 @@ assert.equal(pickedByDistance.times.walkMin, 16);
 // 서버 값이 있으면 그것을 그대로 쓴다
 assert.equal(buildCardModel({ ...base, distanceM: 850 }, ctx()).times.walkMin, 4);
 
+// 저장 상세(showCompare=false) — 음식 문장·미리보기 문장이 없고, 혼잡 칩은 얼굴에 남는다 (G3-R02)
+const savedView = buildCardModel(base, ctx({ showCompare: false, showListRank: false, listRank: null }));
+assert.equal(savedView.foodHeadline, null);
+assert.equal(savedView.peekValueShown, false);
+assert.equal(savedView.crowdChipOnFace, true);
+assert.ok(savedView.faceChips.some((c) => c.key === 'crowd'));
+// 목록이 없는 화면의 배지는 'AI 추천'
+assert.equal(savedView.rankText.key, 'card.aiRec');
+assert.equal(savedView.rankIsListed, false);
+// 저장 상세는 영업 예상을 칩으로 말한다(가치 문장이 없으니까)
+assert.ok(savedView.faceChips.some((c) => c.key === 'open' && c.text === 'card.arrivalStatus.open_expected'));
+
+// 홈의 관광지 혜택 문장('도보 6분 · 도착 시 영업')이면 '도착 시 영업 예상' 칩을 되풀이하지 않는다 (G3-12)
+const attraction = buildCardModel(
+  { ...base, facility: { ...base.facility, type: 'attraction', features: {} }, congestionSource: 'none', congestionLevel: undefined },
+  ctx(),
+);
+assert.equal(attraction.foodHeadline, null);
+assert.equal(attraction.compareHeaderText, null);
+assert.ok(attraction.peekValueText.includes('compare.benefitOpen'), attraction.peekValueText);
+assert.ok(!attraction.faceChips.some((c) => c.key === 'open'));
+assert.equal(attraction.peekValueShown, true);
+
+// 홈은 음식 문장을 그대로 쓴다
+assert.ok(m.foodHeadline?.startsWith('compare.food'), String(m.foodHeadline));
+
+// 도보 분 출처 줄 · 리뷰 링크(실제 장소 페이지만)
+assert.equal(buildCardModel({ ...base, breakdown: { ...base.breakdown!, travelSource: 'osm_pedestrian' } }, ctx()).travelSource, 'osm_pedestrian');
+assert.equal(m.travelSource, null);
+assert.equal(unsure.reviewUrl, null);
+assert.equal(
+  buildCardModel({ ...base, facility: { ...base.facility, features: { kakaoPlaceId: '123' } } }, ctx()).reviewUrl,
+  'https://place.map.kakao.com/123',
+);
+
 console.log('cardModel.test OK');

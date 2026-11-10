@@ -2,45 +2,20 @@ import { Clock, Sparkles } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { GoldenHourBadge } from '~/components/GoldenHourBadge';
 import { Icon, Text } from '~/components/ui';
 import { apiClient } from '~/lib/core/apiClient';
 import { colors } from '~/lib/theme/tokens';
 
 import { useT } from '~/lib/i18n/I18nProvider';
 
-interface GoldenHour {
-  available: boolean;
-  start?: number | null;
-  end?: number | null;
-}
-
 /**
- * 골든타임 — '오늘 한산: 16~17시'. 웹 GoldenHourBadge 의 알림 예약(브라우저 Notification)은 옮기지 않았다 — 앱 v1 은 알림이 없다(계획 §3.1).
- * 백엔드 미기동·실패·모델 미학습은 조용히 숨긴다. enabled 가 false 면 부르지 않는다(추천 시트가 펼침에 닿기 전).
+ * 골든타임 — 카드·저장·대기가 같이 쓰는 components/GoldenHourBadge 하나(§4.3). 웹처럼 '추천 근거 자세히'를 연 동안만
+ * 마운트한다(마운트 = 호출, G3-18). enabled 가 false 면 그리지도 부르지도 않는다(옛 시트 호출부 호환).
  */
 export function GoldenHourLine({ facilityId, enabled = true }: { facilityId: string; enabled?: boolean }) {
-  const t = useT();
-  const [data, setData] = useState<GoldenHour | null>(null);
-  useEffect(() => {
-    setData(null);
-    if (!enabled) return;
-    let active = true;
-    apiClient
-      .get(`/predict/golden-hour?facilityId=${encodeURIComponent(facilityId)}`)
-      .then((res) => active && setData(res as GoldenHour))
-      .catch(() => active && setData(null));
-    return () => {
-      active = false;
-    };
-  }, [facilityId, enabled]);
-  if (!data?.available || data.start == null || data.end == null) return null;
-  return (
-    <View className="min-h-[32px] flex-row items-center gap-[6px] self-start rounded-full border border-jade/30 bg-jade/10 px-[10px] py-[4px]">
-      <Text className="text-[12px] leading-[16px] text-jade" weight="bold">
-        {`🕐 ${t('golden.badge', { start: data.start, end: data.end })}`}
-      </Text>
-    </View>
-  );
+  if (!enabled) return null;
+  return <GoldenHourBadge facilityId={facilityId} />;
 }
 
 // 예측 모델이 학습돼 있는지 — 세션당 한 번(웹 lib/predictModel.ts). 미학습이면 /predict/day 는 늘 503 이라 묻지 않는다.
@@ -86,11 +61,12 @@ export function DayForecast({ facilityType, enabled }: { facilityType: string; e
     const h12 = h % 12 === 0 ? 12 : h % 12;
     return h < 12 ? t('card.hourAm', { h: h12 }) : t('card.hourPm', { h: h12 });
   };
+  // 웹 RecommendationCard '최적 방문 시각' — 제목 11px · 막대 금 35%(rounded-sm 4px) · 눈금 10px muk-soft 70% · 최저 시각 11px(G3-18).
   return (
-    <View className="border-t border-line pt-[12px]">
+    <View className="border-t border-line/70 pt-[12px]">
       <View className="mb-[8px] flex-row items-center gap-[6px]">
-        <Icon icon={Clock} size="xs" color="gold-deep" />
-        <Text className="text-[12px] leading-[16px]" weight="bold">{t('card.todayForecast')}</Text>
+        <Icon icon={Clock} size={13} color="gold-deep" />
+        <Text className="text-[11px] leading-[16.5px]" weight="bold">{t('card.todayForecast')}</Text>
       </View>
       <View
         accessible
@@ -103,8 +79,8 @@ export function DayForecast({ facilityType, enabled }: { facilityType: string; e
             <View
               style={{
                 height: `${Math.max(8, Math.round(h.congestion * 100))}%`,
-                backgroundColor: h.hour === pred.bestHour ? colors.jade : 'rgba(184, 150, 90, 0.35)',
-                borderRadius: 2,
+                backgroundColor: h.hour === pred.bestHour ? colors.jade : 'rgba(193, 154, 62, 0.35)',
+                borderRadius: 4,
               }}
             />
           </View>
@@ -112,14 +88,13 @@ export function DayForecast({ facilityType, enabled }: { facilityType: string; e
       </View>
       <View className="mt-[4px] flex-row justify-between" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         {[0, 6, 12, 18, 23].map((h) => (
-          <Text key={h} className="text-[10px] leading-[13px] text-muk-soft">{t('card.oClock', { h })}</Text>
+          <Text key={h} className="text-[10px] leading-[15px] text-muk-soft/70" weight="medium">{t('card.oClock', { h })}</Text>
         ))}
       </View>
       <View className="mt-[8px] flex-row items-center gap-[4px]">
-        <Icon icon={Sparkles} size="xs" color="jade" />
-        <Text className="text-[12px] leading-[16px] text-jade" weight="bold">{t('card.bestTime', { time: hour(pred.bestHour) })}</Text>
+        <Icon icon={Sparkles} size={11} color="jade" />
+        <Text className="text-[11px] leading-[16.5px] text-jade" weight="bold">{t('card.bestTime', { time: hour(pred.bestHour) })}</Text>
       </View>
     </View>
   );
 }
-

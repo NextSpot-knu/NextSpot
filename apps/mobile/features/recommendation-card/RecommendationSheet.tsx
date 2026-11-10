@@ -426,7 +426,7 @@ function CardBody(
             )}
             {/* 휴무 · 곧 마감 · 혼잡은 가기 전에 봐야 한다 — 바로 갈래요 위(27% 안)에. */}
             {headChips.map((chip) => (
-              <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed} small>{chip.text}</BenefitChip>
+              <BenefitChip key={chip.key} tone={chip.tone} dashed={chip.dashed}>{chip.text}</BenefitChip>
             ))}
           </View>
           <Text className="text-[15px] leading-[20px]" weight="extrabold" accessibilityRole="header" numberOfLines={2}>{model.peekValueText}</Text>
