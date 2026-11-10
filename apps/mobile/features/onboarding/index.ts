@@ -10,5 +10,6 @@ export {
   subscribeFirstRun,
   type FirstRunStep,
 } from './firstRun';
-export { GuideHero, GuideSections } from './GuideSections';
+export { GuideProvider } from './GuideProvider';
+export { openGuide, openGuideData } from './guideEntry';
 export { LocationConsentView } from './LocationConsentView';

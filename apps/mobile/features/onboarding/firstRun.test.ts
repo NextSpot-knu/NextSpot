@@ -57,6 +57,11 @@ assert.equal(decideFirstRunRedirect('consent', '/intro'), null, '동의도 /intr
 assert.equal(decideFirstRunRedirect('consent', '/setup'), '/intro', '동의 전에 설정으로 건너뛸 수 없다');
 assert.equal(decideFirstRunRedirect('setup', '/intro'), '/setup');
 assert.equal(decideFirstRunRedirect('setup', '/setup'), null);
+// 설정 단계의 '뒤로' = 랜딩(/intro?view=landing) — 게이트가 설정으로 되돌리지 않는다(G1-15)
+assert.equal(decideFirstRunRedirect('setup', '/intro', 'landing'), null);
+assert.equal(decideFirstRunRedirect('setup', '/intro', 'other'), '/setup');
+assert.equal(decideFirstRunRedirect('consent', '/setup', 'landing'), '/intro', '랜딩 예외는 설정 단계·/intro 에서만');
+assert.equal(decideFirstRunRedirect('setup', '/mypage', 'landing'), '/setup');
 // 로그인·재설정·OAuth 복귀는 첫 실행을 끊지 않는다
 assert.equal(decideFirstRunRedirect('intro', '/login'), null);
 assert.equal(decideFirstRunRedirect('consent', '/forgot-password'), null);

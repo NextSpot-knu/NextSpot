@@ -8,23 +8,34 @@
 //   · 소셜 로그인은 브라우저 왕복(openAuthSessionAsync) 뒤 콜백 라우트로 넘긴다. 여기서는 code 를 교환하지 않는다.
 //   · bfcache(pageshow)·8초 안전망이 필요 없다 — openAuthSessionAsync 는 닫히면 반드시 끝난다.
 //   · CAPTCHA 없음(계획 §7.6).
+// 웹 모양 맞춤(docs/parity/findings-G1.md G1-04·20·21·23·24·25, 검토 R1):
+//   · 바탕 AuthBackdrop(노을 + 금빛 광원), 내용이 짧으면 세로 가운데(웹 justify-center · pt 72 · pb 40), 오른쪽 위 언어 선택.
+//   · 탭 판 그림자 0 2 14 .06 · 탭 40(+hitSlop) · 선택 바탕 button-gold(결정 D2 — 흰 글자 대비) · 입력 50 · 찾기 링크 24(+hitSlop).
+//   · 제출 52·16px·rounded-xl·그림자 없음·돌림표 없음, 게스트·구글 46·rounded-xl, 카카오는 웹 노랑(켜질 때).
+//   · 바쁠 때 게스트 버튼은 눌린다(웹). 가입 탭 비밀번호 Enter → 닉네임, 닉네임 Enter → 제출.
+//   · 첫 실행 중 소개 → 로그인은 push(뒤로 = 랜딩). 로그인 성공·게스트 진행은 소개를 지난 것으로 적고 스택을 비운 뒤
+//     replace — 소개가 밑에 남지 않는다(검토 R1 G1-01 (b)).
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Lock, Mail, User } from 'lucide-react-native';
 import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, View, type TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LanguageSwitcher } from '~/components/LanguageSwitcher';
 import { Button, Pressable, Screen, Text, cn, toast } from '~/components/ui';
+import { AuthBackdrop } from '~/features/auth/AuthBackdrop';
 import { AuthTextField } from '~/features/auth/AuthTextField';
 import { signInWithEmail, signUpWithEmail, type SignInFailReason } from '~/features/auth/authService';
 import { runOAuthSession } from '~/features/auth/oauthSession';
 import { decidePostLoginDest, DEFAULT_LOGIN_DEST, SIGNUP_DEST, safeAppNext } from '~/features/auth/postLoginDest';
 import { AUTH_CALLBACK_ROUTE } from '~/features/auth/redirect';
 import { socialProvidersFor, type OAuthProvider } from '~/features/auth/socialPolicy';
-import { nextFirstRunRoute } from '~/features/onboarding/firstRun';
+import { getFirstRunStep, markIntroSeen, nextFirstRunRoute, noteFirstRunNavigation } from '~/features/onboarding/firstRun';
 import { createPublicClient } from '~/lib/core/supabase';
 import { syncSaved } from '~/lib/core/savedFacilities';
 import { reconcileUserData } from '~/lib/core/userData';
 import { useT } from '~/lib/i18n/I18nProvider';
+import { shadows } from '~/lib/theme/tokens';
 
 type Mode = 'login' | 'signup';
 
@@ -42,6 +53,12 @@ const PROVIDER_LABEL_KEY: Record<OAuthProvider, string> = {
   kakao: 'auth.continueKakao',
 };
 
+/** 첫 실행 중 로그인으로 들어왔으면 그 아래 스택(소개 랜딩)을 비운다 — 소개가 밑에 남아 다시 얹히지 않게(R1 G1-01). */
+function leaveFirstRunStack(router: ReturnType<typeof useRouter>): void {
+  if (getFirstRunStep() === 'intro') markIntroSeen();
+  if (router.canDismiss()) router.dismissAll();
+}
+
 export default function LoginScreen() {
   const router = useRouter();
   const t = useT();
@@ -56,6 +73,8 @@ export default function LoginScreen() {
   const [nickname, setNickname] = useState('');
   const [busy, setBusy] = useState(false);
   const passwordRef = useRef<TextInput>(null);
+  const nicknameRef = useRef<TextInput>(null);
+  const insets = useSafeAreaInsets();
 
   // 인증 성공 후: 세션 uid 로 이전(게스트) 로컬 데이터를 격리하고 이 계정의 저장 목록을 받은 뒤 이동.
   // replace — 뒤로 가기가 빈 로그인 폼으로 돌아오지 않게(웹과 같다).
@@ -69,6 +88,7 @@ export default function LoginScreen() {
     } catch {
       /* 무시 — 이동은 계속 */
     }
+    leaveFirstRunStack(router);
     router.replace(decidePostLoginDest(rawNext, fallback) as Href);
   };
 
@@ -135,9 +155,19 @@ export default function LoginScreen() {
     }
   };
 
-  // 게스트로 둘러보기 — 익명 세션 그대로. 첫 실행 단계(소개·동의·설정)가 남았으면 그 화면으로, 아니면 홈.
+  // 게스트로 둘러보기 — 익명 세션 그대로. 첫 실행 단계(소개·동의·설정)가 남았으면 그 화면으로, 아니면 온 곳(홈).
+  // 바쁠 때도 누를 수 있다(웹 — 로그인 대기 중에도 게스트로 빠질 수 있다).
   const continueAsGuest = () => {
-    if (busy) return;
+    if (getFirstRunStep() !== null) {
+      const dismissed = router.canDismiss();
+      leaveFirstRunStack(router);
+      const route = nextFirstRunRoute();
+      // 소개 화면이 밑에 있었으면 그 화면이 구독으로 다음 단계(동의)를 이미 그린다 — 같은 경로로 또 바꾸지 않는다.
+      if (dismissed && route === '/intro') return;
+      noteFirstRunNavigation(route);
+      router.replace(route as Href);
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
       return;
@@ -147,9 +177,10 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView className="flex-1 bg-hanji" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Screen scroll contentClassName="px-[24px] pb-[40px] pt-[48px]">
+      <AuthBackdrop glow />
+      <Screen scroll className="bg-transparent" contentClassName="justify-center px-[24px] pb-[40px] pt-[72px]">
         <View className="w-full max-w-[380px] self-center">
-          <Text className="mb-[4px] text-center text-[30px] text-muk" weight="bold">
+          <Text className="mb-[4px] text-center text-[30px] leading-[36px] text-muk" weight="bold" accessibilityRole="header">
             {t('common.appName')}
           </Text>
           <Text className="mb-[32px] text-center text-sm text-muk-soft">{t('login.subtitle')}</Text>
@@ -158,6 +189,7 @@ export default function LoginScreen() {
           <View
             className="mb-[20px] flex-row rounded-2xl border border-line bg-white p-[4px]"
             accessibilityRole="tablist"
+            style={{ boxShadow: shadows.card }}
           >
             {(['login', 'signup'] as Mode[]).map((m) => (
               <Pressable
@@ -165,7 +197,11 @@ export default function LoginScreen() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: mode === m }}
                 onPress={() => setMode(m)}
-                className={cn('min-h-[44px] flex-1 items-center justify-center rounded-xl', mode === m ? 'bg-gold' : 'bg-white')}
+                hitSlop={{ top: 2, bottom: 2 }}
+                className={cn(
+                  'min-h-[40px] flex-1 items-center justify-center rounded-xl py-[10px]',
+                  mode === m ? 'bg-button-gold' : 'bg-white',
+                )}
               >
                 <Text className={cn('text-sm', mode === m ? 'text-white' : 'text-muk-soft')} weight="bold">
                   {t(m === 'login' ? 'login.tabLogin' : 'login.tabSignup')}
@@ -200,11 +236,12 @@ export default function LoginScreen() {
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               textContentType={mode === 'login' ? 'password' : 'newPassword'}
               returnKeyType={mode === 'login' ? 'go' : 'next'}
-              onSubmitEditing={mode === 'login' ? () => void handleSubmit() : undefined}
+              onSubmitEditing={mode === 'login' ? () => void handleSubmit() : () => nicknameRef.current?.focus()}
             />
             {mode === 'signup' && (
               <>
                 <AuthTextField
+                  ref={nicknameRef}
                   icon={User}
                   label={t('login.nickname')}
                   value={nickname}
@@ -212,6 +249,8 @@ export default function LoginScreen() {
                   maxLength={20}
                   autoComplete="nickname"
                   textContentType="nickname"
+                  returnKeyType="go"
+                  onSubmitEditing={() => void handleSubmit()}
                 />
                 <Text className="-mt-[4px] ml-[4px] text-xs text-muk-soft">{t('login.passwordHint')}</Text>
               </>
@@ -220,6 +259,11 @@ export default function LoginScreen() {
             <Button
               className="mt-[8px]"
               block
+              size={52}
+              labelSize={16}
+              shape="xl"
+              shadow="none"
+              showSpinner={false}
               label={t(mode === 'login' ? 'login.submitLogin' : 'login.submitSignup')}
               loading={busy}
               onPress={() => void handleSubmit()}
@@ -228,7 +272,8 @@ export default function LoginScreen() {
               <Pressable
                 accessibilityRole="button"
                 onPress={() => router.push('/forgot-password' as Href)}
-                className="min-h-[44px] justify-center self-end px-[4px]"
+                hitSlop={{ top: 10, bottom: 10 }}
+                className="min-h-[24px] justify-center self-end px-[4px]"
               >
                 <Text className="text-xs text-muk-soft underline">{t('password.forgot')}</Text>
               </Pressable>
@@ -244,16 +289,35 @@ export default function LoginScreen() {
                 <View className="h-px flex-1 bg-line" />
               </View>
               <View className="gap-[8px]">
-                {providers.map((provider) => (
-                  <Button
-                    key={provider}
-                    variant="secondary"
-                    block
-                    disabled={busy}
-                    label={t(PROVIDER_LABEL_KEY[provider])}
-                    onPress={() => void handleOAuth(provider)}
-                  />
-                ))}
+                {providers.map((provider) =>
+                  provider === 'kakao' ? (
+                    // 카카오 — 웹 bg-[#FEE500] text-[#191600] py-3 rounded-xl 14px bold(44).
+                    <Pressable
+                      key={provider}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: busy }}
+                      disabled={busy}
+                      onPress={() => void handleOAuth(provider)}
+                      className="min-h-[44px] items-center justify-center rounded-xl bg-kakao-yellow py-[12px]"
+                      style={busy ? { opacity: 0.5 } : undefined}
+                    >
+                      <Text className="text-sm text-kakao-ink" weight="bold">
+                        {t(PROVIDER_LABEL_KEY[provider])}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Button
+                      key={provider}
+                      variant="secondary"
+                      block
+                      size={46}
+                      shape="xl"
+                      disabled={busy}
+                      label={t(PROVIDER_LABEL_KEY[provider])}
+                      onPress={() => void handleOAuth(provider)}
+                    />
+                  ),
+                )}
               </View>
             </>
           )}
@@ -263,11 +327,15 @@ export default function LoginScreen() {
 
           {/* 게스트 둘러보기 — 관광객 무마찰. 각주가 아니라 실제 버튼으로 둔다(웹과 같다). */}
           <View className="mt-[20px] border-t border-line pt-[20px]">
-            <Button variant="secondary" block label={t('login.guest')} disabled={busy} onPress={continueAsGuest} />
+            <Button variant="secondary" block size={46} shape="xl" label={t('login.guest')} onPress={continueAsGuest} />
             <Text className="mt-[8px] text-center text-xs text-muk-soft">{t('login.guestHint')}</Text>
           </View>
         </View>
       </Screen>
+      {/* 언어 선택 — 오른쪽 위(웹 absolute top-4 right-4 z-20). */}
+      <View className="absolute right-[16px]" style={{ top: insets.top + 16 }}>
+        <LanguageSwitcher />
+      </View>
     </KeyboardAvoidingView>
   );
 }

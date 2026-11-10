@@ -66,15 +66,24 @@ export const FIRST_RUN_ROUTES: Record<FirstRunStep, '/intro' | '/setup'> = {
 /** 첫 실행 중에도 열 수 있는 경로 — 로그인·재설정 메일·OAuth 복귀는 첫 실행을 끊지 않는다. */
 export const FIRST_RUN_PASS_THROUGH: readonly string[] = ['/login', '/forgot-password', '/auth/callback'];
 
+/** 설정 단계에서 '뒤로'가 여는 첫 화면(랜딩) — 웹 /setup 뒤로 = 랜딩(router.push('/')). */
+export const LANDING_VIEW_ROUTE = '/intro?view=landing';
+
 /**
  * 지금 경로에서 첫 실행 화면으로 보내야 하면 그 경로, 아니면 null.
  * 첫 실행이 끝났으면(step null) 아무 데도 보내지 않는다(소개·설정 화면을 다시 여는 것은 허용 — 가이드·설정 다시 하기).
+ * 설정 단계의 '뒤로'(LANDING_VIEW_ROUTE — 소개 화면이 view=landing 이면 랜딩을 그린다)는 막지 않는다(G1-15, R1).
  */
-export function decideFirstRunRedirect(step: FirstRunStep | null, pathname: string | null | undefined): string | null {
+export function decideFirstRunRedirect(
+  step: FirstRunStep | null,
+  pathname: string | null | undefined,
+  view?: string | string[] | null,
+): string | null {
   if (!step) return null;
   const path = (pathname ?? '/').split('?')[0] || '/';
   const target = FIRST_RUN_ROUTES[step];
   if (path === target) return null;
+  if (step === 'setup' && path === '/intro' && view === 'landing') return null;
   if (FIRST_RUN_PASS_THROUGH.some((p) => path === p || path.startsWith(`${p}/`))) return null;
   return target;
 }

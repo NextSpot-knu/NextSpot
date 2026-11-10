@@ -9,7 +9,7 @@
 // router.replace 로 그 단계 화면으로 보낸다. 보내는 동안에는 한지색 판으로 덮어 탭이 한 번 번쩍이지 않게 한다.
 // 로그인·재설정·OAuth 복귀(/login · /forgot-password · /auth/callback)는 첫 실행 중에도 지나가게 둔다.
 // 보안 경계가 아니다 — 위치 사용의 경계는 hasLocationConsent()(features/auth/consent)다.
-import { usePathname, useRootNavigationState, useRouter, type Href } from 'expo-router';
+import { useGlobalSearchParams, usePathname, useRootNavigationState, useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -38,6 +38,8 @@ export interface FirstRunGateState {
 export function useFirstRunGate(): FirstRunGateState {
   const [step, setStep] = useState<FirstRunStep | null>(getFirstRunStep);
   const pathname = usePathname();
+  // 설정 단계의 '뒤로' = 랜딩(/intro?view=landing) 예외를 판정하려고 쿼리 view 만 읽는다.
+  const { view } = useGlobalSearchParams<{ view?: string }>();
   const navState = useRootNavigationState();
   useEffect(() => subscribeFirstRun(setStep), []);
   // 경로가 바뀔 때마다 저장소를 다시 읽는다(다른 화면이 기록을 바꾸고 알리지 않았을 때를 대비).
@@ -49,7 +51,7 @@ export function useFirstRunGate(): FirstRunGateState {
   const oauthInFlight = isOAuthFlowPending();
   return {
     step,
-    redirectTo: oauthInFlight ? null : decideFirstRunRedirect(step, pathname),
+    redirectTo: oauthInFlight ? null : decideFirstRunRedirect(step, pathname, view),
     navReady: Boolean(navState?.key),
   };
 }

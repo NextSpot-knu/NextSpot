@@ -14,7 +14,7 @@ import { AppMaintenanceScreen } from '~/components/AppMaintenanceScreen';
 import { AppNoticeBanner } from '~/components/AppNoticeBanner';
 import { AppToaster } from '~/components/ui';
 import { fontStyleFor } from '~/components/ui/textStyle';
-import { FirstRunGate, useFirstRunGate } from '~/features/onboarding';
+import { FirstRunGate, GuideProvider, useFirstRunGate } from '~/features/onboarding';
 import { shouldTrackPageView } from '~/features/onboarding/firstRun';
 import { ShellBridge } from '~/lib/appShell';
 import { AppProviders } from '~/lib/core/AppProviders';
@@ -112,6 +112,8 @@ export default function RootLayout() {
                 {/* 첫 실행 게이트 — 라우터 훅을 쓰므로 Stack 과 같은 트리 안, Stack 바로 뒤(features/onboarding/FirstRunGate). */}
                 <FirstRunGate />
                 <TrackedShellBridge />
+                {/* 서비스 소개 모달 — openGuide()(탭 막대 안내 줄·랜딩·데이터 출처 줄)가 연다. 계정·문구·안전 영역이 닿는 자리(D1). */}
+                <GuideProvider />
               </BottomSheetModalProvider>
             </NavThemeProvider>
           </ProvidersWithLabels>

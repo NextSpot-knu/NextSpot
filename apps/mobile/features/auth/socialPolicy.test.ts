@@ -17,6 +17,10 @@ assert.deepEqual(socialProvidersFor('android'), ['google'], '안드로이드: �
 assert.deepEqual(socialProvidersFor('web'), []);
 assert.deepEqual(socialProvidersFor('macos'), []);
 assert.equal(KAKAO_LOGIN_ENABLED, false, '카카오는 비즈 앱 전환 전까지 숨긴다');
+// 카카오를 켜면(비즈 앱 전환 뒤) 웹과 같은 순서 — 카카오(노랑) 다음 구글. iOS·웹 빌드는 여전히 없음(G1-23, D5 ①).
+assert.deepEqual(socialProvidersFor('android', true), ['kakao', 'google']);
+assert.deepEqual(socialProvidersFor('ios', true), []);
+assert.deepEqual(socialProvidersFor('web', true), []);
 assert.equal(isSocialLoginAllowed('ios', 'google'), false);
 assert.equal(isSocialLoginAllowed('ios', 'kakao'), false);
 assert.equal(isSocialLoginAllowed('android', 'google'), true);

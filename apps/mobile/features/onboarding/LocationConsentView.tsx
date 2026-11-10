@@ -164,8 +164,11 @@ export function LocationConsentView({ onDone }: { onDone: (decision: ConsentDeci
       </View>
 
       <View className="gap-[4px]">
+        {/* 주 버튼은 설정 '시작하기' 와 같은 52 · 16px(결정 D3 A — 모양만 웹 첫 실행 화면에 맞춘다, G1-14). */}
         <Button
           block
+          size={52}
+          labelSize={16}
           label={t('app.locationTerms.agreeContinue')}
           disabled={busy || !canAgree}
           accessibilityHint={canAgree ? undefined : t('app.locationTerms.agreeCheck')}

@@ -13,6 +13,7 @@ export {
   decideFirstRunRedirect,
   decideTabsFirstRunRedirect,
   FIRST_RUN_ROUTES,
+  LANDING_VIEW_ROUTE,
   shouldTrackPageView,
   type FirstRunStep,
 } from './firstRunCore';

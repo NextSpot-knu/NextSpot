@@ -13,11 +13,14 @@ export type PlatformOS = 'ios' | 'android' | 'web' | 'windows' | 'macos' | (stri
 /** 카카오 비즈 앱 전환(사람 작업) 전까지 false. */
 export const KAKAO_LOGIN_ENABLED = false;
 
-/** 이 플랫폼에서 보일 소셜 로그인 버튼(순서대로). */
-export function socialProvidersFor(os: PlatformOS): OAuthProvider[] {
+/**
+ * 이 플랫폼에서 보일 소셜 로그인 버튼(순서대로 — 웹과 같이 카카오가 먼저).
+ * kakaoEnabled 는 테스트용 — 화면은 기본값(KAKAO_LOGIN_ENABLED)만 쓴다. 마이 계정 카드도 이 함수를 따른다(결정 D5).
+ */
+export function socialProvidersFor(os: PlatformOS, kakaoEnabled: boolean = KAKAO_LOGIN_ENABLED): OAuthProvider[] {
   if (os !== 'android') return [];
   const providers: OAuthProvider[] = [];
-  if (KAKAO_LOGIN_ENABLED) providers.push('kakao');
+  if (kakaoEnabled) providers.push('kakao');
   providers.push('google');
   return providers;
 }
