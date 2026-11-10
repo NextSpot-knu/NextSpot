@@ -1,4 +1,13 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-02b — 모바일 1단계: Expo SDK 57 뼈대 · 공용 층 4개 · 탭 셸(에뮬레이터 확인)
+
+- 도구·브랜치: Claude Code(공용 층 에이전트 4 · worktree) / `yunseong`
+- 커밋: `79b8426`..`381b70e`(뼈대 · 테스트 실행기 · 지도 래퍼 · 플랫폼·문구 · 데이터·세션 · 디자인 시스템 · 탭 셸) + 이 기록
+- 한 것: `apps/mobile`(루트 workspaces 에서 뺀 독립 패키지, 루트 lock 은 한 줄). 웹 `lib` 순수 모듈 23개를 복사 없이 공유하고 의존 폐포 검사로 지킨다. Android SDK·에뮬레이터를 이 PC 에 설치(관리자 권한 없이)하고 로컬 개발 빌드로 탭 5개 셸을 확인했다. 진행표는 [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md) §9.2 아래.
+- 검증: mobile tsc · 테스트 16 · check:shared · expo-doctor 21/21 · expo export android · 에뮬레이터 화면. CI 에 `mobile` 잡 추가.
+- 다음·미결: 공용 층 검토 3렌즈(진행 중) 반영 → 2단계 화면 이식. 문서 `DEPLOY_AND_ENV.md` 의 운영 API 주소가 옛 오리건이다(앱은 nextspot-t2ib). 글꼴 TTF 6개(약 16MB)는 부분 집합으로 줄일지 출시 전에 정한다.
+- 사람 작업: Expo 조직(M6) · Google Maps 키(A21) · Supabase 익명 한도 30/h(A7') — "사람 작업 대기".
+
 ## 2026-11-02 — 모바일 앱 계획 답 반영 · CI 시계 의존 테스트 수정
 
 - 도구·브랜치: Claude Code / `yunseong`

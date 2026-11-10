@@ -62,7 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
-   **Play 앱 주력 = 운영 웹을 감싼 Bubblewrap TWA(11-10, `feat/twa` · `apps/twa`, 패키지 `kr.nextspot.app`)** — 다음은 main PR → Play 앱 서명 지문 → `assetlinks.json` → 릴리스. Expo 앱(`kr.nextspot.expo`)은 병렬 유지.
+   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 i7 에서 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **미결: 패키지명** — 지금 Expo 는 `kr.nextspot.expo`, `kr.nextspot.app` 은 TWA 에 줘 둔 상태라 주력이 바뀐 만큼 다시 정한다(아래 사람 작업 11-10 ①~③ 은 그 결정 뒤).
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -106,6 +106,7 @@ asyncio.run(main())"
 - [ ] **(11-01 S3 ⑥) 개발자 계정 서울 리허설** — 실기기에서 지역 전환 → 지도 구역 원·라벨(e2e 는 카카오 SDK 를 대역으로 써 못 봤다) · 카드·코스·대기판의 구역 줄 · 서울에서 공유·제보·체감 혼잡 질문·쿠폰함이 없는지.
 - [ ] **(11-01 S4 ① · 읽기 전용) 홍대 CSV 반출** — 운영 DB 는 읽기만. SQL 은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md) §6 'S4' 부록 블록(또는 `apps/api` 에서 `.\.venv\Scripts\python scripts/crowd_dispersion_replay.py sql --cluster hongdae --from 2026-09-20 --to <오늘 KST>`). SQL Editor 결과 한도 'No limit' · 문장 하나씩 · 결과 바닥 행 수를 Q0 목록과 대조 · 파일 이름은 각 블록 머리 주석대로 · 엑셀로 열어 저장하지 않기 · 저장은 저장소 밖 `$HOME\nextspot-s4\hongdae`(같은 절 ②·③). 받으면 에이전트에게 폴더를 알려 준다 → `run --label pilot` → 홍대 1차 결과(집계만 커밋, 원본 CSV 는 커밋하지 않음).
 - [ ] **(11-01 S4 ② · 종로 수집 4주쯤 뒤) 종로 확인 실행** — 같은 반출(`--cluster jongno`)을 받아 깨끗한 체크아웃에서 `run --cluster jongno --label confirmatory --expect-criteria <홍대 검토 뒤 고정한 해시>`. 코드 변경 없음(커밋 안 된 변경이 있으면 종료 4). 종로 수집은 10-31c 배포(Render)부터 쌓인다.
+- [ ] **(11-10 ①~③ 보류 — Expo 주력 복귀로 패키지명 재결정 뒤. Expo 가 `kr.nextspot.app` 을 되찾으면 ①~③ 모두 필요 없다)**
 - [ ] **(11-10 TWA·Expo ① · 갤북) Expo 앱 새 패키지 `kr.nextspot.expo` 빌드** — `apps/mobile` 에서 `eas build -p android --profile development`(대화형 — 새 키 생성 허용), 이어서 `--profile preview`. 패키지가 바뀌어 EAS 가 새 서명키를 만든다(클라우드엔 Expo 토큰이 없어 못 했다).
 - [ ] **(11-10 ②) Maps 키 Android 앱 제한** — `eas credentials -p android` 로 새 키 SHA-1 확인 → Google Cloud 'Maps SDK for Android' 키의 Android 앱 제한에 `kr.nextspot.expo` + 그 SHA-1, 로컬 디버그용 `kr.nextspot.expo` + `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` 추가. 옛 `kr.nextspot.app` 항목은 새 Expo 빌드가 지도를 띄우는 것을 본 뒤 지운다.
 - [ ] **(11-10 ③) 폰·팀원 옛 Expo 빌드 지우기** — Z Fold7 의 옛 Expo 개발 빌드(`kr.nextspot.app`)를 지워야 TWA 디버그 APK 가 깔린다(같은 패키지·다른 서명은 덮어 설치 거부). 팀원에게 준 옛 preview APK 도 같은 이유로 TWA 와 충돌한다.
@@ -177,7 +178,6 @@ asyncio.run(main())"
       인증 전까지는 도메인 줄이 그대로이고 "확인되지 않은 앱" 경고가 뜰 수 있다. 유료 경로: Supabase **Custom Domain**
       애드온으로 `auth.<우리도메인>`을 콜백으로 쓰면 우리 도메인이 뜬다(도메인 보유 필요). 로그 §-43.
 - [ ] **Supabase Auth Site URL**이 `localhost:3000`이면 Vercel 도메인으로(대시보드에서만 확인 가능).
-- [ ] **Render `ALLOWED_ORIGINS`** — Vercel 도메인으로 지정해야 엄격 모드(해당 오리진만 + credentials). 미지정 시 와일드카드.
 - [ ] **Render 로그에서 `X-Forwarded-For` 원 헤더 모양 1회 확인** — 리미터의 IP 추출 방향(첫 항목/마지막 항목/`CF-Connecting-IP`)을
       정하기 위한 관측(보안 진단 중 항목). 결과를 이 문서 "알려진 이슈"에 적는다.
 - [ ] **심사 계정 2개 브라우저 로그인 확인** — `openapi@naver.com` → `/merchant`, `openapi@gmail.com` → `/admin/dashboard`.
@@ -227,8 +227,8 @@ asyncio.run(main())"
   `app/core/client_ip.py` 한 함수로 마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS — 제보는 같은 장소 30분에
   한 계정만), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를 1회 로깅해 모양을 확인한 뒤 그 함수에서
   `CF-Connecting-IP`/`True-Client-IP` 우선으로 바꾼다.
-- **중 — 토큰 회전·CORS**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전과 `ALLOWED_ORIGINS`(현재 와일드카드 — 제3자 페이지가
-  방문자 브라우저로 비인증 쓰기·LLM 경로를 두드릴 수 있어 IP 제한이 무력화된다).
+- **중 — 토큰 회전**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전. (CORS 는 2026-11-10 엄격 모드 확인 — `ALLOWED_ORIGINS`
+  에 든 출처만 그 이름으로 응답 + credentials. Vercel·`nextspot.expo.app`·`localhost:3000` 200.)
 - **하** — `bvr_insert_own` RLS에 `document_path` 접두 검사가 없다(API만 검사) → 마이그레이션에
   `document_path IS NULL OR document_path LIKE auth.uid()::text || '/%'` 추가 · `LEGACY_CONSOLE_TOKENS=true`인데 토큰이 코드
   기본값이면 부팅 거부 · Dockerfile 비루트 `USER` · 운영에서 `/docs` 노출 유지 여부 결정 · JWT `issuer` 검증 추가와
@@ -308,6 +308,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-10b — Play 주력 Expo 로 복귀 · 웹 판 추천 마커 0px 수정·재배포 · 카카오·Render 도메인 확인
+
+- 도구·브랜치: Claude Code(갤북) / `yunseong` · 커밋 `a6484bb` + 이 기록
+- 한 것: ① 사용자가 카카오 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `nextspot.expo.app` 을 넣었다(Render 는 "Save and deploy" — API 는 그대로 `a9ecd92`). ② `nextspot.expo.app` 에서 추천 핀이 안 보이던 것 — Tailwind preflight 의 `img{max-width:100%}` 가 카카오 오버레이(부모 너비 0) 안 핀을 0px 로 접었다. 지도 컨테이너 안 img 만 `max-width:none`(`a6484bb`, 네이티브 무관). ③ 웹 판 재배포(`eas deploy --prod`, 같은 주소).
+- 검증: mobile tsc · 테스트 68. Playwright 로 로컬 export(localhost:3000)·운영 `nextspot.expo.app` 둘 다 핀 7개 26×33·42×53·34×43 확인. CORS 사전 요청 3출처 200(엄격 모드). 점검 중 운영 Supabase 게스트(익명) 계정 4개 생김.
+- 결정(사용자, 11-10 오후): **Play 주력을 Expo 앱으로 되돌렸다.** TWA 는 보류. 패키지명(`kr.nextspot.app` 을 Expo 로 되돌릴지)은 미결 — "우선순위" 참고.
+- 다음·미결: **i7 에서** Expo 앱을 웹앱과 같은 모습으로 맞춘다(기준 = `yunseong` 의 `apps/web` 관광객 화면 390px. 일부러 다르게 만든 곳은 없다 — 11-09 추천 시트·여정 카드도 웹과 다르면 웹에 맞춘다. 지도 바탕 타일만 예외).
+- 사람 작업: 11-10 ①~③ 보류(패키지명 결정 뒤).
+
 ## 2026-11-10 — Play 주력 = 웹 TWA(`feat/twa`) · Expo 앱 패키지 `kr.nextspot.expo` 로
 
 - 도구·브랜치: Claude Code(클라우드) / `feat/twa`(origin/main 기준) `80ed3ce`·`479af46` · `yunseong` 이 기록 + 패키지명 커밋
@@ -323,7 +332,7 @@ from checks order by seq;
 - 한 것: Appetize 무료(월 30분·세션 3분)로는 디자이너가 오래 못 써서 웹 판을 만들었다. ① 웹 지도 = 카카오 JS SDK(`features/map/NextSpotMap.web.tsx`·`kakaoWeb.ts`, 키 `EXPO_PUBLIC_KAKAO_MAP_KEY` — 웹 앱과 같은 값) ② 웹 실행 수리 — `web.output` `single`(하이드레이션 #418 제거), expo-sqlite 저장소 설치를 네이티브 전용 파일로, 데스크톱은 430px 가운데 기둥, `Alert`→`window.confirm`, 카카오맵 길안내 https 직행, 위치 거부 배너 ③ 검토 Med 1(실패한 SDK 태그 재사용) 수정 `3a38113`. EAS Hosting 운영 배포(`dist` → `eas deploy --prod`). preview APK `0e946bf4`(시트 반영, `8021caf`).
 - 검증: mobile tsc · 테스트 68 · check:shared · expo-doctor · export(웹·안드로이드). Playwright 412×915·1440×900 흐름 전부 + 8분 켜 두기(오류 0). 검토 → 네이티브 회귀 없음, High 0.
 - 다음·미결: 웹은 시트 본문 마우스 끌기가 안 된다(손잡이·휠은 됨). 개발 모드 접근성 prop 경고 다수(운영 빌드엔 없음). 웹 재배포 = `apps/mobile` 에서 `npx expo export --platform web` → `npx eas-cli deploy --prod`.
-- 사람 작업: **카카오 개발자 콘솔 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가(사용자가 하기로, 11-09)** — 안 하면 그 주소에서 지도·추천이 빈다.
+- 사람 작업: 카카오 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가 — **11-10 사용자가 끝냄**(아래 11-10b 에서 확인).
 
 ## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
 
@@ -364,15 +373,6 @@ from checks order by seq;
 - 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · web lint 0 error(148)·test·build · 에뮬레이터 실데이터 흐름. **실수**: `be63804`·`7a49c64`(빨간 테스트)와 `03138ca`(문구 파일 빠짐)를 푸시했다 — 다음 커밋에서 고쳤다(게이트 명령의 실패 코드 유실·없는 경로로 git add 실패).
 - 다음·미결: 3단계는 Google Maps 키, 4단계는 Expo 조직·진석 님 권한 대기. 위치정보법 서버 요건과 접속 로그 좌표(M22)는 법무 확인 뒤. 웹에도 같은 버그 하나(`userData.ts` 에 `nextspot_saved_pending_deletes` 없음).
 - 사람 작업: "사람 작업 대기" 모바일 ①·② + Supabase Redirect URL `nextspot://**`.
-
-## 2026-11-02b — 모바일 1단계: Expo SDK 57 뼈대 · 공용 층 4개 · 탭 셸(에뮬레이터 확인)
-
-- 도구·브랜치: Claude Code(공용 층 에이전트 4 · worktree) / `yunseong`
-- 커밋: `79b8426`..`381b70e`(뼈대 · 테스트 실행기 · 지도 래퍼 · 플랫폼·문구 · 데이터·세션 · 디자인 시스템 · 탭 셸) + 이 기록
-- 한 것: `apps/mobile`(루트 workspaces 에서 뺀 독립 패키지, 루트 lock 은 한 줄). 웹 `lib` 순수 모듈 23개를 복사 없이 공유하고 의존 폐포 검사로 지킨다. Android SDK·에뮬레이터를 이 PC 에 설치(관리자 권한 없이)하고 로컬 개발 빌드로 탭 5개 셸을 확인했다. 진행표는 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) §9.2 아래.
-- 검증: mobile tsc · 테스트 16 · check:shared · expo-doctor 21/21 · expo export android · 에뮬레이터 화면. CI 에 `mobile` 잡 추가.
-- 다음·미결: 공용 층 검토 3렌즈(진행 중) 반영 → 2단계 화면 이식. 문서 `DEPLOY_AND_ENV.md` 의 운영 API 주소가 옛 오리건이다(앱은 nextspot-t2ib). 글꼴 TTF 6개(약 16MB)는 부분 집합으로 줄일지 출시 전에 정한다.
-- 사람 작업: Expo 조직(M6) · Google Maps 키(A21) · Supabase 익명 한도 30/h(A7') — "사람 작업 대기".
 
 ## 기록 규칙
 
