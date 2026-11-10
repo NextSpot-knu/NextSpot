@@ -91,6 +91,7 @@ const MARKER_TAP_GUARD_MS = 350;
 const LABEL_HEIGHT = 28;
 const STYLE_ELEMENT_ID = 'nextspot-kakao-map-style';
 const MUTED_CLASS = 'nextspot-kakao-muted';
+const MAP_CLASS = 'nextspot-kakao-map';
 
 export const DEFAULT_INITIAL_REGION: Region = regionForKakaoLevel(
   { latitude: REGION.center.lat, longitude: REGION.center.lng },
@@ -135,12 +136,19 @@ const loadKakaoMaps = createKakaoLoader({
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 });
 
-/** 채도 낮춤 — 웹 globals.css 의 /main 규칙(saturate 55% · brightness 103%). 우리 핀(data: URI)은 빠진다. */
+/**
+ * 지도 안 전용 규칙 두 가지.
+ * - max-width 풀기: Tailwind preflight(global.css 의 `@tailwind base`)가 모든 img 에 `max-width:100%` 를 건다.
+ *   카카오 CustomOverlay 의 부모 상자는 너비가 0 이라 핀 img 가 0px 로 접혀 마커가 안 보였다(카카오 안내도 지도 안 img 는 max-width:none).
+ * - 채도 낮춤: 웹 globals.css 의 /main 규칙(saturate 55% · brightness 103%). 우리 핀(data: URI)은 빠진다.
+ */
 function ensureMapStyle() {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ELEMENT_ID)) return;
   const el = document.createElement('style');
   el.id = STYLE_ELEMENT_ID;
-  el.textContent = `.${MUTED_CLASS} img:not([src^="data:"]) { filter: saturate(55%) brightness(103%); }`;
+  el.textContent =
+    `.${MAP_CLASS} img { max-width: none; }\n` +
+    `.${MUTED_CLASS} img:not([src^="data:"]) { filter: saturate(55%) brightness(103%); }`;
   document.head.appendChild(el);
 }
 
@@ -542,7 +550,7 @@ export function NextSpotMap({
     >
       <div
         ref={containerRef}
-        className={muted ? MUTED_CLASS : undefined}
+        className={muted ? `${MAP_CLASS} ${MUTED_CLASS}` : MAP_CLASS}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
     </View>
