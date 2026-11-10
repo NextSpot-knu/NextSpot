@@ -141,6 +141,8 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
 
   // ── 대안 ──
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
+  // '새 추천 세트' 번호 — 조회·다른 대안 보기가 세트를 바꿀 때만 올린다. 혼잡 제보 같은 카드 하나의 갱신은 배열이 새로 만들어져도 올리지 않는다.
+  const [setVersion, setSetVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,11 +201,13 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
         const list = await loadAlternativesFlow(deps(stale), params);
         if (stale() || list === null) return;
         setRecommendations(list);
+        setSetVersion((v) => v + 1);
         setLoadFailed(false);
       } catch (err) {
         if (stale()) return;
         console.warn('Error calling FastAPI, showing empty recommendations:', err);
         setRecommendations([]);
+        setSetVersion((v) => v + 1);
         setLoadFailed(true);
       } finally {
         if (!stale()) setLoading(false);
@@ -222,7 +226,7 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
   useEffect(() => {
     votedRef.current = new Set();
     setFeedbackVotes({});
-  }, [recommendations]);
+  }, [setVersion]);
 
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -379,11 +383,13 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
         const fresh = await fetchAlternatives({ getRecommendations: d.getRecommendations, byType: d.byType }, params);
         if (stale()) return;
         setRecommendations(fresh);
+        setSetVersion((v) => v + 1);
         setLoadFailed(false);
       } catch (e) {
         if (stale()) return;
         console.warn('refresh fetch failed, showing empty recommendations:', e);
         setRecommendations([]);
+        setSetVersion((v) => v + 1);
         setLoadFailed(true);
       }
       toast.success(tt('recommend.refreshed'));

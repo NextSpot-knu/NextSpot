@@ -308,7 +308,7 @@ function AlternativeCardImpl(props: AlternativeCardProps) {
         </Pressable>
       </View>
 
-      {/* 보조 행동 — 👍 👎 (혼잡 제보는 F3) 공유 */}
+      {/* 보조 행동 — 👍 👎 · 혼잡 제보 · 공유 */}
       <View className="flex-row flex-wrap items-center gap-[6px]">
         {vote ? (
           <Text className="min-h-[44px] px-[4px] py-[12px] text-[11px] font-semibold text-jade" accessibilityLiveRegion="polite">
