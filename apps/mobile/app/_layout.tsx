@@ -72,10 +72,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.hanji }}>
       <SafeAreaProvider>
-        <BottomSheetModalProvider>
-          <I18nProvider>
-            <ProvidersWithLabels>
-              <ThemeProvider value={navTheme}>
+        <I18nProvider>
+          <ProvidersWithLabels>
+            <ThemeProvider value={navTheme}>
+              {/* 모달 시트 포털은 이 Provider 의 자식 뒤에 그려진다 — 시트 안에서도 useI18n()·세션·테마가 닿도록 그 안쪽에 둔다(G2-G07). */}
+              <BottomSheetModalProvider>
                 <Stack screenOptions={{ contentStyle: { backgroundColor: colors.hanji } }}>
                   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                   {/* 첫 실행 단계(소개·동의 / 첫 설정)는 자기 화면 안에 뒤로 버튼을 그린다. 스와이프로 앞 단계로 되돌아가지 않게 막는다. */}
@@ -94,13 +95,13 @@ export default function RootLayout() {
                 {/* 첫 실행 게이트 — 라우터 훅을 쓰므로 Stack 과 같은 트리 안, Stack 바로 뒤(features/onboarding/FirstRunGate). */}
                 <FirstRunGate />
                 <TrackedShellBridge />
-              </ThemeProvider>
-            </ProvidersWithLabels>
-          </I18nProvider>
-          <AppToaster />
-          {/* 앱은 라이트(한지)만 — 상태 표시줄 글자를 어둡게 고정한다. */}
-          <StatusBar style="dark" />
-        </BottomSheetModalProvider>
+              </BottomSheetModalProvider>
+            </ThemeProvider>
+          </ProvidersWithLabels>
+        </I18nProvider>
+        <AppToaster />
+        {/* 앱은 라이트(한지)만 — 상태 표시줄 글자를 어둡게 고정한다. */}
+        <StatusBar style="dark" />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

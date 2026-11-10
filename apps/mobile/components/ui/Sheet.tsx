@@ -306,10 +306,22 @@ export function ModalSheet({ children, open, onClose, snapPoints, handleLabel, c
   const ref = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
   const dismiss = useCallback(() => ref.current?.dismiss(), []);
+  // 한 번이라도 present 했는지. 닫힌 채 처음 마운트될 때 dismiss() 를 부르면 @gorhom/bottom-sheet 5.2.14 는
+  // INITIAL 상태를 DISMISSING 으로만 바꾸고 끝낸다(handleDismiss) — 그 뒤 present() 의 포털 그리기를
+  // handlePortalRender 가 DISMISSING 이라 건너뛰어 시트가 영영 열리지 않는다(G2-G07). 그래서 연 적이 있을 때만 닫는다.
+  const presentedRef = useRef(false);
+  const handleDismissed = useCallback(() => {
+    presentedRef.current = false;
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
-    if (open) ref.current?.present();
-    else ref.current?.dismiss();
+    if (open) {
+      presentedRef.current = true;
+      ref.current?.present();
+    } else if (presentedRef.current) {
+      ref.current?.dismiss();
+    }
   }, [open]);
 
   // 안드로이드 뒤로 가기 — 열려 있는 동안은 화면을 떠나지 않고 시트만 닫는다.
@@ -384,7 +396,7 @@ export function ModalSheet({ children, open, onClose, snapPoints, handleLabel, c
       handleComponent={handle}
       backgroundComponent={SheetBackground}
       backgroundStyle={background}
-      onDismiss={onClose}
+      onDismiss={handleDismissed}
       {...CONTAINER_A11Y}
     >
       <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 16 + insets.bottom }}>{children}</BottomSheetView>
