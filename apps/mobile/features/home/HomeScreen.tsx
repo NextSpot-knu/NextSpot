@@ -304,6 +304,8 @@ export function HomeScreen() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [weatherAnchor, setWeatherAnchor] = useState<PillAnchor | null>(null);
   const [headerH, setHeaderH] = useState(insets.top + HEADER_TOP + 100);
+  // 머리(검색·날씨·칩 줄)를 한 번이라도 쟀는가 — 첫 카메라는 잰 높이로 띠를 정한다(아래 '첫 진입').
+  const [headerMeasured, setHeaderMeasured] = useState(false);
   const [containerH, setContainerH] = useState(0);
   // 다시 계산 중(웹 recalcLabel) — 예측 띠 칸·'다른 시간'을 바꾸면 카드 자리에 스켈레톤 '… 기준으로 다시 계산 중…'.
   const [recalc, setRecalc] = useState<string | null>(null);
@@ -509,15 +511,19 @@ export function HomeScreen() {
     schedulePadding();
   }, [refocusIfRecent, schedulePadding]);
 
-  // 첫 진입(웹 initMap): 이번 세션에 보던 자리가 있으면 그대로(sessionStorage 복원), 없으면 지금 기준점(내 위치 또는 지역 중심)을
-  // 띠 가운데로(centerOnFreeArea). 지도가 뜨기 전에 추천 1위로 옮기라는 요청이 이미 왔으면 그 자리로 — 웹은 위치가 늦게 잡혀도
-  // 지도를 내 위치로 끌고 가지 않는다(1위 핀이 기준점 가까이에 있다).
+  // 첫 진입(웹 initMap): 이번 세션에 보던 자리가 있으면 그대로(sessionStorage 복원), 없으면 **지역 중심**을 띠 가운데로
+  // (centerOnFreeArea(pack.center)). 지도가 뜨기 전에 추천 1위로 옮기라는 요청이 이미 왔으면 그 자리로.
+  // 웹은 위치가 먼저 잡혀도 첫 카메라를 내 위치가 아니라 지역 중심에 둔다(initMap 은 pack.center 만 읽는다) — 앱이 내 위치를
+  // 쓰면 카드가 없는 화면(지도 불러오는 중·오류)에서 카메라가 웹보다 80~100px 아래였다(G2-01, 황리단길 GPS 와 지역 중심이 ≈200m).
+  // 내 위치는 1위 추천으로 옮길 때(추천 기준점) 반영된다.
+  // 머리 높이를 잰 뒤에 맞춘다 — 웹은 initMap 때 이미 그려진 머리를 재지만, 앱은 지도가 머리 onLayout 보다 먼저 준비되면 기본값
+  // (insets.top + 168)으로 띠 위를 잡아 카메라가 ≈22px 위로 갔다(웹 빌드 실측 4번 중 3번).
   const [restored] = useState(() => parseMapSession(
     sessionGet(MAP_SESSION_KEYS.lat), sessionGet(MAP_SESSION_KEYS.lng), sessionGet(MAP_SESSION_KEYS.level),
   ));
   const centeredRef = useRef(false);
   useEffect(() => {
-    if (!mapReady || centeredRef.current) return;
+    if (!mapReady || !headerMeasured || centeredRef.current) return;
     centeredRef.current = true;
     if (restored && !nearCenter(restored, REGION.center)) {
       mapRef.current?.animateTo({ latitude: restored.latitude, longitude: restored.longitude }, { level: restored.level ?? 4, duration: 0 });
@@ -530,8 +536,8 @@ export function HomeScreen() {
       mapRef.current?.animateTo({ latitude: last.latitude, longitude: last.longitude }, { level: last.level ?? restored?.level ?? 4, duration: 0, insets: bandInsets() });
       return;
     }
-    mapRef.current?.animateTo({ latitude: userPoint.lat, longitude: userPoint.lng }, { level: restored?.level ?? 4, duration: 0, insets: bandInsets() });
-  }, [mapReady, userPoint.lat, userPoint.lng, restored, bandInsets]);
+    mapRef.current?.animateTo({ latitude: REGION.center.lat, longitude: REGION.center.lng }, { level: restored?.level ?? 4, duration: 0, insets: bandInsets() });
+  }, [mapReady, headerMeasured, restored, bandInsets]);
   const onRegionChangeComplete = useCallback((v: MapViewport) => {
     setViewport(v);
     if (!centeredRef.current) return; // 첫 영역(기본 중심)으로 세션 기억을 덮지 않는다
@@ -727,7 +733,8 @@ export function HomeScreen() {
   const pendingPinFitRef = useRef<{ type: PlaceCategory; attributes: PinAttribute[] } | null>(null);
   const fitAttributePins = useCallback((type: PlaceCategory, attributes: readonly PinAttribute[]) => {
     if (attributes.length === 0) return;
-    if (!mapReady) { pendingPinFitRef.current = { type, attributes: [...attributes] }; return; }
+    // 첫 카메라(머리 높이를 잰 뒤 — 위 '첫 진입')보다 먼저 맞추면 첫 카메라가 덮는다. 웹도 initMap 보정 뒤에 맞춘다.
+    if (!mapReady || !headerMeasured) { pendingPinFitRef.current = { type, attributes: [...attributes] }; return; }
     const pins = facilitiesRef.current.filter((f) => f.type === type && hasPinAttributes(f, attributes)
       && Number.isFinite(f.latitude) && Number.isFinite(f.longitude));
     if (pins.length === 0) return;
@@ -737,13 +744,14 @@ export function HomeScreen() {
     mapRef.current?.fitToCoordinates(pins.map((f) => ({ latitude: f.latitude, longitude: f.longitude })), {
       padding: { top: Math.min(band.top, Math.round(h * 0.5)) + 16, right: 24, bottom: Math.min(band.bottom, Math.round(h * 0.4)) + 16, left: 24 },
     });
-  }, [mapReady, focusOn, bandInsets]);
+  }, [mapReady, headerMeasured, focusOn, bandInsets]);
+  // 첫 카메라 effect 보다 뒤에 선언돼 같은 커밋에서 그 뒤에 돈다(핀 맞춤이 이긴다).
   useEffect(() => {
     const pending = pendingPinFitRef.current;
-    if (!mapReady || !pending) return;
+    if (!mapReady || !headerMeasured || !pending) return;
     pendingPinFitRef.current = null;
     fitAttributePins(pending.type, pending.attributes);
-  }, [mapReady, fitAttributePins]);
+  }, [mapReady, headerMeasured, fitAttributePins]);
 
   /** 칩·탭을 바꾼다 — 칩 탭 · ♿·👶 자동 전환 · 제안 상자 · 밤의 첫 화면이 같은 길을 탄다(웹 selectCategory). */
   const switchTab = useCallback((next: HomeTab) => {
@@ -1302,6 +1310,7 @@ export function HomeScreen() {
             const changed = Math.abs(h - headerRef.current) > 2;
             headerRef.current = h;
             setHeaderH(h);
+            setHeaderMeasured(true);
             // 머리 높이가 바뀌면(검색 결과 판이 닫혀 짧아짐 · ✨ 테마 판이 '비교 중' 줄에서 대안 칸으로 자라남) 방금 옮긴 핀을
             // 새 띠로 다시 맞춘다 — 자랄 때 안 맞추면 1위 핀이 테마 판 밑에 깔린다(F2 검토 M1).
             if (changed) refocusIfRecent();

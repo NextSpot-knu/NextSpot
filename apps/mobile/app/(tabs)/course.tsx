@@ -38,6 +38,7 @@ import { useSharedCourse } from '~/features/course/useSharedCourse';
 import { assumedAtIsoForPreset } from '~/lib/core/assumedTime';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { WEB_ORIGIN, courseShareUrl, reshareCourseUrl, shareLink } from '~/lib/platform/share';
+import { colors } from '~/lib/theme/tokens';
 
 /** 폭이 이 이상이면 지도와 판을 좌우로 나눈다(펼친 Z Fold7 ≈ 600dp 이상). */
 const SPLIT_MIN_WIDTH = 600;
@@ -64,7 +65,14 @@ function MapPlaceholder({ height }: { height: number | '100%' }) {
     return () => cancelAnimation(o);
   }, [o, reduceMotion]);
   const style = useAnimatedStyle(() => ({ opacity: o.value }));
-  return <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" className="w-full bg-hanji-deep" style={[{ height }, style]} />;
+  // Animated.View 에는 className 을 주지 않는다 — 웹 빌드에서 버려져 바탕색이 빠진다(G4b 자리표시가 옅던 이유).
+  return (
+    <Animated.View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[{ width: '100%', height, backgroundColor: colors['hanji-deep'] }, style]}
+    />
+  );
 }
 
 export default function CourseScreen() {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AppState,
   Keyboard,
+  Platform,
   ScrollView,
   TextInput,
   View,
@@ -48,6 +49,9 @@ import {
   type ActiveTrip,
 } from './tripLoop';
 import { useT } from '~/lib/i18n/I18nProvider';
+
+/** 웹 backdrop-blur(8px) — 웹 빌드만. 네이티브는 흐림 없이 95% 흰색(D14, 안드로이드 RN 은 뒤 지도를 흐릴 수 없다). */
+const WEB_BLUR = Platform.OS === 'web' ? ({ backdropFilter: 'blur(8px)' } as unknown as ViewStyle) : null;
 
 export interface ActiveJourneyCardProps {
   /** 내 위치(없으면 이 카드는 재계획을 못 한다 — 길안내 다시 열기 · 도착은 그대로). 홈이 넘긴다. */
@@ -523,14 +527,14 @@ export function ActiveJourneyCard({
     </>
   );
 
-  // 틀: 웹 rounded-2xl border-jade/30 bg-white/95 p-4 toss-surface. 바깥(className·style)은 홈이 자리를 정한다.
+  // 틀: 웹 rounded-2xl border-jade/30 bg-white/95 backdrop-blur p-4 toss-surface(G3-28). 바깥(className·style)은 홈이 자리를 정한다.
   return (
     <View className={className} style={style}>
       <Animated.View style={enterStyle}>
         <View
           accessibilityLabel={t('trip.active')}
           className="rounded-2xl border border-jade/30 bg-white/95"
-          style={{ boxShadow: shadows.surface }}
+          style={[{ boxShadow: shadows.surface }, WEB_BLUR]}
         >
           {maxHeight != null ? (
             <ScrollView

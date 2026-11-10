@@ -182,10 +182,7 @@ export default function SavedScreen() {
                       {t('saved.title')}
                     </Text>
                   </View>
-                  {/* 웹 items-center — NowChip 은 self-start 라 줄 높이 가운데로 맞추려고 감싼다 */}
-                  <View className="justify-center self-stretch">
-                    <NowChip />
-                  </View>
+                  <NowChip />
                 </View>
                 <Text className="text-[22px] leading-[25.3px]" weight="black" accessibilityRole="header" style={{ letterSpacing: -0.55 }}>
                   {t('saved.heroTitle')}

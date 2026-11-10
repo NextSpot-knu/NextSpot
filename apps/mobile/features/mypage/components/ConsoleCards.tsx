@@ -95,7 +95,10 @@ export function RoleRequestCard({ pending, url }: { pending: boolean; url: strin
   );
 }
 
-/** 콘솔 미리보기 — 사장님·관리자 권한이 없는 사람에게 두 콘솔의 예시 화면(?demo=1)을 연다(웹 ConsolePreviewEntry). */
+/**
+ * 콘솔 미리보기 — 사장님·관리자 권한이 없는 사람에게 두 콘솔의 예시 화면(?demo=1)을 연다(웹 ConsolePreviewEntry).
+ * 버튼 글자는 웹처럼 줄을 바꾼다(grid-cols-2 · 한 줄 제한 없음 — en 'Operations dashboard' 가 두 줄, G5b-08).
+ */
 export function ConsolePreviewCard({ merchantUrl, adminUrl }: { merchantUrl: string; adminUrl: string }) {
   const t = useT();
   const button = 'min-h-[44px] flex-1 flex-row items-center justify-center gap-[6px] rounded-xl border border-gold/40 bg-white px-[12px]';
@@ -109,11 +112,11 @@ export function ConsolePreviewCard({ merchantUrl, adminUrl }: { merchantUrl: str
       <View className="mt-[12px] flex-row gap-[8px]">
         <Pressable accessibilityRole="link" accessibilityLabel={t('demo.previewMerchant')} className={button} onPress={open(merchantUrl)}>
           <Icon icon={Store} size={16} color="gold-deep" />
-          <Text className="text-sm text-gold-deep" weight="bold" numberOfLines={1}>{t('demo.previewMerchant')}</Text>
+          <Text className="shrink text-center text-sm text-gold-deep" weight="bold">{t('demo.previewMerchant')}</Text>
         </Pressable>
         <Pressable accessibilityRole="link" accessibilityLabel={t('demo.previewAdmin')} className={button} onPress={open(adminUrl)}>
           <Icon icon={ShieldCheck} size={16} color="gold-deep" />
-          <Text className="text-sm text-gold-deep" weight="bold" numberOfLines={1}>{t('demo.previewAdmin')}</Text>
+          <Text className="shrink text-center text-sm text-gold-deep" weight="bold">{t('demo.previewAdmin')}</Text>
         </Pressable>
       </View>
     </View>

@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Platform,
   Pressable as RNPressable,
+  StyleSheet,
   Text as RNText,
   useWindowDimensions,
   View,
@@ -435,7 +436,16 @@ export function AppToaster({ id, offset }: AppToasterProps) {
       toastOptions={toastOptions}
     />
   );
-  if (id) return channel;
+  // 이름 붙은 채널은 RN Modal 안 아무 자리에나 놓인다(ProfileEditModal 은 좌우 24 여백이 있는 상자 안). sonner-native 의 자리 상자는
+  // `position:absolute · width:100%` 에 left 가 없어 부모의 여백 시작점(24)에서 출발하고 폭은 부모 전체라 오른쪽 끝을 넘는다
+  // (웹 빌드 실측: 왼쪽 ~40 에서 시작해 화면 밖까지, G5b-17). 여백 없는 전체 덮개 안에 두어 자리 기준을 화면 가장자리로 고정한다.
+  if (id) {
+    return (
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        {channel}
+      </View>
+    );
+  }
   return (
     <>
       {channel}

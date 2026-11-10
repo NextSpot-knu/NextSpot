@@ -14,6 +14,7 @@ import Animated, {
 import { Clock } from 'lucide-react-native';
 
 import { useT } from '~/lib/i18n/I18nProvider';
+import { colors } from '~/lib/theme/tokens';
 
 import { cn } from './cn';
 import { Icon } from './Icon';
@@ -38,7 +39,8 @@ function PingRing() {
     return () => cancelAnimation(p);
   }, [p]);
   const style = useAnimatedStyle(() => ({ opacity: 0.6 * (1 - p.value), transform: [{ scale: 1 + p.value }] }));
-  return <Animated.View className="absolute h-[6px] w-[6px] rounded-full bg-jade" style={style} />;
+  // Animated.View 에는 className 을 주지 않는다 — 웹 빌드에서 버려져 고리가 크기 0 이 된다(LoadingReveal 과 같은 이유).
+  return <Animated.View style={[{ position: 'absolute', height: 6, width: 6, borderRadius: 9999, backgroundColor: colors.jade }, style]} />;
 }
 
 export function NowChip({ className }: { className?: string }) {
@@ -52,7 +54,9 @@ export function NowChip({ className }: { className?: string }) {
   return (
     <View
       className={cn(
-        'flex-row items-center gap-[4px] self-start rounded-full border border-line bg-hanji-deep/70 px-[8px] py-[2px]',
+        // self-start 를 두지 않는다 — 쓰는 곳이 모두 웹 `flex items-center` 줄이라 줄 가운데에 서야 한다(self-start 면 브랜드 칩보다
+        // 2~3px 위, G4b-06·G5a-04). 세로 줄(column) 안에 둘 때는 부르는 쪽이 className 으로 self-start 를 준다.
+        'flex-row items-center gap-[4px] rounded-full border border-line bg-hanji-deep/70 px-[8px] py-[2px]',
         className,
       )}
     >

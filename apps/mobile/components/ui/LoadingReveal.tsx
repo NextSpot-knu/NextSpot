@@ -5,8 +5,11 @@
 //
 // 앱과 다른 곳(계획 R3 G5a-09): 고스트의 블러는 안드로이드에서 못 쓰므로(저장소 규칙 7) opacity .75 만 — 웹 빌드는 blur(8px) 도 건다.
 // 시머 쓸기 대신 판이 숨 쉰다(Skeleton 과 같은 0.55↔1, 900ms). 문장 페이드는 entering 대신 shared value(웹 빌드에서 entering 이 실패한다).
+//
+// Reanimated `Animated.View` 에는 className 을 주지 않는다 — NativeWind 가 cssInterop 으로 등록한 것은 RN 기본 부품뿐이라 웹 빌드에서
+// className 이 통째로 버려진다(G4b-20·G5a-09: 바 높이 0·링 크기 0 — 값은 움직이는데 안 보였다). 모양은 style 객체로 준다.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Platform, View, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -22,6 +25,7 @@ import { MapPin } from 'lucide-react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { useT } from '~/lib/i18n/I18nProvider';
+import { colors } from '~/lib/theme/tokens';
 
 import { Icon } from './Icon';
 import { Text } from './Text';
@@ -53,12 +57,15 @@ function BreathProvider({ children }: { children: ReactNode }) {
   return <BreathContext.Provider value={v}>{children}</BreathContext.Provider>;
 }
 
-/** 웹 .ns-skel 한 판 — className 으로 크기·색·모서리. 숨쉬는 판. */
-function Skel({ className, style }: { className: string; style?: ViewStyle }) {
+/** 웹 .ns-skel 한 판 — 크기·색·모서리는 style(Animated.View 라 className 을 쓰지 않는다). 숨쉬는 판. */
+function Skel({ style }: { style: ViewStyle }) {
   const v = useContext(BreathContext);
   const animated = useAnimatedStyle(() => ({ opacity: v ? v.value : 1 }));
-  return <Animated.View className={className} style={[style, animated]} />;
+  return <Animated.View style={[style, animated]} />;
 }
+
+/** 웹 bg-gold/20 · border-gold/45 — 투명도 붙은 금색. */
+const goldAlpha = (a: number) => `rgba(193, 154, 62, ${a})`;
 
 /** 웹 .ns-ghost — 실제 카드의 색·구조 실루엣. */
 function ghostStyle(): ViewStyle {
@@ -93,7 +100,8 @@ function PinRing() {
     return () => cancelAnimation(p);
   }, [p]);
   const style = useAnimatedStyle(() => ({ opacity: 0.6 * (1 - p.value), transform: [{ scale: 0.9 + 1.1 * p.value }] }));
-  return <Animated.View className="absolute inset-0 rounded-full border-2 border-gold/45" style={style} />;
+  // 웹 absolute inset-0 rounded-full border-2 border-gold/45
+  return <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: 9999, borderWidth: 2, borderColor: goldAlpha(0.45) }, style]} />;
 }
 
 /** 28초 비선형 진행 바 — 초반 급가속 후 94% 까지 천천히. 동작 줄이기에서는 94% 로 고정. */
@@ -116,7 +124,7 @@ function ProgressBar() {
   const style = useAnimatedStyle(() => ({ width: `${w.value}%` }));
   return (
     <View className="mt-[16px] h-[6px] w-full overflow-hidden rounded-full bg-line" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Animated.View className="h-full rounded-full bg-gold" style={style} />
+      <Animated.View style={[{ height: '100%', borderRadius: 9999, backgroundColor: colors.gold }, style]} />
     </View>
   );
 }
@@ -134,7 +142,7 @@ function NarrationLine({ step, text }: { step: number; text: string }) {
   }, [step, reduceMotion, p]);
   const style = useAnimatedStyle(() => ({ opacity: p.value, transform: [{ translateY: 4 * (1 - p.value) }] }));
   return (
-    <Animated.View className="mt-[2px]" style={style}>
+    <Animated.View style={[{ marginTop: 2 }, style]}>
       <Text className="text-xs leading-[16.5px] text-muk-soft">{text}</Text>
     </Animated.View>
   );
@@ -205,7 +213,7 @@ function GhostCard() {
     >
       <View className="flex-1" style={ghostStyle()}>
         <View className="absolute left-[6px] top-[6px] z-10 h-[28px] w-[28px] rounded-full border-2 border-white bg-gold/70" />
-        <Skel className="h-[112px] w-full overflow-hidden" />
+        <Skel style={{ height: 112, width: '100%', overflow: 'hidden' }} />
         <LinearGradient colors={PHOTO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 112 }} />
         <View className="flex-1 gap-[6px] p-[8px]">
           <View className="h-[12px] w-[91.6%] rounded bg-muk/45" />
@@ -253,9 +261,9 @@ function SectorPanelSkeleton() {
       style={{ boxShadow: CARD_SHADOW }}
     >
       <View className="flex-row items-center gap-[8px]">
-        <Skel className="h-[32px] w-[32px] rounded-xl bg-gold/20" />
-        <Skel className="h-[16px] w-[96px] rounded bg-hanji-deep" />
-        <Skel className="ml-auto h-[20px] w-[44px] rounded-full bg-hanji-deep" />
+        <Skel style={{ height: 32, width: 32, borderRadius: 12, backgroundColor: goldAlpha(0.2) }} />
+        <Skel style={{ height: 16, width: 96, borderRadius: 4, backgroundColor: colors['hanji-deep'] }} />
+        <Skel style={{ marginLeft: 'auto', height: 20, width: 44, borderRadius: 9999, backgroundColor: colors['hanji-deep'] }} />
       </View>
       <View className="flex-row gap-[8px]">
         {[0, 1, 2].map((card) => (

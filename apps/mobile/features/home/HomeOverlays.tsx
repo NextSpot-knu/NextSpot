@@ -4,7 +4,7 @@
 import { ChevronRight, Search } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { useState, type ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
+import { Platform, ScrollView, View, type ViewStyle } from 'react-native';
 
 import { Button, Card, Icon, MODAL_SHEET_CLOSE_BOX, ModalSheet, Pressable, RingSpinner, Text } from '~/components/ui';
 import { toHttpsImageUrl } from '~/lib/platform/images';
@@ -25,6 +25,8 @@ import type { PlaceSearchItem, TourApiSearchItem } from './usePlaceSearch';
 const GOLD_RING = '0px 0px 0px 1px #faf5ec, 0px 0px 0px 3px rgba(193, 154, 62, 0.7)';
 const JADE = 'rgb(62, 124, 106)';
 const PANEL_SHADOW = '0px 2px 14px rgba(43, 35, 32, 0.06)';
+/** 웹 검색 결과 판 backdrop-blur(8px) — 웹 빌드만(네이티브는 95% 흰색 그대로, D14). */
+const WEB_BLUR = Platform.OS === 'web' ? ({ backdropFilter: 'blur(8px)' } as unknown as ViewStyle) : null;
 
 function ToolTile({ emoji, label, on, onPress }: { emoji: string; label: string; on: boolean; onPress: () => void }) {
   return (
@@ -143,7 +145,7 @@ function ResultsPanel({ title, source, tone, loading, children }: { title: strin
   return (
     <View
       className={`overflow-hidden rounded-2xl border ${tone === 'jade' ? 'border-jade/40' : 'border-line'}`}
-      style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', boxShadow: PANEL_SHADOW }}
+      style={[{ backgroundColor: 'rgba(255, 255, 255, 0.95)', boxShadow: PANEL_SHADOW }, WEB_BLUR]}
     >
       <View className="border-b border-line/70 px-[12px] py-[8px]">
         <View className="flex-row items-center gap-[6px]">
@@ -209,7 +211,8 @@ export function PlaceSearchResults({ items, loading, onView, onOpenKakao, onSeeI
             </Pressable>
             {item.placeUrl ? (
               <Pressable accessibilityRole="link" onPress={() => onOpenKakao(item)} hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }} className="px-[4px]">
-                <Text className="text-[10px] text-muk-soft underline" weight="semibold">{t('map.searchKakaoPlace')}</Text>
+                {/* 웹은 밑줄이 없다(hover 때만 — 터치에는 hover 가 없다). */}
+                <Text className="text-[10px] text-muk-soft" weight="semibold">{t('map.searchKakaoPlace')}</Text>
               </Pressable>
             ) : null}
           </View>
