@@ -1,6 +1,6 @@
 // 외부 장소 검색 — 로컬(우리 시설) 검색이 0건일 때만 카카오 → 관광공사 순서로 묻는다.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 검색 effect. 두 글자 미만·로컬에서 찾은 질의는 묻지 않고(쿼터 보호),
-// 350ms 디바운스, 질의가 바뀌면 이전 결과를 바로 버린다. 적재 요청(ingest-request) UI 는 앱에 두지 않는다.
+// 350ms 디바운스, 질의가 바뀌면 이전 결과를 바로 버린다. 적재 요청(ingest-request)은 D12 에 따라 useIngestRequest 로 둔다.
 //
 // 외부 AI(App Store 5.1.2(i)): /search/keyword 는 관광공사 검색도 0건이면 서버가 검색어를 외부 LLM(Upstage)으로 다시 쓴다
 // (apps/api/app/routers/search.py _rewrite_fallback). API 에 LLM 만 끄는 옵션이 없으므로, 외부 AI 전송을 허용한 경우에만
@@ -98,4 +98,32 @@ export function usePlaceSearch(query: string, localMatchCount: number): PlaceSea
   }, [query, localMatchCount]);
 
   return state;
+}
+
+/**
+ * '다음 배치 추가 요청'(G2-21, D12 — 적재 요청은 지금) — 관리자 승인 큐에 넣는다. 웹 page.tsx requestIngest 와 같은 본문·같은 알림.
+ * 접수된 뒤에는 버튼을 '요청 접수됨' 으로 잠근다(서버가 같은 contentid 를 조용히 무시하므로). 알림은 홈 알약(useHomeToast().show).
+ */
+export function useIngestRequest(show: (message: string) => void) {
+  const t = useT();
+  const [requested, setRequested] = useState<ReadonlySet<string>>(new Set());
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const request = async (item: TourApiSearchItem) => {
+    setPendingId(item.contentid);
+    try {
+      await apiClient.post('/api/v1/search/ingest-request', {
+        contentid: item.contentid,
+        name: item.title,
+        contentTypeId: item.contenttypeid ?? null,
+      });
+      setRequested((prev) => new Set(prev).add(item.contentid));
+      show(t('map.ingestRequestDone', { name: item.title }));
+    } catch (err) {
+      // 서버 문구(레이트리밋 등)가 있으면 그대로 전한다 — 왜 안 됐는지가 정보다.
+      show((err instanceof Error && err.message) || t('map.ingestRequestFailed'));
+    } finally {
+      setPendingId(null);
+    }
+  };
+  return { requested, pendingId, request };
 }

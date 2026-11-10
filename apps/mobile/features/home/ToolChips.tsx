@@ -1,33 +1,41 @@
-// 지도 위 보조 칩 넷 — 날씨 · 축제 · 화장실 · 지금 한산. 각자 자료를 받아 비어 있으면 스스로 숨는다(웹과 같다).
+// 지도 위 보조 칩 — 날씨(유리 알약 + 팝오버) · 축제 · 화장실 · 지금 한산. 각자 자료를 받아 비어 있으면 스스로 숨는다(웹과 같다).
 // 웹 원본(0d145a1): apps/web/components/main/{WeatherChip,FestivalBanner,RestroomChip,TodayCalmSpots}.tsx
-// 바꾼 것: 포털 모달·펼침 판 → ModalSheet, hover·ring 버림, framer-motion 버림, 포스터는 expo-image,
-//          링크는 lib/platform/links(카카오맵 앱 → 없으면 시스템 브라우저), 날씨 '실내만' 은 홈이 조건 상태를 들고 있다.
-import { Image } from 'expo-image';
-import { CalendarDays, ExternalLink, Leaf, Map as MapIcon, MapPin, Phone, Toilet, Umbrella } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
-import { Linking, View } from 'react-native';
+// 바꾼 것: 포털 모달 → ModalSheet, hover·ring·framer-motion 버림, 포스터는 expo-image, 링크는 lib/platform/links(카카오맵 앱 → 시스템 브라우저).
+// H2a(G2-13·15·16·17·18): 날씨 칩은 유리 알약 + ▾, 펼침은 칩 아래 팝오버(자리는 홈 루트 — 아래 '연결'), 축제·화장실은 웹 모양 칩 + 시트(축제는 festival.ts·
+// FestivalSheet.tsx·FestivalBanner.tsx 로 추출), 지금 한산(CalmChip)은 폰 폭에서 그리지 않는다(웹은 lg 이상만 — H3b 가 호출을 뺀다).
+//
+// 연결(H3b): 첫 칩 줄 = `useWeather()` 자료로 `<WeatherPill … onToggle={(anchor) => setWeatherAnchor(anchor)} />`(+ ✨ 는 H2b·F2) 한 줄(가로 스크롤 아님).
+// 팝오버는 칩 줄 안이 아니라 HomeScreen 루트의 여정 판·아래 스택·시트보다 위 층에 `<WeatherPopover data anchor … onClose />` 로 둔다(스크롤·클리핑 회피).
+// 축제·화장실 칩은 ToolsSheet(HomeOverlays) 안에 있다. 아래 옛 `WeatherChip`·`FestivalChip`·`RestroomChip`·`CalmChip` 은 H3b 가 홈에서 떼어 낼 때까지 남겨 둔다.
+import { ChevronDown, ChevronUp, Leaf, MapPin, Toilet, Umbrella } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable as RNPressable, View, useWindowDimensions } from 'react-native';
 
-import { festivalBannerModel, festivalDateLabel, festivalTriggerVisible } from '@/lib/festivalBanner';
-import { formatDistance, haversineMeters } from '@/lib/map/geo';
-import { Icon, ModalSheet, Pressable, SheetScrollView, Text } from '~/components/ui';
+import { formatDistance } from '@/lib/map/geo';
+import { Glass, Icon, MODAL_SHEET_CLOSE_BOX, ModalSheet, Pressable, SheetScrollView, Text } from '~/components/ui';
 import { apiClient } from '~/lib/core/apiClient';
 import { useI18n } from '~/lib/i18n/I18nProvider';
-import { openExternalUrl, openKakaoHandoff } from '~/lib/platform/links';
-import { toHttpsImageUrl } from '~/lib/platform/images';
-import { telHref } from '@/lib/phoneLink';
+import { openKakaoHandoff } from '~/lib/platform/links';
 
+import { FestivalBanner } from './FestivalBanner';
+import type { FestivalEvent } from './festival';
 import { calmKey, calmSpots, type CalmSpot, type HomeFacility } from './homeModel';
+
+export type { FestivalEvent };
 
 /** 칩은 보이는 높이가 36pt 다 — 위아래 4pt 씩 넓혀 44pt 탭 영역을 채운다(디자인 규칙 11, 웹 .tap-target). */
 export const CHIP_HIT_SLOP = { top: 4, bottom: 4, left: 0, right: 0 } as const;
 
 const CHIP = 'min-h-[36px] shrink-0 flex-row items-center gap-[6px] rounded-full border border-line bg-white px-[12px] py-[6px]';
+/** 웹 시트 칩(fractal-glass 흰 80%) — 필터·편의 시트 맨 아래 줄의 화장실·축제. */
+export const SHEET_CHIP_CLASS = 'shrink-0 flex-row items-center gap-[8px] rounded-full border border-line px-[14px] py-[8px]';
+export const SHEET_CHIP_STYLE = { backgroundColor: 'rgba(255, 255, 255, 0.8)', boxShadow: '0px 2px 14px rgba(43, 35, 32, 0.06)' } as const;
 const LIST_MAX_HEIGHT = 420;
 type Point = { lat: number; lng: number };
 
-function SheetHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SheetHeader({ title, subtitle, closeBox }: { title: string; subtitle?: string; closeBox?: number }) {
   return (
-    <View className="mb-[12px] gap-[2px]">
+    <View className="mb-[16px]" style={closeBox ? { paddingRight: closeBox + 12 } : undefined}>
       <Text className="text-[18px]" weight="bold" accessibilityRole="header">{title}</Text>
       {subtitle ? <Text className="text-[12px] text-muk-soft">{subtitle}</Text> : null}
     </View>
@@ -37,7 +45,9 @@ function SheetHeader({ title, subtitle }: { title: string; subtitle?: string }) 
 // ── 날씨 ────────────────────────────────────────────────────────────────
 
 interface WeatherNow { at: string; temperatureC: number; sky: number; precipitationType: number; precipitationProbability: number; windSpeedMps: number }
-interface WeatherResponse { source: 'kma' | 'unavailable'; current: WeatherNow | null; forecasts: WeatherNow[]; indoorRecommended: boolean }
+export interface WeatherData { source: 'kma' | 'unavailable'; current: WeatherNow | null; forecasts: WeatherNow[]; indoorRecommended: boolean }
+/** 팝오버를 붙일 칩의 창 좌표(measureInWindow). */
+export interface PillAnchor { x: number; y: number; width: number; height: number }
 
 function weatherIcon(now: WeatherNow): string {
   if (now.precipitationType === 3 || now.precipitationType === 7) return '❄️';
@@ -47,59 +57,142 @@ function weatherIcon(now: WeatherNow): string {
   return '☀️';
 }
 
-export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoorRequired: boolean; onIndoorRequiredChange: (required: boolean) => void }) {
-  const { t, locale } = useI18n();
-  const [data, setData] = useState<WeatherResponse | null>(null);
-  const [open, setOpen] = useState(false);
+/** 날씨 자료 — 받지 못했거나 KMA 가 아니면 null(칩을 그리지 않는다). */
+export function useWeather(): WeatherData | null {
+  const [data, setData] = useState<WeatherData | null>(null);
   useEffect(() => {
     let active = true;
-    apiClient.get('/api/v1/weather').then((value: WeatherResponse) => { if (active) setData(value); }).catch(() => undefined);
+    apiClient.get('/api/v1/weather').then((value: WeatherData) => { if (active) setData(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
-  if (!data?.current || data.source !== 'kma') return null;
-  const now = data.current;
-  const hourOf = (value: string) => {
+  return data?.current && data.source === 'kma' ? data : null;
+}
+
+function useHourOf() {
+  const { locale } = useI18n();
+  return (value: string) => {
     try { return new Intl.DateTimeFormat(locale, { hour: 'numeric' }).format(new Date(value)); } catch { return ''; }
   };
-  const full = t('weather.gyeongjuNow', { n: Math.round(now.temperatureC) });
-  const summary = data.indoorRecommended
+}
+
+function summaryOf(data: WeatherData, t: ReturnType<typeof useI18n>['t']): string {
+  const now = data.current as WeatherNow;
+  return data.indoorRecommended
     ? t('weather.riskSummary', { n: now.precipitationProbability })
     : t('weather.calmSummary', { n: now.precipitationProbability });
+}
+
+/**
+ * 날씨 알약(G2-15) — 유리 · 높이 32 · px 12 · gap 6 · 12 bold · 이모지 15 · 끝 ▾/▴ 14. 실내 추천이면 우산 13 + 금 테두리 60%.
+ * 키 낮은 폰(높이 720 미만)은 '지금 경주' 를 빼고 `{n}℃` 만(웹 short:max-md). 누르면 칩의 창 좌표와 함께 onToggle.
+ */
+export function WeatherPill({ data, expanded, onToggle }: { data: WeatherData; expanded: boolean; onToggle: (anchor: PillAnchor) => void }) {
+  const { t } = useI18n();
+  const { height } = useWindowDimensions();
+  const ref = useRef<View>(null);
+  const now = data.current as WeatherNow;
+  const full = t('weather.gyeongjuNow', { n: Math.round(now.temperatureC) });
+  const summary = summaryOf(data, t);
+  const short = height < 720;
   return (
-    <>
+    <View ref={ref} collapsable={false} className="shrink-0 self-start">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${full} · ${summary}`}
-        onPress={() => setOpen(true)}
-        hitSlop={CHIP_HIT_SLOP} className={`${CHIP} ${data.indoorRecommended ? 'border-gold' : ''}`}
+        accessibilityState={{ expanded }}
+        hitSlop={CHIP_HIT_SLOP}
+        onPress={() => {
+          ref.current?.measureInWindow((x, y, width, h) => onToggle({ x, y, width, height: h }));
+        }}
       >
-        <Text className="text-[15px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(now)}</Text>
-        <Text className="text-[12px]" weight="bold" numberOfLines={1}>{full}</Text>
-        {data.indoorRecommended ? <Icon icon={Umbrella} size="sm" color="gold-deep" /> : null}
+        <Glass
+          className="h-[32px] flex-row items-center gap-[6px] px-[12px]"
+          // 유리 테두리가 클래스 색을 덮으므로 실내 추천의 금 테두리는 style 로 지킨다(웹 인라인 borderColor).
+          style={data.indoorRecommended ? { borderColor: 'rgba(193, 154, 62, 0.6)' } : undefined}
+        >
+          <Text className="text-[15px] leading-none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(now)}</Text>
+          <Text className="text-[12px]" weight="bold" numberOfLines={1}>{short ? `${Math.round(now.temperatureC)}℃` : full}</Text>
+          {data.indoorRecommended ? <Icon icon={Umbrella} size={13} color="gold-deep" /> : null}
+          <Icon icon={expanded ? ChevronUp : ChevronDown} size={14} color="muk" />
+        </Glass>
       </Pressable>
+    </View>
+  );
+}
+
+/** 예보 내용(요약 · 6칸 · 관측 · 실내만) — 팝오버와 옛 시트가 같이 쓴다. */
+function WeatherDetails({ data, indoorRequired, onIndoorRequiredChange }: { data: WeatherData; indoorRequired: boolean; onIndoorRequiredChange: (required: boolean) => void }) {
+  const { t } = useI18n();
+  const hourOf = useHourOf();
+  const now = data.current as WeatherNow;
+  return (
+    <>
+      <Text className="text-[12px]" weight="semibold">{summaryOf(data, t)}</Text>
+      <View className="mt-[8px] flex-row gap-[4px]" accessibilityLabel={t('weather.sixHour')}>
+        {data.forecasts.slice(0, 6).map((f) => (
+          <View key={f.at} className="flex-1 items-center">
+            <Text className="text-[10px] text-muk-soft">{hourOf(f.at)}</Text>
+            <Text className="my-[2px] text-[16px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(f)}</Text>
+            <Text className="text-[10px]" weight="semibold">{`${Math.round(f.temperatureC)}°`}</Text>
+          </View>
+        ))}
+      </View>
+      <Text className="mt-[8px] text-[10px] text-muk-soft">{t('weather.observedAt', { time: hourOf(now.at) })}</Text>
+      {data.indoorRecommended || indoorRequired ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: indoorRequired }}
+          onPress={() => onIndoorRequiredChange(!indoorRequired)}
+          className={`mt-[10px] flex-row items-center justify-center gap-[8px] rounded-xl border px-[12px] py-[8px] ${indoorRequired ? 'border-jade bg-jade/15' : 'border-gold/50 bg-gold/10'}`}
+        >
+          <Icon icon={Umbrella} size={14} color={indoorRequired ? 'jade' : 'muk'} />
+          <Text className={`text-[12px] ${indoorRequired ? 'text-jade' : 'text-muk'}`} weight="bold">{t('setup.indoorOnly')}</Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * 날씨 팝오버(G2-16) — 칩 아래 288 폭 판, 화면 안으로 밀기, 바깥을 누르면 닫힘. HomeScreen 루트(부모가 화면 전체)에 둔다 —
+ * 칩 줄 가로 ScrollView 안에 두면 잘리고 부모 밖 터치가 막힌다(R1). 웹 값: rounded-2xl border-line bg-white px-3.5 pb-3 pt-2.5 mt-2.
+ */
+export function WeatherPopover({ data, anchor, indoorRequired, onIndoorRequiredChange, onClose }: {
+  data: WeatherData;
+  anchor: PillAnchor;
+  indoorRequired: boolean;
+  onIndoorRequiredChange: (required: boolean) => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const { width: screenW } = useWindowDimensions();
+  const width = Math.min(288, screenW - 32);
+  // 웹 popoverLeft — 칩 왼쪽 끝에 붙이되 오른쪽 16 여백을 넘으면 그만큼 왼쪽으로, 왼쪽 16 안으로.
+  const shift = Math.max(16 - anchor.x, Math.min(0, screenW - 16 - (anchor.x + width)));
+  return (
+    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }}>
+      <RNPressable accessibilityRole="button" accessibilityLabel={t('common.close')} onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+      <View
+        className="absolute rounded-2xl border border-line bg-white px-[14px] pb-[12px] pt-[10px]"
+        style={{ top: anchor.y + anchor.height + 8, left: anchor.x + shift, width, boxShadow: '0px 10px 30px rgba(43, 35, 32, 0.18)' }}
+      >
+        <WeatherDetails data={data} indoorRequired={indoorRequired} onIndoorRequiredChange={onIndoorRequiredChange} />
+      </View>
+    </View>
+  );
+}
+
+/** 옛 홈이 쓰는 자기완결 날씨 칩 — 칩 줄 가로 스크롤 안이라 팝오버 대신 시트로 연다(H3b 가 WeatherPill + WeatherPopover 로 바꾼다). */
+export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoorRequired: boolean; onIndoorRequiredChange: (required: boolean) => void }) {
+  const { t } = useI18n();
+  const data = useWeather();
+  const [open, setOpen] = useState(false);
+  if (!data) return null;
+  return (
+    <>
+      <WeatherPill data={data} expanded={open} onToggle={() => setOpen(true)} />
       <ModalSheet open={open} onClose={() => setOpen(false)} handleLabel={t('common.close')} closeLabel={t('common.close')}>
-        <Text className="text-[14px]" weight="semibold">{summary}</Text>
-        <View className="mt-[10px] flex-row" accessibilityLabel={t('weather.sixHour')}>
-          {data.forecasts.slice(0, 6).map((f) => (
-            <View key={f.at} className="min-h-[64px] flex-1 items-center">
-              <Text className="text-[11px] text-muk-soft">{hourOf(f.at)}</Text>
-              <Text className="my-[2px] text-[18px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{weatherIcon(f)}</Text>
-              <Text className="text-[12px]" weight="semibold">{`${Math.round(f.temperatureC)}°`}</Text>
-            </View>
-          ))}
-        </View>
-        <Text className="mt-[8px] text-[11px] text-muk-soft">{t('weather.observedAt', { time: hourOf(now.at) })}</Text>
-        {data.indoorRecommended || indoorRequired ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: indoorRequired }}
-            onPress={() => onIndoorRequiredChange(!indoorRequired)}
-            className={`mt-[12px] min-h-[44px] flex-row items-center justify-center gap-[8px] rounded-xl border ${indoorRequired ? 'border-jade bg-jade/15' : 'border-gold/50 bg-gold/10'}`}
-          >
-            <Icon icon={Umbrella} size="md" color={indoorRequired ? 'jade' : 'muk'} />
-            <Text className="text-[13px]" weight="bold">{t('setup.indoorOnly')}</Text>
-          </Pressable>
-        ) : null}
+        <WeatherDetails data={data} indoorRequired={indoorRequired} onIndoorRequiredChange={onIndoorRequiredChange} />
       </ModalSheet>
     </>
   );
@@ -107,197 +200,68 @@ export function WeatherChip({ indoorRequired, onIndoorRequiredChange }: { indoor
 
 // ── 축제 ────────────────────────────────────────────────────────────────
 
-export interface FestivalEvent {
-  contentId: string;
-  title: string;
-  startDate: string;
-  endDate: string;
-  address?: string | null;
-  imageUrl?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  tel?: string | null;
-  isOngoing: boolean;
-  overview?: string | null;
-  homepage?: string | null;
-  playtime?: string | null;
-  eventPlace?: string | null;
-  usetimeFestival?: string | null;
-  overviewI18n?: Record<string, string> | null;
-}
-
-const EVENTS_TTL_MS = 6 * 60 * 60 * 1000;
-let eventsCache: { at: number; events: FestivalEvent[] } | null = null;
-let eventsInflight: Promise<FestivalEvent[] | null> | null = null;
-
-/** 화면당 한 번 — 여러 곳이 마운트돼도 같은 요청을 기다린다. 실패는 null('숨김'). */
-function loadFestivalEvents(): Promise<FestivalEvent[] | null> {
-  if (eventsCache && Date.now() - eventsCache.at < EVENTS_TTL_MS) return Promise.resolve(eventsCache.events);
-  if (eventsInflight) return eventsInflight;
-  const request = (async () => {
-    try {
-      const res = await apiClient.get('/api/v1/events');
-      if (res?.source !== 'tourapi' || !Array.isArray(res.events)) return null;
-      eventsCache = { at: Date.now(), events: res.events as FestivalEvent[] };
-      return eventsCache.events;
-    } catch {
-      return null;
-    }
-  })();
-  eventsInflight = request;
-  void request.finally(() => { if (eventsInflight === request) eventsInflight = null; });
-  return request;
-}
-
-function extractHomepageUrl(raw?: string | null): string | null {
-  if (!raw) return null;
-  return String(raw).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null;
-}
-
-export function FestivalChip({ location, onFocus }: { location: Point; onFocus: (event: FestivalEvent) => void }) {
-  const { t, locale } = useI18n();
-  const [events, setEvents] = useState<FestivalEvent[] | null>(null);
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    let cancelled = false;
-    void loadFestivalEvents().then((list) => { if (!cancelled) setEvents(list); });
-    return () => { cancelled = true; };
-  }, []);
-  if (!events || !festivalTriggerVisible('chip', events)) return null;
-  const model = festivalBannerModel(events);
-  const dateLabel = (iso: string) => festivalDateLabel(iso, locale);
-  const distanceText = (ev: FestivalEvent) => {
-    if (ev.latitude == null || ev.longitude == null) return null;
-    const m = haversineMeters(location.lat, location.lng, ev.latitude, ev.longitude);
-    return Number.isFinite(m) ? formatDistance(m) : null;
-  };
-  return (
-    <>
-      {model ? (
-        // 진행 중인 축제가 있으면 한 줄 배너 모양(웹 compact) — 이름은 한국어 원문뿐이라 ko 에서만 쓴다.
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('festival.bannerAria', { title: model.first.title })}
-          onPress={() => setOpen(true)}
-          hitSlop={CHIP_HIT_SLOP} className={`${CHIP} max-w-[260px] border-terracotta/35`}
-        >
-          <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🏮</Text>
-          <Text className="shrink text-[12px]" weight="semibold" numberOfLines={1}>
-            {locale === 'ko' ? model.first.title : t('festival.bannerLabel')}
-          </Text>
-          <Text className="text-[12px] text-muk-soft" numberOfLines={1}>{`· ${t('festival.bannerUntil', { date: dateLabel(model.first.endDate) })}`}</Text>
-        </Pressable>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('festival.chipAria', { n: String(events.length) })}
-          onPress={() => setOpen(true)}
-          hitSlop={CHIP_HIT_SLOP} className={CHIP}
-        >
-          <Text className="text-[13px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">🏮</Text>
-          <Text className="text-[13px] text-muk-soft" weight="medium">{t('festival.chip')}</Text>
-          <Text className="text-[11px] text-gold-deep" weight="bold">{String(events.length)}</Text>
-        </Pressable>
-      )}
-      <ModalSheet open={open} onClose={() => setOpen(false)} handleLabel={t('common.close')} closeLabel={t('common.close')}>
-        <SheetHeader title={`🏮 ${t('festival.title')}`} subtitle={t('festival.subtitle')} />
-        <SheetScrollView style={{ maxHeight: LIST_MAX_HEIGHT }} contentContainerStyle={{ gap: 12 }}>
-          {events.map((ev) => {
-            const place = ev.eventPlace ?? ev.address ?? null;
-            const distance = distanceText(ev);
-            const homepage = extractHomepageUrl(ev.homepage);
-            const aiSummary = locale !== 'ko' ? (ev.overviewI18n?.[locale] ?? null) : null;
-            const overview = aiSummary ?? ev.overview ?? null;
-            const isExpanded = expanded.has(ev.contentId);
-            const poster = toHttpsImageUrl(ev.imageUrl);
-            const tel = telHref(ev.tel);
-            return (
-              <View key={ev.contentId} className="overflow-hidden rounded-2xl border border-line bg-white">
-                {poster ? <Image source={{ uri: poster }} accessibilityIgnoresInvertColors style={{ height: 96, width: '100%' }} contentFit="cover" /> : null}
-                <View className="gap-[8px] p-[14px]">
-                  <View className="flex-row flex-wrap items-center gap-[8px]">
-                    <View className={`rounded-full px-[8px] py-[2px] ${ev.isOngoing ? 'bg-terracotta/15' : 'bg-jade/15'}`}>
-                      <Text className={`text-[11px] ${ev.isOngoing ? 'text-terracotta' : 'text-jade'}`} weight="bold">
-                        {ev.isOngoing ? t('festival.ongoing') : t('festival.upcoming')}
-                      </Text>
-                    </View>
-                    <Icon icon={CalendarDays} size="xs" color="muk-soft" />
-                    <Text className="text-[12px] text-muk-soft">{`${dateLabel(ev.startDate)} ~ ${dateLabel(ev.endDate)}`}</Text>
-                    {distance ? <Text className="text-[12px] text-gold-deep" weight="bold">{distance}</Text> : null}
-                  </View>
-                  <Text className="text-[14px]" weight="bold">{ev.title}</Text>
-                  {place ? (
-                    <View className="flex-row items-start gap-[4px]">
-                      <Icon icon={MapPin} size="xs" color="muk-soft" />
-                      <Text className="flex-1 text-[12px] text-muk-soft">{place}</Text>
-                    </View>
-                  ) : null}
-                  {ev.playtime ? <Text className="text-[12px] text-muk-soft">{`🕐 ${ev.playtime}`}</Text> : null}
-                  {ev.usetimeFestival ? <Text className="text-[12px] text-muk-soft">{`💰 ${ev.usetimeFestival}`}</Text> : null}
-                  {overview ? (
-                    <View className="gap-[4px]">
-                      <Text className="text-[11px] text-muk-soft" weight="bold">
-                        {aiSummary ? `${t('festival.about')} · ${t('festival.aiSummary')}` : t('festival.about')}
-                      </Text>
-                      <Text className="text-[12px] leading-[18px] text-muk-soft" numberOfLines={isExpanded ? undefined : 3}>{overview}</Text>
-                      {overview.length > 90 ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          className="min-h-[44px] justify-center"
-                          onPress={() => setExpanded((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(ev.contentId)) next.delete(ev.contentId); else next.add(ev.contentId);
-                            return next;
-                          })}
-                        >
-                          <Text className="text-[12px] text-gold-deep" weight="bold">{isExpanded ? t('festival.showLess') : t('festival.showMore')}</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                  <View className="flex-row flex-wrap gap-[8px]">
-                    {ev.latitude != null && ev.longitude != null ? (
-                      <>
-                        <ActionPill icon={MapIcon} label={t('compare.showOnMap')} accessibilityLabel={t('festival.showOnMapAria', { title: ev.title })} gold
-                          onPress={() => { onFocus(ev); setOpen(false); }} />
-                        <ActionPill icon={ExternalLink} label={t('festival.openMap')}
-                          onPress={() => void openExternalUrl(`https://map.kakao.com/link/map/${encodeURIComponent(ev.title)},${ev.latitude},${ev.longitude}`)} />
-                      </>
-                    ) : null}
-                    {homepage ? <ActionPill icon={ExternalLink} label={t('festival.homepage')} onPress={() => void openExternalUrl(homepage)} /> : null}
-                    {tel ? <ActionPill icon={Phone} label={t('festival.call')} onPress={() => void Linking.openURL(tel).catch(() => undefined)} /> : null}
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-        </SheetScrollView>
-      </ModalSheet>
-    </>
-  );
-}
-
-function ActionPill({ icon, label, onPress, gold, accessibilityLabel }: {
-  icon: typeof MapIcon; label: string; onPress: () => void; gold?: boolean; accessibilityLabel?: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-      onPress={onPress}
-      className={`min-h-[44px] flex-row items-center gap-[4px] rounded-full border px-[12px] ${gold ? 'border-gold/40 bg-gold/15' : 'border-line bg-hanji-deep'}`}
-    >
-      <Icon icon={icon} size="xs" color={gold ? 'gold-deep' : 'muk-soft'} />
-      <Text className={`text-[12px] ${gold ? 'text-gold-deep' : 'text-muk-soft'}`} weight="bold">{label}</Text>
-    </Pressable>
-  );
+/** 옛 홈이 쓰는 축제 칩 — 이제 웹 chip 모양 하나(한 줄형 제거, G2-13). 시트는 FestivalSheet. */
+export function FestivalChip({ location, onFocus }: { location?: Point | null; onFocus?: (event: FestivalEvent) => void }) {
+  return <FestivalBanner variant="chip" location={location} onFocus={onFocus} />;
 }
 
 // ── 화장실 ──────────────────────────────────────────────────────────────
 
 interface Restroom { id: string; name: string; address: string; latitude: number; longitude: number; distanceM: number; placeUrl: string }
 
+function distanceText(m: number): string {
+  return m < 1000 ? `${m}m` : `${(m / 1000).toFixed(1)}km`;
+}
+
+/** 화장실 시트(G2-18) — 웹 RestroomChip 패널: 막 black/30 · max-h 70vh · max-w-lg · hanji · p-5, 줄 rounded-2xl border-line bg-white/70 p-3. */
+export function RestroomSheet({ open, onClose, items }: { open: boolean; onClose: () => void; items: readonly Restroom[] }) {
+  const { t } = useI18n();
+  const { height } = useWindowDimensions();
+  return (
+    <ModalSheet
+      open={open}
+      onClose={onClose}
+      handleLabel={t('common.close')}
+      closeLabel={t('common.close')}
+      background="hanji"
+      bordered={false}
+      showHandle={false}
+      closeButton="plain"
+      backdrop={{ color: '#000000', opacity: 0.3 }}
+      maxWidth={512}
+      maxHeight={Math.round(height * 0.7)}
+      contentPadding={{ x: 20, top: 20, bottom: 20 }}
+      stackBehavior="push"
+    >
+      <SheetHeader title={t('restroom.title')} subtitle={t('restroom.subtitle')} closeBox={MODAL_SHEET_CLOSE_BOX.plain} />
+      <SheetScrollView style={{ maxHeight: Math.round(height * 0.7) - 130 }} contentContainerStyle={{ gap: 8 }}>
+        {items.map((item) => (
+          <Pressable
+            key={item.id}
+            accessibilityRole="link"
+            accessibilityLabel={`${item.name}, ${distanceText(item.distanceM)}`}
+            onPress={() => {
+              void openKakaoHandoff({ app: null, web: item.placeUrl || `https://map.kakao.com/link/map/${encodeURIComponent(item.name)},${item.latitude},${item.longitude}` });
+            }}
+            className="flex-row items-center justify-between rounded-2xl border border-line p-[12px]"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.7)' }}
+          >
+            <View className="min-w-0 flex-1">
+              <Text className="text-[14px]" weight="bold" numberOfLines={1}>{item.name}</Text>
+              <Text className="text-[12px] text-muk-soft" numberOfLines={1}>{item.address}</Text>
+            </View>
+            <View className="ml-[12px] flex-row items-center gap-[4px]">
+              <Icon icon={MapPin} size={13} color="gold-deep" />
+              <Text className="text-[12px] text-gold-deep" weight="bold">{distanceText(item.distanceM)}</Text>
+            </View>
+          </Pressable>
+        ))}
+      </SheetScrollView>
+    </ModalSheet>
+  );
+}
+
+/** 화장실 칩 — 웹 모양(흰 80% 알약 · Toilet 15 · 13 medium). 3km 안 화장실이 없으면 숨는다. */
 export function RestroomChip({ location }: { location: Point }) {
   const { t } = useI18n();
   const [items, setItems] = useState<Restroom[]>([]);
@@ -312,41 +276,25 @@ export function RestroomChip({ location }: { location: Point }) {
   if (!items.length) return null;
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('restroom.chipAria', { n: items.length })} onPress={() => setOpen(true)} hitSlop={CHIP_HIT_SLOP} className={CHIP}>
-        <Icon icon={Toilet} size="sm" color="muk-soft" />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('restroom.chipAria', { n: items.length })}
+        onPress={() => setOpen(true)}
+        hitSlop={CHIP_HIT_SLOP}
+        className={SHEET_CHIP_CLASS}
+        style={SHEET_CHIP_STYLE}
+      >
+        <Icon icon={Toilet} size={15} color="muk-soft" />
         <Text className="text-[13px] text-muk-soft" weight="medium">{`${t('restroom.chip')} ${items.length}`}</Text>
       </Pressable>
-      <ModalSheet open={open} onClose={() => setOpen(false)} handleLabel={t('common.close')} closeLabel={t('common.close')}>
-        <SheetHeader title={t('restroom.title')} subtitle={t('restroom.subtitle')} />
-        <SheetScrollView style={{ maxHeight: LIST_MAX_HEIGHT }} contentContainerStyle={{ gap: 8 }}>
-          {items.map((item) => (
-            <Pressable
-              key={item.id}
-              accessibilityRole="link"
-              accessibilityLabel={`${item.name}, ${item.distanceM < 1000 ? `${item.distanceM}m` : `${(item.distanceM / 1000).toFixed(1)}km`}`}
-              onPress={() => {
-                const handoff = { app: null, web: item.placeUrl || `https://map.kakao.com/link/map/${encodeURIComponent(item.name)},${item.latitude},${item.longitude}` };
-                void openKakaoHandoff(handoff);
-              }}
-              className="min-h-[56px] flex-row items-center justify-between gap-[12px] rounded-2xl border border-line bg-white px-[12px] py-[10px]"
-            >
-              <View className="min-w-0 flex-1">
-                <Text className="text-[14px]" weight="bold" numberOfLines={1}>{item.name}</Text>
-                <Text className="text-[12px] text-muk-soft" numberOfLines={1}>{item.address}</Text>
-              </View>
-              <Text className="text-[12px] text-gold-deep" weight="bold">
-                {item.distanceM < 1000 ? `${item.distanceM}m` : `${(item.distanceM / 1000).toFixed(1)}km`}
-              </Text>
-            </Pressable>
-          ))}
-        </SheetScrollView>
-      </ModalSheet>
+      <RestroomSheet open={open} onClose={() => setOpen(false)} items={items} />
     </>
   );
 }
 
 // ── 지금 한산 ───────────────────────────────────────────────────────────
 
+/** 폰 폭(<1024)에서는 그리지 않는다(웹 lg 이상만, G2-13) — H3b 가 홈 호출을 뺀다. 그때까지는 옛 홈이 부른다. */
 export function CalmChip({ facilities, location, onFocus }: { facilities: readonly HomeFacility[]; location: Point; onFocus: (spot: CalmSpot) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
