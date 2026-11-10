@@ -78,7 +78,7 @@ export function SavedCard({ bookmark, rank, now, selected, onOpen, onDelete }: S
     // 두 겹 — 바깥은 그림자, 안쪽은 overflow hidden(안드로이드는 같은 View 의 overflow 가 그림자를 자른다).
     <View className="rounded-2xl" style={{ boxShadow: shadows.card }}>
       <View className={`overflow-hidden rounded-2xl border ${selected ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>
-        <Pressable accessibilityRole="button" accessibilityLabel={summary} onPress={onOpen} className="min-h-[44px] p-[16px]">
+        <Pressable accessibilityRole="button" accessibilityLabel={summary} onPress={onOpen} className="min-h-[44px] px-[16px] pt-[16px]">
           {/* 웹 absolute top-3 left-3 — 카드 안쪽 모서리 */}
           <RankBadge rank={rank} size={32} style={{ position: 'absolute', top: 12, left: 12 }} />
           {/* 오른쪽 위 삭제 버튼(44 + 여백 4) 자리 — 이름 줄 오른쪽 여백 48 (R2: 52 아님) */}
@@ -135,8 +135,11 @@ export function SavedCard({ bookmark, rank, now, selected, onOpen, onDelete }: S
               {tl.service ? <TimelineNode dot="bg-gold" time={clockText(tl.service)} label={secondLabel} /> : null}
             </View>
           </View>
-          <GoldenHourBadge facilityId={bookmark.id} className="mt-[8px]" />
         </Pressable>
+        {/* 골든타임 배지(알림 받기 버튼 포함)는 카드 Pressable 밖 형제 — 안에 두면 읽기 화면이 묶어 버려 버튼에 닿지 못한다(F1). */}
+        <View className="px-[16px] pb-[16px]">
+          <GoldenHourBadge facilityId={bookmark.id} className="mt-[8px]" />
+        </View>
         {/* 삭제 — 카드 눌림과 별개의 버튼(중첩 Pressable 이 아니라 형제). 웹 폰 44×44 · 위 16 · 오른쪽 20 · 아이콘 16 */}
         <Pressable
           accessibilityRole="button"
