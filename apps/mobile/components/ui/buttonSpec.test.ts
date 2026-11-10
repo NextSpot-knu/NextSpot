@@ -6,6 +6,7 @@ import {
   BUTTON_DEFAULTS,
   LABEL_CLASS,
   VARIANT_SURFACE,
+  defaultHitSlopY,
   defaultPaddingX,
   paddingYFor,
   shadowFor,
@@ -46,5 +47,10 @@ assert.deepEqual(splitLegacyLayout(undefined), { className: undefined });
 assert.equal(splitLegacyLayout('flex-1').minHeight, undefined);
 // px-[…] 만 읽는다 — py-[…]·pl-[…] 은 그대로.
 assert.equal(splitLegacyLayout('py-[8px] pl-[4px]').className, 'py-[8px] pl-[4px]');
+
+assert.equal(defaultHitSlopY(30), 7);
+assert.equal(defaultHitSlopY(36), 4);
+assert.equal(defaultHitSlopY(44), 0);
+assert.equal(defaultHitSlopY(56), 0);
 
 console.log('buttonSpec ok');

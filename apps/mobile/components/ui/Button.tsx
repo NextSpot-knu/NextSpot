@@ -11,6 +11,7 @@ import {
   VARIANT_COLOR,
   VARIANT_SURFACE,
   VARIANT_TEXT_CLASS,
+  defaultHitSlopY,
   defaultPaddingX,
   paddingYFor,
   shadowFor,
@@ -96,12 +97,14 @@ export function Button({
   trailing,
   accessibilityLabel,
   accessibilityHint,
+  hitSlop,
   ...rest
 }: ButtonProps) {
   const inactive = disabled || loading;
   const legacy = splitLegacyLayout(className);
   const minHeight = size ?? legacy.minHeight ?? BUTTON_DEFAULTS.size;
   const px = paddingX ?? legacy.paddingX ?? defaultPaddingX(minHeight);
+  const slopY = defaultHitSlopY(minHeight);
   const color = VARIANT_COLOR[variant];
   const boxShadow = shadowFor(shadow, variant, inactive);
   const spinning = loading && showSpinner;
@@ -112,6 +115,8 @@ export function Button({
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
+      // 30·36pt 버튼은 위아래 탭 영역을 넓혀 44pt 를 채운다(호출자가 hitSlop 을 주면 그것이 이긴다).
+      hitSlop={hitSlop ?? (slopY ? { top: slopY, bottom: slopY, left: 0, right: 0 } : undefined)}
       className={cn(
         'flex-row items-center justify-center overflow-hidden',
         SHAPE_CLASS[shape],

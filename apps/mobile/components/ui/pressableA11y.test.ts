@@ -15,4 +15,8 @@ assert.deepEqual(webAriaProps('button', { busy: false, disabled: true }), {});
 assert.deepEqual(webAriaProps('button', undefined), {});
 assert.deepEqual(webAriaProps('button', { selected: true, expanded: true }), { 'aria-pressed': true, 'aria-expanded': true });
 
+assert.deepEqual(webAriaProps('radio', { selected: true }), { 'aria-checked': true });
+assert.deepEqual(webAriaProps('checkbox', { selected: false }), { 'aria-checked': false });
+assert.deepEqual(webAriaProps('radio', { selected: true, checked: false }), { 'aria-checked': false });
+
 console.log('pressableA11y ok');

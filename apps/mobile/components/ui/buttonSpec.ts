@@ -108,3 +108,8 @@ export function splitLegacyLayout(className: string | undefined): {
   }
   return { className: rest.length ? rest.join(' ') : undefined, minHeight, paddingX };
 }
+
+/** 44pt 에 못 미치는 높이(30·36)의 위아래 탭 영역 넓힘 = (44 − minHeight)/2. 44 이상이면 0. */
+export function defaultHitSlopY(minHeight: number): number {
+  return minHeight >= 44 ? 0 : (44 - minHeight) / 2;
+}
