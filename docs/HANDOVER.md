@@ -62,7 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
-   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 i7 에서 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
+   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, §3 결정 D1~D19 답 대기 → §5 묶음 A1 부터)**. 묶음 A1 의 모달 시트 버그(`Sheet.tsx` 첫 마운트 dismiss — 필터·날씨·축제·화장실·지금 한산·묶음 핀·혼잡 제보 시트가 안드로이드에서도 안 열릴 가능성)는 동등성과 별개인 앱 버그라 먼저 고친다. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -303,6 +303,14 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-11-10c — 웹 ↔ Expo 화면 동등성 비교 · 차이 252건 기록 · 구현 계획(결정 답 대기)
+
+- 도구·브랜치: Claude Code(i7, 인벤토리·하네스 각 1 · 비교 7 · 독립 검토 3 · 종합 1) / `yunseong` · 이 기록 + `docs/MOBILE_WEB_PARITY.md` · `docs/parity/*`(발견 7 · 검토 3). 앱 코드 변경 없음.
+- 한 것: 사용자 요청 — 웹앱을 폰 비율로 띄워 Expo 앱과 1대1 비교, 차이를 전부 적고 고칠 방법까지. Playwright 하네스(390×844, 웹 정적 빌드 `localhost:3000` ↔ Expo 웹 빌드)로 화면 짝 약 460장을 찍어 G1~G5b 7묶음 235건 + 검토 17건 = 252건(P0 61 · P1 129 · P2 62, 결정 필요 69 · 네이티브 확인 34 — 계획 §2). 검토가 발견을 이기고 계획 §4.3 이 둘을 이긴다. 웹 빌드는 `NEXT_PUBLIC_FASTAPI_URL` 을 운영 API 로 덮어 다시 빌드해 썼다(로컬 `.env.local` 은 `localhost:8000`).
+- 운영 안전: 쓰기는 하네스가 가짜 응답으로 막았다. 운영에 닿은 것 = 익명 게스트 1명 · 추천/코스 POST 9회(노출 행 약 27 · 선호 벡터 1, 이후 전부 fixture 재생). 코스 fixture 재기록은 권한 검사에서 막혀 하지 않았다. EAS Hosting 무료 등급이 동시 접속에 429 를 내 비교 중에는 Expo 화면을 로컬 export 로 서빙했다(디자이너 링크 영향 없음).
+- 다음·미결: 사용자가 계획 §3.5 양식으로 결정 → 묶음 A1(모달 시트·Card)·A2(SPOT ×100 · 직접 고른 곳 도보 1분 · 킵 북마크 점수)부터. 하네스·스크린샷·fixture 는 i7 `scratch/parity/`(git 제외, 갤북엔 없음). 재촬영 전 Expo 웹을 `scratch/parity/expo-dist` 로 다시 export.
+- 사람 작업: 없음(결정 답만).
 
 ## 2026-11-10b — Play 주력 Expo 로 복귀 · 웹 판 추천 마커 0px 수정·재배포 · 카카오·Render 도메인 확인
 
