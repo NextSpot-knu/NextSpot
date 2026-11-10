@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
+  AccessibilityInfo,
   Platform,
   Pressable,
   ScrollView,
@@ -23,12 +24,13 @@ import {
   View,
   type LayoutChangeEvent,
   type StyleProp,
+  type Text as RNText,
   type ViewStyle,
 } from 'react-native';
 import MapView, { Circle, Marker, Polyline, type MapPressEvent, type Region as RNRegion } from 'react-native-maps';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop, SvgXml } from 'react-native-svg';
+import { SvgXml } from 'react-native-svg';
 
 import { REGION } from '@/lib/region';
 import { colors, fontFamilies } from '~/lib/theme/tokens';
@@ -45,6 +47,7 @@ import {
   regionCenteredInBand,
   regionForKakaoLevel,
   regionFromCorners,
+  metersPerPixel,
   regionInsidePadding,
   regionOutsidePadding,
   type EdgePadding,
@@ -65,7 +68,8 @@ import {
   SEARCH_LABEL_SHADOW_PAD,
   searchLabelAnchor,
   USER_DOT,
-  userHaloStops,
+  haloGlowRings,
+  USER_DOT_NATIVE_MARKER,
   type MarkerAnchorKind,
 } from './pins';
 import type {
@@ -340,7 +344,10 @@ export function NextSpotMap({
     if (!MAP_AVAILABLE) onUnavailableRef.current?.();
   }, []);
 
-  // 패딩이 바뀌면 구글은 패딩 안쪽 가운데를 지킨다 — 상자 전체에서 보던 영역을 그대로 다시 맞춘다(지도가 밀리지 않게).
+  // 패딩이 바뀌면 react-native-maps(applyBaseMapPadding)는 카메라 '가운데 좌표'를 지킨 채 패딩만 바꾼다(즉시 moveCamera 한 번).
+  // 그 가운데는 패딩 안쪽 사각형의 가운데라, 상자 전체로 보면 지도가 패딩 변화의 절반만큼 밀린다. 그래서 상자 전체에서 보던 영역으로
+  // 즉시(0ms) 한 번 더 맞춘다 — 카메라 이동이 두 번(둘 다 애니메이션 없음)이지만 앞의 것을 막을 방법이 없고, 빼면 지도가 밀린다.
+  // 카드 높이처럼 자주 바뀌는 값을 넘길 때는 호출부가 값을 안정시켜(예: 접힘·펼침 두 값) 넘긴다.
   const appliedPaddingKeyRef = useRef(paddingKey);
   useEffect(() => {
     if (appliedPaddingKeyRef.current === paddingKey) return;
@@ -348,13 +355,33 @@ export function NextSpotMap({
     if (readyRef.current) moveTo(regionRef.current, 0);
   }, [paddingKey, moveTo]);
 
+  // ── 내 위치 번짐 축척 ──
+  // 번짐은 누를 수 없는 지도 원(미터)으로 그리므로, 웹의 100px 를 지금 축척(m/dp)으로 바꿔 둔다. 지도가 멈출 때마다 갱신한다
+  // (손가락으로 확대·축소하는 동안은 원이 지도와 함께 커지고 작아졌다가, 멈추면 100dp 로 돌아온다).
+  const showsHalo = !!userLocation && userLocation.variant !== 'plain';
+  const showsHaloRef = useRef(showsHalo);
+  showsHaloRef.current = showsHalo;
+  const [haloMpp, setHaloMpp] = useState<number | null>(null);
+  const syncHaloScale = useCallback(() => {
+    if (!showsHaloRef.current) return;
+    const size = sizeRef.current;
+    if (!size || size.width <= 0 || size.height <= 0) return;
+    const mpp = metersPerPixel(regionRef.current, size);
+    if (!Number.isFinite(mpp) || mpp <= 0) return;
+    setHaloMpp((prev) => (prev !== null && Math.abs(prev - mpp) / mpp < 0.01 ? prev : mpp));
+  }, []);
+  useEffect(() => {
+    if (showsHalo) syncHaloScale();
+  }, [showsHalo, syncHaloScale]);
+
   const handleLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     const prev = sizeRef.current;
     sizeRef.current = { width, height };
+    syncHaloScale();
     // 상자 크기가 처음 정해지거나 바뀌면 핀 겹침을 다시 계산하도록 알린다.
     if (readyRef.current && (!prev || prev.width !== width || prev.height !== height)) emitViewport(false);
-  }, [emitViewport]);
+  }, [emitViewport, syncHaloScale]);
 
   const handleReady = useCallback(() => {
     readyRef.current = true;
@@ -371,24 +398,35 @@ export function NextSpotMap({
     map.getMapBoundaries()
       .then(({ northEast, southWest }) => {
         if (northEast && southWest) regionRef.current = regionFromCorners(northEast, southWest);
+        syncHaloScale();
         emitViewport(false);
       })
       .catch(() => emitViewport(false));
-  }, [activePadding, emitViewport, moveTo, onMapReady]);
+  }, [activePadding, emitViewport, moveTo, onMapReady, syncHaloScale]);
 
   const handleRegionComplete = useCallback((region: RNRegion, details?: { isGesture?: boolean }) => {
     rawRegionRef.current = region;
     regionRef.current = fromProvider(region);
+    syncHaloScale();
     emitViewport(details?.isGesture === true);
     probeProviderPadding(region);
     if (popoverRef.current) refreshPopoverRef.current();
-  }, [emitViewport, fromProvider, probeProviderPadding]);
+  }, [emitViewport, fromProvider, probeProviderPadding, syncHaloScale]);
 
   const handleMapPress = useCallback((e: MapPressEvent) => {
     if (!onMapPress) return;
     if (e.nativeEvent.action === 'marker-press') return;
     if (Date.now() - lastMarkerTapRef.current < MARKER_TAP_GUARD_MS) return;
     onMapPress(e.nativeEvent.coordinate);
+  }, [onMapPress]);
+
+  /**
+   * 웹에서 누를 수 없는 마커(내 위치 점 — pointer-events:none · 검색 이름표 — clickable:false)를 눌렀다.
+   * 안드로이드는 마커 탭을 지도로 넘기지 않으므로(onMarkerClick 이 먹는다) 빈 지도 탭으로 바꿔 알린다(좌표는 마커 자리).
+   */
+  const handlePassThroughPress = useCallback((coordinate: LatLng) => {
+    lastMarkerTapRef.current = Date.now();
+    onMapPress?.(coordinate);
   }, [onMapPress]);
 
   const handleMarkerPress = useCallback((marker: NextSpotMarker) => {
@@ -451,9 +489,20 @@ export function NextSpotMap({
             zIndex={p.zIndex ?? 2}
           />
         ))}
-        {userLocation ? <UserDot location={userLocation} /> : null}
+        {userLocation ? (
+          <UserDot
+            location={userLocation}
+            haloMpp={haloMpp}
+            onPassThrough={interactive ? handlePassThroughPress : undefined}
+          />
+        ) : null}
         {markers.map((m) => (
-          <MarkerView key={m.id} marker={m} onPress={interactive ? handleMarkerPress : undefined} />
+          <MarkerView
+            key={m.id}
+            marker={m}
+            onPress={interactive ? handleMarkerPress : undefined}
+            onPassThrough={interactive ? handlePassThroughPress : undefined}
+          />
         ))}
       </MapView>
       {popover ? <PopoverView popover={popover} point={popoverPoint} onPick={onPopoverPick} /> : null}
@@ -551,7 +600,16 @@ function TrackedMarker({
 
 const SEARCH_ANCHOR = searchLabelAnchor(SEARCH_LABEL_SHADOW_PAD);
 
-function MarkerView({ marker, onPress }: { marker: NextSpotMarker; onPress?: (m: NextSpotMarker) => void }) {
+function MarkerView({
+  marker,
+  onPress,
+  onPassThrough,
+}: {
+  marker: NextSpotMarker;
+  onPress?: (m: NextSpotMarker) => void;
+  /** 웹에서 누를 수 없는 마커(검색 이름표)의 탭 — 빈 지도 탭으로 넘긴다. */
+  onPassThrough?: (coordinate: LatLng) => void;
+}) {
   const press = onPress ? () => onPress(marker) : undefined;
   switch (marker.kind) {
     case 'pin': {
@@ -622,7 +680,8 @@ function MarkerView({ marker, onPress }: { marker: NextSpotMarker; onPress?: (m:
     }
     case 'label':
       if (marker.variant === 'search') {
-        // 웹 검색 이름표 — 누를 수 없다(clickable:false). 그림자가 잘리지 않게 투명 여백을 두르고 앵커를 그만큼 옮긴다.
+        // 웹 검색 이름표 — 누를 수 없다(clickable:false). 안드로이드는 마커 탭을 지도로 넘기지 않아, 누르면 빈 지도 탭으로 넘긴다.
+        // 그림자 여백(SEARCH_LABEL_SHADOW_PAD)은 작게 — 그림 전체가 누름을 받는다.
         return (
           <TrackedMarker
             coordinate={marker.coordinate}
@@ -632,6 +691,7 @@ function MarkerView({ marker, onPress }: { marker: NextSpotMarker; onPress?: (m:
             height={SEARCH_LABEL_HEIGHT}
             zIndex={marker.zIndex ?? 80}
             title={marker.title ?? marker.text}
+            onPress={onPassThrough ? () => onPassThrough(marker.coordinate) : undefined}
           >
             <View style={styles.searchLabelPad}>
               <View style={styles.searchLabel}>
@@ -666,48 +726,76 @@ function PinGraphic({ xml, width, height }: { xml: string; width: number; height
   return useMemo(() => <SvgXml xml={xml} width={width} height={height} />, [xml, width, height]);
 }
 
-const HALO_STOPS = userHaloStops();
+/** 번짐 원 겹(바깥 → 안쪽)과 금색 rgba — 모듈에서 한 번 계산한다. */
+const HALO_RINGS = haloGlowRings().map((r) => ({ ...r, fill: `rgba(193, 154, 62, ${r.opacity.toFixed(4)})` }));
+/** 번짐 원 zIndex — 축제 원(1)·선(2) 위, 마커(늘 원 위)는 그대로. 안쪽 원일수록 위. */
+const HALO_Z = 3;
 
-/** 웹 금빛 번짐(radial-gradient)의 정적 판 — 맥박은 없다(구글 마커는 비트맵으로 굳는다). */
-function HaloGlow({ size }: { size: number }) {
+/**
+ * 웹 금빛 번짐(radial-gradient, 지름 100)을 누를 수 없는 지도 원 겹으로 — 마커 그림으로 그리면 안드로이드가 100 상자 전체로 탭을 먹는다.
+ * 원은 미터 단위라 지금 축척(m/dp)으로 100dp 를 바꿔 그리고, 맥박은 없다(웹 빌드만 맥박).
+ */
+function HaloGlow({ center, mpp }: { center: LatLng; mpp: number }) {
+  const radiusM = (USER_DOT.halo.outer / 2) * mpp;
   return (
-    <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-      <Defs>
-        <RadialGradient id="nextspotUserHalo" cx="50%" cy="50%" r="50%">
-          {HALO_STOPS.map((s) => (
-            <Stop key={s.offset} offset={s.offset} stopColor={MAP_COLORS.gold} stopOpacity={s.opacity} />
-          ))}
-        </RadialGradient>
-      </Defs>
-      <SvgCircle cx={size / 2} cy={size / 2} r={size / 2} fill="url(#nextspotUserHalo)" />
-    </Svg>
+    <>
+      {HALO_RINGS.map((r, i) => (
+        <Circle
+          key={r.radius}
+          center={center}
+          radius={radiusM * r.radius}
+          fillColor={r.fill}
+          strokeColor="transparent"
+          strokeWidth={0}
+          // 구글 Circle 은 기본으로 누를 수 없다(CircleOptions clickable=false) — 탭은 지도(onPress)로 간다.
+          zIndex={HALO_Z + i}
+        />
+      ))}
+    </>
   );
 }
 
-function UserDot({ location }: { location: UserLocationDot }) {
-  const coordinate = { latitude: location.latitude, longitude: location.longitude };
+function UserDot({
+  location,
+  haloMpp,
+  onPassThrough,
+}: {
+  location: UserLocationDot;
+  /** 지금 축척(m/dp) — 번짐 원 반지름을 정한다. 아직 모르면 번짐 없이 점만. */
+  haloMpp: number | null;
+  /** 웹에서 내 위치 점은 누를 수 없다(pointer-events:none) — 누르면 빈 지도 탭으로 넘긴다. */
+  onPassThrough?: (coordinate: LatLng) => void;
+}) {
+  const coordinate = useMemo(
+    () => ({ latitude: location.latitude, longitude: location.longitude }),
+    [location.latitude, location.longitude],
+  );
+  const pass = onPassThrough ? () => onPassThrough(coordinate) : undefined;
   if (location.variant === 'plain') {
     // 웹 CourseMap: 14 상자(border-box)에 흰 테 3 → 먹 8, 바깥 번짐 4(0 0 0 4px 먹 .15). RN 도 테두리가 상자 안이다.
     const { core, border, outer } = USER_DOT.plain;
     const d = core + border * 2;
     return (
-      <TrackedMarker coordinate={coordinate} contentKey="plain" anchorKind="center" height={outer} zIndex={40}>
+      <TrackedMarker coordinate={coordinate} contentKey="plain" anchorKind="center" height={outer} zIndex={40} onPress={pass}>
         <View style={[styles.center, { width: outer, height: outer, borderRadius: outer / 2, backgroundColor: 'rgba(43,35,32,0.15)' }]}>
           <View style={{ width: d, height: d, borderRadius: d / 2, backgroundColor: MAP_COLORS.muk, borderWidth: border, borderColor: MAP_COLORS.white }} />
         </View>
       </TrackedMarker>
     );
   }
-  const { outer, ring, core } = USER_DOT.halo;
+  const { ring, core } = USER_DOT.halo;
+  const box = USER_DOT_NATIVE_MARKER; // 흰 원 28 + 그림자 여백 — 탭을 먹는 자리를 점 둘레로 줄인다
   return (
-    <TrackedMarker coordinate={coordinate} contentKey="halo" anchorKind="center" height={outer} zIndex={10}>
-      <View style={[styles.center, { width: outer, height: outer }]}>
-        <HaloGlow size={outer} />
-        <View style={[styles.center, styles.userRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
-          <View style={{ width: core, height: core, borderRadius: core / 2, backgroundColor: MAP_COLORS.gold }} />
+    <>
+      {haloMpp !== null ? <HaloGlow center={coordinate} mpp={haloMpp} /> : null}
+      <TrackedMarker coordinate={coordinate} contentKey="halo" anchorKind="center" height={box} zIndex={10} onPress={pass}>
+        <View style={[styles.center, { width: box, height: box }]}>
+          <View style={[styles.center, styles.userRing, { width: ring, height: ring, borderRadius: ring / 2 }]}>
+            <View style={{ width: core, height: core, borderRadius: core / 2, backgroundColor: MAP_COLORS.gold }} />
+          </View>
         </View>
-      </View>
-    </TrackedMarker>
+      </TrackedMarker>
+    </>
   );
 }
 
@@ -726,13 +814,33 @@ function PopoverView({ popover, point, onPick }: { popover: MapPopover; point: S
   const visible = point !== null && box !== null;
   const tx = visible ? point.x - box.width / 2 : 0;
   const ty = visible ? point.y - box.height * POPOVER_Y_ANCHOR : 0;
+  // 열리면(자리가 처음 잡히면) 화면 낭독 초점을 머리 줄로 옮긴다 — 지도 위에 새로 뜬 목록을 TalkBack 이 바로 읽게.
+  // 초점을 못 옮기면 제목을 알린다. 같은 말풍선에서는 한 번만.
+  const titleRef = useRef<RNText>(null);
+  const announcedKeyRef = useRef<string | null>(null);
+  const openKey = `${popover.coordinate.latitude}|${popover.coordinate.longitude}|${popover.title}`;
+  useEffect(() => {
+    if (!visible || announcedKeyRef.current === openKey) return;
+    announcedKeyRef.current = openKey;
+    const title = titleRef.current;
+    if (title) AccessibilityInfo.sendAccessibilityEvent(title, 'focus');
+    else AccessibilityInfo.announceForAccessibility(popover.title);
+  }, [visible, openKey, popover.title]);
   return (
     <View
       onLayout={handleLayout}
       pointerEvents={visible ? 'auto' : 'none'}
+      // 자리를 잡기 전(투명)에는 화면 낭독에서도 숨긴다.
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+      accessibilityElementsHidden={!visible}
       style={[styles.popover, { opacity: visible ? 1 : 0, transform: [{ translateX: tx }, { translateY: ty }] }]}
     >
-      <AppText className="text-[11px] font-bold text-gold-deep" style={styles.popoverTitle} accessibilityRole="header">
+      <AppText
+        ref={titleRef}
+        className="text-[11px] font-bold text-gold-deep"
+        style={styles.popoverTitle}
+        accessibilityRole="header"
+      >
         {popover.title}
       </AppText>
       <ScrollView style={styles.popoverList} contentContainerStyle={styles.popoverListContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
@@ -822,7 +930,8 @@ const styles = StyleSheet.create({
   },
   popoverList: { flexGrow: 0, flexShrink: 1 },
   popoverListContent: { gap: 4 },
-  popoverItem: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  // 웹 py-2.5 줄은 약 36 — 앱은 탭 영역 44 를 지킨다(DESIGN_PRINCIPLES 탭 영역).
+  popoverItem: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
   popoverItemPressed: { backgroundColor: colors['hanji-deep'] },
   popoverItemText: { lineHeight: 16.5 },
 });

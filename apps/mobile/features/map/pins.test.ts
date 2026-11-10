@@ -14,8 +14,12 @@ import {
   svgXmlFromDataUri,
   USER_DOT,
   userHaloStops,
+  haloGlowRings,
+  userHaloOpacityAt,
+  USER_DOT_NATIVE_MARKER,
 } from './pins';
 
+const near = (a: number, b: number, eps: number, msg = '') => assert.ok(Math.abs(a - b) <= eps, `${msg} ${a} ≈ ${b}`);
 const now = new Date('2026-11-02T03:00:00Z');
 const fresh = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
 
@@ -93,5 +97,23 @@ assert.deepEqual(markerAnchor('center', 20).anchor, { x: 0.5, y: 0.5 });
   assert.ok(stops[2].opacity > 0.05 && stops[2].opacity < 0.07);
 }
 assert.equal(MAP_UNAVAILABLE_GRADIENT.length, 3);
+
+// 네이티브 번짐 원 겹 — 바깥부터, 띠마다 합성 투명도가 웹 번짐의 띠 가운데 값과 같다.
+{
+  assert.ok(USER_DOT_NATIVE_MARKER < USER_DOT.halo.outer && USER_DOT_NATIVE_MARKER >= USER_DOT.halo.ring, '탭 자리는 흰 원 둘레만');
+  near(userHaloOpacityAt(0), 0.6, 1e-12);
+  near(userHaloOpacityAt(Math.SQRT1_2), 0.2, 1e-12);
+  const rings = haloGlowRings(8);
+  assert.equal(rings.length, 8);
+  assert.equal(rings[0].radius, 1);
+  assert.equal(rings[7].radius, 1 / 8);
+  for (const r of rings) assert.ok(r.opacity >= 0 && r.opacity < 1);
+  for (let b = 1; b <= 8; b++) {
+    // 띠 b 를 덮는 원 = 반지름 ≥ b/8
+    const covering = rings.filter((r) => r.radius >= b / 8 - 1e-12);
+    const composite = 1 - covering.reduce((acc, r) => acc * (1 - r.opacity), 1);
+    near(composite, userHaloOpacityAt((b - 0.5) / 8), 1e-9, `띠 ${b}`);
+  }
+}
 
 console.log('pins.test OK');

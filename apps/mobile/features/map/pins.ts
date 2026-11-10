@@ -49,7 +49,8 @@ export const MAP_UNAVAILABLE_GRADIENT = ['rgba(241, 231, 211, 0.7)', 'rgba(241, 
 /**
  * 내 위치 점 크기(dp).
  * - halo = 웹 /main(`page.tsx` user-loc-marker): 100 상자 금빛 번짐 + 흰 원 28(그림자 0 0 10 먹 .25) + 금 점 14.
- *   웹 빌드는 웹처럼 맥박(1.2초)을 돌리고, 네이티브는 정적 번짐이다(구글 마커는 600ms 뒤 비트맵으로 굳는다 — tracksViewChanges).
+ *   웹 빌드는 웹처럼 맥박(1.2초)을 돌리고, 네이티브는 정적 번짐이다 — 누를 수 없는 지도 원 겹(haloGlowRings)으로 그리고,
+ *   마커 그림은 흰 원 둘레(USER_DOT_NATIVE_MARKER)만 쓴다.
  * - plain = 코스(`CourseMap.tsx` 사용자 점): 14 상자(border-box) 안 먹 8 + 흰 테 3, 번짐 4(0 0 0 4px 먹 .15 → 바깥 22).
  */
 export const USER_DOT = {
@@ -62,7 +63,7 @@ export const USER_HALO_CSS_GRADIENT =
   'radial-gradient(circle, rgba(193,154,62,0.6) 0%, rgba(193,154,62,0.2) 50%, rgba(193,154,62,0) 80%)';
 
 /**
- * 웹 번짐을 반지름 r 원의 RadialGradient 정지점으로(네이티브 react-native-svg, 오프셋은 원 반지름 기준 0~1).
+ * 웹 번짐을 반지름 r 원의 정지점으로(오프셋은 원 반지름 기준 0~1 — 네이티브 원 겹 haloGlowRings 가 쓴다).
  * CSS `radial-gradient(circle, …)` 의 크기는 farthest-corner — 정사각 상자에서 반지름 √2·r 이다. 상자는 원(r)으로 잘리므로
  * 정지점 0 · 50% · 80% 를 원 반지름 기준으로 다시 재고, 원 끝(1)의 투명도는 그 구간을 선형으로 이어 구한다.
  */
@@ -90,6 +91,47 @@ export function userHaloStops(): { offset: number; opacity: number }[] {
 }
 
 /**
+ * 네이티브 내 위치 점의 마커 그림 크기(dp) — 흰 원 28 + 그림자 여백. 번짐(100)은 마커에 넣지 않는다:
+ * 안드로이드 react-native-maps 는 모든 마커 탭을 받고(onMarkerClick — tappable 은 마커에 안 먹는다) 구글은 그림 전체로 누름을 판정해,
+ * 100 그림이면 점 둘레의 핀·빈 지도 탭을 삼켰다(웹은 pointer-events:none). 번짐은 누를 수 없는 Circle 겹(haloGlowRings)으로 그린다.
+ */
+export const USER_DOT_NATIVE_MARKER = 40;
+
+/** 지도 원 겹으로 번짐을 그릴 때의 띠 수. */
+export const HALO_GLOW_BANDS = 8;
+
+/** userHaloStops 를 원 반지름 비율 t(0~1)에서 읽는다(선형). */
+export function userHaloOpacityAt(t: number): number {
+  const stops = userHaloStops();
+  if (t <= stops[0].offset) return stops[0].opacity;
+  for (let i = 1; i < stops.length; i++) {
+    const a = stops[i - 1];
+    const b = stops[i];
+    if (t <= b.offset) return a.opacity + ((b.opacity - a.opacity) * (t - a.offset)) / (b.offset - a.offset || 1);
+  }
+  return stops[stops.length - 1].opacity;
+}
+
+/**
+ * 웹 금빛 번짐을 겹친 원 n 개로 — 지도 Circle 은 그라데이션을 못 그리므로, 반지름 k/n(k = n…1, 바깥부터) 원을 겹쳐
+ * 띠 b 의 합성 투명도 1 − Π(1 − a_k)(k ≥ b)가 웹 번짐의 띠 가운데 값이 되게 a_k 를 고른다(안쪽일수록 진하다).
+ * 돌려주는 순서 = 그리는 순서(바깥 → 안쪽). radius 는 번짐 반지름에 대한 비율.
+ */
+export function haloGlowRings(bands: number = HALO_GLOW_BANDS): { radius: number; opacity: number }[] {
+  const n = Math.max(1, Math.floor(bands));
+  const target = (b: number) => userHaloOpacityAt((b - 0.5) / n); // 띠 b(1 = 가장 안쪽)의 가운데
+  const rings: { radius: number; opacity: number }[] = [];
+  let outside = 0; // 바깥 원들이 이미 만든 합성 투명도
+  for (let k = n; k >= 1; k--) {
+    const want = target(k);
+    const a = outside >= 1 ? 0 : Math.max(0, 1 - (1 - want) / (1 - outside));
+    rings.push({ radius: k / n, opacity: a });
+    outside = 1 - (1 - outside) * (1 - a);
+  }
+  return rings;
+}
+
+/**
  * 카카오 기본 마커(`new kakao.maps.Marker({ position })` — 웹 대안 화면 미니맵) 실측(2026-11-11, 웹 390px):
  * 이미지 `mapjsapi/images/2x/marker.png`(58×84)를 29×42 로 그리고, 오버레이 margin 이 `-39px 0 0 -14px` — 좌표는 그림의 (14, 39)
  * (뾰족 끝 — 그 아래 3px 은 그림자). 웹 빌드는 카카오 Marker 를 그대로 쓰고, 네이티브는 DEFAULT_PIN_XML 로 같은 모양·크기·기준점을 그린다.
@@ -112,7 +154,9 @@ export const SEARCH_LABEL_HEIGHT = 26.5;
 /** 검색 이름표 yAnchor — 웹 3.2(좌표가 이름표 위끝에서 높이의 3.2배 아래). */
 export const SEARCH_LABEL_Y_ANCHOR = 3.2;
 /** 네이티브 검색 이름표 그림 둘레의 그림자 여백(웹 그림자 0 2 10 — 안드로이드 마커 비트맵은 뷰 밖을 자른다). */
-export const SEARCH_LABEL_SHADOW_PAD = 12;
+// 작게 둔다 — 안드로이드는 마커 그림 전체가 누름을 받아(웹 이름표는 clickable:false) 여백이 크면 아래 핀을 가린다.
+// 그림자(0 2 10)의 바깥 끝 몇 px 은 잘린다.
+export const SEARCH_LABEL_SHADOW_PAD = 6;
 
 /** 그림자 여백 pad 를 두른 검색 이름표 그림의 앵커 — 이름표 위끝(pad)에서 높이의 3.2배 아래가 좌표. pad 0 이면 markerAnchor('search'). */
 export function searchLabelAnchor(pad: number, height: number = SEARCH_LABEL_HEIGHT): {
