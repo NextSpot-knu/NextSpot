@@ -21,6 +21,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SheetState } from '@/lib/sheetSnap';
 import { colors, springs } from '~/lib/theme/tokens';
 
+import { MODAL_SHEET_INITIAL, modalSheetReduce, type ModalSheetEvent, type ModalSheetState } from './modalSheetState';
+
 export type { SheetState };
 export { BottomSheetScrollView as SheetScrollView, BottomSheetView as SheetView } from '@gorhom/bottom-sheet';
 
@@ -305,24 +307,34 @@ export type ModalSheetProps = {
 export function ModalSheet({ children, open, onClose, snapPoints, handleLabel, closeLabel }: ModalSheetProps) {
   const ref = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
-  const dismiss = useCallback(() => ref.current?.dismiss(), []);
-  // 한 번이라도 present 했는지. 닫힌 채 처음 마운트될 때 dismiss() 를 부르면 @gorhom/bottom-sheet 5.2.14 는
-  // INITIAL 상태를 DISMISSING 으로만 바꾸고 끝낸다(handleDismiss) — 그 뒤 present() 의 포털 그리기를
-  // handlePortalRender 가 DISMISSING 이라 건너뛰어 시트가 영영 열리지 않는다(G2-G07). 그래서 연 적이 있을 때만 닫는다.
-  const presentedRef = useRef(false);
-  const handleDismissed = useCallback(() => {
-    presentedRef.current = false;
-    onClose();
-  }, [onClose]);
+  // 열림·닫힘 판단은 modalSheetState(순수 상태 기계)가 한다. dismiss() 는 시트가 보이기 시작했다고 알린 뒤에만 부른다 —
+  // @gorhom/bottom-sheet 5.2.14 는 그 전에 dismiss() 를 받으면 DISMISSING 에 갇혀 다시 열리지 않는다(G2-G07: 닫힌 채
+  // 처음 마운트 · 칩 두 번 누르기 · 열리자마자 뒤로 키). 자세한 까닭은 modalSheetState.ts 머리 주석.
+  const stateRef = useRef<ModalSheetState>(MODAL_SHEET_INITIAL);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const send = useCallback((event: ModalSheetEvent) => {
+    const { state, actions } = modalSheetReduce(stateRef.current, event);
+    stateRef.current = state;
+    for (const action of actions) {
+      if (action === 'present') ref.current?.present();
+      else if (action === 'dismiss') ref.current?.dismiss();
+      else onCloseRef.current();
+    }
+  }, []);
+  /** 사용자 닫기(뒤로 키 · 손잡이 · 읽기 화면 닫기) — 아직 보이기 전이면 보이자마자 닫는다. */
+  const dismiss = useCallback(() => send({ type: 'userClose' }), [send]);
+  const handleAnimate = useCallback((_from: number, to: number) => {
+    if (to >= 0) send({ type: 'shown' });
+  }, [send]);
+  const handleChange = useCallback((index: number) => {
+    if (index >= 0) send({ type: 'shown' });
+  }, [send]);
+  const handleDismissed = useCallback(() => send({ type: 'dismissed' }), [send]);
 
   useEffect(() => {
-    if (open) {
-      presentedRef.current = true;
-      ref.current?.present();
-    } else if (presentedRef.current) {
-      ref.current?.dismiss();
-    }
-  }, [open]);
+    send({ type: 'open', value: open });
+  }, [open, send]);
 
   // 안드로이드 뒤로 가기 — 열려 있는 동안은 화면을 떠나지 않고 시트만 닫는다.
   useEffect(() => {
@@ -396,6 +408,8 @@ export function ModalSheet({ children, open, onClose, snapPoints, handleLabel, c
       handleComponent={handle}
       backgroundComponent={SheetBackground}
       backgroundStyle={background}
+      onAnimate={handleAnimate}
+      onChange={handleChange}
       onDismiss={handleDismissed}
       {...CONTAINER_A11Y}
     >
