@@ -1,15 +1,17 @@
-// 하단 탭 5개 — 웹 BottomNav(components/shell/BottomNav.tsx)와 같은 순서·문구 키·아이콘.
-// 사장님·관제 콘솔 링크는 앱에 두지 않는다(마이페이지의 '웹에서 열기', 계획 §3.3).
+// 하단 탭 5개 + 탭 안 화면 — 웹 BottomNav(components/shell/BottomNav.tsx)가 보이는 경로 전부(B6, docs/MOBILE_WEB_PARITY.md §4.2 F11).
+//   · 막대는 components/navigation/TouristTabBar(안내 줄 + 다섯 칸). 보통 흐름(겹치지 않음).
+//   · 마이 하위 7개는 mypage/ 안 Stack(mypage/_layout), 대안 화면·/explore/map 은 탭 버튼 없는 숨은 경로(href: null) —
+//     URL 은 그대로이고 막대가 보인다(활성: 마이 하위 → 마이, explore → 홈).
+//   · backBehavior="history": 하드웨어 뒤로 = 이전 화면(D13(c) — 대기 → 대안 → 뒤로 = 대기).
 //
 // 첫 실행 판정을 여기서 동기로 한다 — 단계(소개·동의·설정)가 남았으면 <Tabs> 를 그리지 않고 바로 그 단계로 보낸다.
 // 그래서 탭 화면(홈 지도·위치 읽기·추천 요청)이 첫 실행 결정 전에 마운트되지 않는다. 다른 입구 경로(딥링크 등)는
 // 루트의 FirstRunGate 가 맡는다. 소셜 로그인 왕복 중에는 보내지 않는다(콜백이 code 를 처리해야 한다).
-import { Redirect, Tabs, type Href } from 'expo-router';
-import { Bookmark, Home, Route, Timer, User } from 'lucide-react-native';
+import { Redirect, type Href } from 'expo-router';
+import { Tabs } from 'expo-router/js-tabs';
 import { useEffect, useState } from 'react';
-import { Text as RNText } from 'react-native';
 
-import { Icon } from '~/components/ui';
+import { TouristTabBar } from '~/components/navigation/TouristTabBar';
 import {
   decideTabsFirstRunRedirect,
   getFirstRunStep,
@@ -18,12 +20,8 @@ import {
   subscribeFirstRun,
   type FirstRunStep,
 } from '~/features/onboarding/firstRun';
-import { haptic } from '~/lib/platform/haptics';
 import { useT } from '~/lib/i18n/I18nProvider';
-import { colors, fontFamilies } from '~/lib/theme/tokens';
-
-// 큰 글자 설정에서 탭 글자(11px)가 잘리지 않게 배율을 낮게 막는다(아이콘이 뜻을 함께 전한다).
-const TAB_LABEL_MAX_FONT_SCALE = 1.2;
+import { colors } from '~/lib/theme/tokens';
 
 export default function TabLayout() {
   const t = useT();
@@ -38,43 +36,24 @@ export default function TabLayout() {
     noteFirstRunNavigation(redirectTo);
     return <Redirect href={redirectTo as Href} />;
   }
-  // 아이콘 크기는 탭 막대가 주는 size 를 따른다(웹 하단 탭은 22px — 막대 기본값과 거의 같다).
-  const tab = (icon: typeof Home) => ({ focused, size }: { focused: boolean; size: number }) => (
-    <Icon icon={icon} size={size} color={focused ? colors['gold-deep'] : colors['muk-soft']} />
-  );
+  // 막대 모양·누름·활성 판정은 TouristTabBar 가 전부 맡는다(햅틱도 거기서 — 활성 탭 다시 누름은 햅틱 없이 무시).
   return (
     <Tabs
+      backBehavior="history"
+      tabBar={(props) => <TouristTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors['gold-deep'],
-        tabBarInactiveTintColor: colors['muk-soft'],
-        tabBarStyle: { backgroundColor: colors.hanji, borderTopColor: colors.line },
-        // 웹 하단 탭 글자: text-[11px] font-medium. 굵기는 글꼴 파일로, fontWeight 는 normal.
-        // 막대 기본 글자는 배율 상한을 받지 않는다 — 글자를 직접 그려 maxFontSizeMultiplier 를 준다.
-        tabBarLabel: ({ color, children, position }) => (
-          <RNText
-            numberOfLines={1}
-            maxFontSizeMultiplier={TAB_LABEL_MAX_FONT_SCALE}
-            style={{
-              color,
-              fontFamily: fontFamilies.medium,
-              fontWeight: 'normal',
-              fontSize: 11,
-              textAlign: 'center',
-              ...(position === 'beside-icon' ? { marginLeft: 20, marginTop: 3 } : null),
-            }}
-          >
-            {children}
-          </RNText>
-        ),
+        sceneStyle: { backgroundColor: colors.hanji },
       }}
-      screenListeners={{ tabPress: () => haptic('selection') }}
     >
-      <Tabs.Screen name="index" options={{ title: t('nav.home'), tabBarIcon: tab(Home) }} />
-      <Tabs.Screen name="saved" options={{ title: t('nav.saved'), tabBarIcon: tab(Bookmark) }} />
-      <Tabs.Screen name="waiting" options={{ title: t('nav.waiting'), tabBarIcon: tab(Timer) }} />
-      <Tabs.Screen name="course" options={{ title: t('nav.course'), tabBarIcon: tab(Route) }} />
-      <Tabs.Screen name="mypage" options={{ title: t('nav.mypage'), tabBarIcon: tab(User) }} />
+      <Tabs.Screen name="index" options={{ title: t('nav.home') }} />
+      <Tabs.Screen name="saved" options={{ title: t('nav.saved') }} />
+      <Tabs.Screen name="waiting" options={{ title: t('nav.waiting') }} />
+      <Tabs.Screen name="course" options={{ title: t('nav.course') }} />
+      <Tabs.Screen name="mypage" options={{ title: t('nav.mypage') }} />
+      {/* 숨은 경로 — 탭 버튼 없음(TouristTabBar 는 다섯 탭만 그린다), 활성 탭은 '홈'. */}
+      <Tabs.Screen name="explore/recommend" options={{ href: null }} />
+      <Tabs.Screen name="explore/map" options={{ href: null }} />
     </Tabs>
   );
 }

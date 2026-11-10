@@ -54,7 +54,7 @@ export default function PrivacyScreen() {
   const t = useT();
   const [termsOpen, setTermsOpen] = useState(false);
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
       <Text className="px-[4px] text-sm leading-[22px] text-muk-soft">{t('privacy.intro')}</Text>
       {SECTIONS.map((s) => (
         <Card key={s.id} className="gap-[10px]">

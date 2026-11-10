@@ -35,7 +35,7 @@ export default function ImpactScreen() {
   };
 
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
       {state === 'loading' ? (
         <Card className="gap-[16px]" accessible accessibilityLabel={t('common.loading')} accessibilityState={{ busy: true }}>
           <Skeleton width="25%" height={12} style={{ alignSelf: 'center' }} />

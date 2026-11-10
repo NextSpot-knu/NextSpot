@@ -14,14 +14,27 @@ const TOAST_ABOVE_BAR = 8;
 /** 막대가 없는 화면에서 토스트의 아래 간격. */
 const TOAST_NO_BAR = 16;
 
-/** 웹 BottomNav NAV_ROUTES 와 같은 규칙 — 앱 홈은 '/'(웹 '/main'). */
-const TAB_ROUTES = ['/saved', '/waiting', '/course', '/mypage', '/explore'] as const;
+// 막대가 보이는 경로 = app/(tabs) 안의 화면 전부(B6). 웹 BottomNav NAV_ROUTES(/main·/saved·/waiting·/course·/mypage·/explore 와
+// 그 아래)와 같은 화면들이지만, 앱은 없는 하위 주소(/saved/x · /explore 등)를 탭 밖 +not-found 로 그리므로 접두사가 아니라
+// 실제 경로 목록으로 판정한다. navMetricsCore.test.ts 가 app/(tabs) 의 파일과 이 목록을 대조한다.
+/** 탭 화면 다섯(앱 홈은 '/' — 웹 '/main'). */
+const TAB_ROOT_ROUTES = ['/', '/saved', '/waiting', '/course', '/mypage'] as const;
+/** 마이 탭 안 하위 화면(app/(tabs)/mypage/*). */
+export const MYPAGE_SUB_ROUTES = ['coupons', 'impact', 'inquiries', 'lab', 'privacy', 'settings', 'support'] as const;
+/** 탭 버튼 없는 숨은 탭 경로(app/(tabs)/explore/*) — 활성 탭은 '홈'. */
+export const HIDDEN_TAB_ROUTES = ['/explore/recommend', '/explore/map'] as const;
 
-/** 막대가 보이는 경로인가(웹 components/shell/BottomNav.tsx 의 NAV_ROUTES). */
+const TAB_PATHS: ReadonlySet<string> = new Set<string>([
+  ...TAB_ROOT_ROUTES,
+  ...MYPAGE_SUB_ROUTES.map((r) => `/mypage/${r}`),
+  ...HIDDEN_TAB_ROUTES,
+]);
+
+/** 막대가 보이는 경로인가(app/(tabs) 안의 화면). 끝의 '/' 는 무시한다. */
 export function isTabRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  if (pathname === '/') return true;
-  return TAB_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return TAB_PATHS.has(path);
 }
 
 export type NavInsets = {

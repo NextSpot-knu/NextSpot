@@ -123,7 +123,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
       <SectionCard icon={Globe} tone="jade" title={t('settings.langTitle')} desc={t('settings.langDesc')}>
         <LanguageSwitcher />
       </SectionCard>

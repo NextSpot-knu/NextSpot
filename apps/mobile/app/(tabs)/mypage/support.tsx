@@ -11,6 +11,7 @@ import { createPublicClient } from '~/lib/core/supabase';
 import { useT } from '~/lib/i18n/I18nProvider';
 
 import { TextField } from '~/features/mypage/components/parts';
+import { SubPageHeader } from '~/features/mypage/components/SubPageHeader';
 
 // value 는 그대로 DB(inquiries.type)에 저장돼 관리자 화면의 분류 기준이 된다 — 번역하면 안 된다(라벨만 로케일).
 const TYPES = [
@@ -71,10 +72,15 @@ export default function SupportScreen() {
     }
   };
 
+  // 웹은 이 화면만 문서 전체가 스크롤돼 머리도 함께 올라간다(G5b-R02) — Stack 머리 대신 내용 맨 앞에 그린다(완료 화면도 같은 머리).
+  // 뒤로 읽기 이름은 settings.backAria(웹은 라벨 없음 — R3 정정). 아래 안전 영역은 탭 막대가 맡는다.
+  const header = <SubPageHeader title={t('support.title')} backLabel={t('settings.backAria')} variant="bordered" />;
+
   if (done) {
     return (
-      <Screen edges={['left', 'right', 'bottom']} contentClassName="px-[24px]">
-        <View className="flex-1 items-center justify-center gap-[12px] py-[32px]">
+      <Screen edges={['top', 'left', 'right']} contentClassName="">
+        {header}
+        <View className="flex-1 items-center justify-center gap-[12px] px-[24px] py-[32px]">
           <View className="h-[80px] w-[80px] items-center justify-center rounded-full bg-jade/15">
             <Icon icon={CheckCircle} size={40} color="jade" />
           </View>
@@ -87,63 +93,66 @@ export default function SupportScreen() {
   }
 
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[20px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
-      <Text className="text-sm leading-[21px] text-muk-soft">{t('support.intro')}</Text>
+    <Screen scroll edges={['top', 'left', 'right']} contentClassName="pb-[16px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
+      {header}
+      <View className="gap-[20px] px-[16px] pt-[16px]">
+        <Text className="text-sm leading-[21px] text-muk-soft">{t('support.intro')}</Text>
 
-      <View className="gap-[8px]">
-        <Text className="text-sm text-muk-soft" weight="semibold">{t('support.typeLabel')}</Text>
-        <View className="flex-row flex-wrap gap-[8px]">
-          {TYPES.map((opt) => (
-            <Chip
-              key={opt.value}
-              label={t(opt.labelKey)}
-              selected={type === opt.value}
-              onPress={() => setType(opt.value)}
-              className="min-h-[44px] justify-center px-[16px]"
-            />
-          ))}
+        <View className="gap-[8px]">
+          <Text className="text-sm text-muk-soft" weight="semibold">{t('support.typeLabel')}</Text>
+          <View className="flex-row flex-wrap gap-[8px]">
+            {TYPES.map((opt) => (
+              <Chip
+                key={opt.value}
+                label={t(opt.labelKey)}
+                selected={type === opt.value}
+                onPress={() => setType(opt.value)}
+                className="min-h-[44px] justify-center px-[16px]"
+              />
+            ))}
+          </View>
         </View>
-      </View>
 
-      <View className="gap-[8px]">
-        <Text className="text-sm text-muk-soft" weight="semibold">{t('support.titleLabel')}</Text>
-        <TextField
-          value={title}
-          onChangeText={setTitle}
-          placeholder={t('support.titlePlaceholder')}
-          maxLength={TITLE_MAX}
-          accessibilityLabel={t('support.titleLabel')}
-          returnKeyType="next"
+        <View className="gap-[8px]">
+          <Text className="text-sm text-muk-soft" weight="semibold">{t('support.titleLabel')}</Text>
+          <TextField
+            value={title}
+            onChangeText={setTitle}
+            placeholder={t('support.titlePlaceholder')}
+            maxLength={TITLE_MAX}
+            accessibilityLabel={t('support.titleLabel')}
+            returnKeyType="next"
+          />
+        </View>
+
+        <View className="gap-[8px]">
+          <Text className="text-sm text-muk-soft" weight="semibold">{t('support.contentLabel')}</Text>
+          <TextField
+            value={content}
+            onChangeText={setContent}
+            placeholder={t('support.contentPlaceholder')}
+            accessibilityLabel={t('support.contentLabel')}
+            multiline
+            minHeight={200}
+          />
+        </View>
+
+        {userId === null ? (
+          <View className="gap-[2px] rounded-xl border border-gold/40 bg-gold/10 px-[16px] py-[12px]" accessibilityRole="summary">
+            <Text className="text-[13px]" weight="bold">{t('support.anonymousReplyNoticeTitle')}</Text>
+            <Text className="text-[13px] leading-[19px] text-muk-soft">{t('support.anonymousReplyNotice')}</Text>
+          </View>
+        ) : null}
+
+        <Button
+          label={submitting ? t('support.submitting') : t('support.submit')}
+          icon={Send}
+          block
+          loading={submitting}
+          disabled={!canSubmit}
+          onPress={() => { void submit(); }}
         />
       </View>
-
-      <View className="gap-[8px]">
-        <Text className="text-sm text-muk-soft" weight="semibold">{t('support.contentLabel')}</Text>
-        <TextField
-          value={content}
-          onChangeText={setContent}
-          placeholder={t('support.contentPlaceholder')}
-          accessibilityLabel={t('support.contentLabel')}
-          multiline
-          minHeight={200}
-        />
-      </View>
-
-      {userId === null ? (
-        <View className="gap-[2px] rounded-xl border border-gold/40 bg-gold/10 px-[16px] py-[12px]" accessibilityRole="summary">
-          <Text className="text-[13px]" weight="bold">{t('support.anonymousReplyNoticeTitle')}</Text>
-          <Text className="text-[13px] leading-[19px] text-muk-soft">{t('support.anonymousReplyNotice')}</Text>
-        </View>
-      ) : null}
-
-      <Button
-        label={submitting ? t('support.submitting') : t('support.submit')}
-        icon={Send}
-        block
-        loading={submitting}
-        disabled={!canSubmit}
-        onPress={() => { void submit(); }}
-      />
     </Screen>
   );
 }

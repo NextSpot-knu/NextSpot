@@ -103,7 +103,7 @@ export default function LabScreen() {
   };
 
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[16px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
+    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
       {state === 'loading' ? (
         <CardSkeletons count={3} label={t('common.loading')} />
       ) : state === 'unauthenticated' ? (

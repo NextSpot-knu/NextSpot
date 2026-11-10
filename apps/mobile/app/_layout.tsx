@@ -1,21 +1,26 @@
 import '../global.css';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useFonts } from 'expo-font';
-import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DefaultTheme, Stack, ThemeProvider, type Theme } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
+import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppMaintenanceScreen } from '~/components/AppMaintenanceScreen';
+import { AppNoticeBanner } from '~/components/AppNoticeBanner';
 import { AppToaster } from '~/components/ui';
+import { fontStyleFor } from '~/components/ui/textStyle';
 import { FirstRunGate, useFirstRunGate } from '~/features/onboarding';
 import { shouldTrackPageView } from '~/features/onboarding/firstRun';
 import { ShellBridge } from '~/lib/appShell';
 import { AppProviders } from '~/lib/core/AppProviders';
-import { I18nProvider, useT } from '~/lib/i18n/I18nProvider';
-import { colors, fontFamilies } from '~/lib/theme/tokens';
+import { I18nProvider, useLocale, useT } from '~/lib/i18n/I18nProvider';
+import { colors, fontFamilies, type FontWeightName } from '~/lib/theme/tokens';
+import type { Locale } from '@/lib/i18n/config';
 
 // 렌더 오류 화면 — expo-router 기본(영어) 대신 웹과 같은 문구 키(common.error · common.retry).
 export { AppErrorBoundary as ErrorBoundary } from '~/components/AppErrorBoundary';
@@ -38,25 +43,40 @@ const FONT_FILES = {
   [fontFamilies.black]: require('../assets/fonts/Freesentation-9Black.ttf'),
 };
 
-// 내비게이션 바탕·헤더도 한지 톤으로(라이트만). 헤더·탭 글자도 Freesentation — 굵기는 글꼴 파일이 맡으므로
-// fontWeight 는 normal(안드로이드가 이미 굵은 파일을 한 번 더 굵히지 않게).
-const navTheme = {
-  ...DefaultTheme,
-  fonts: {
-    regular: { fontFamily: fontFamilies.regular, fontWeight: 'normal' as const },
-    medium: { fontFamily: fontFamilies.medium, fontWeight: 'normal' as const },
-    bold: { fontFamily: fontFamilies.semibold, fontWeight: 'normal' as const },
-    heavy: { fontFamily: fontFamilies.bold, fontWeight: 'normal' as const },
-  },
-  colors: {
-    ...DefaultTheme.colors,
-    primary: colors['gold-deep'],
-    background: colors.hanji,
-    card: colors.hanji,
-    text: colors.muk,
-    border: colors.line,
-  },
-};
+const TEXT_PLATFORM = Platform.OS === 'web' ? 'web' : 'native';
+
+// 내비게이션 바탕·헤더도 한지 톤으로(라이트만). 헤더 글자 글꼴은 앱 Text 와 같은 규칙(fontStyleFor — ko·en 은 Freesentation
+// 굵기별 파일, ja·zh 는 시스템 CJK 글꼴 + 숫자 굵기, G2-G04). 로케일을 따르므로 상수가 아니라 로케일마다 만든다.
+// ja·zh 네이티브는 family 를 비우는 규칙이라 react-navigation 기본(시스템 글꼴) family 를 쓴다.
+function navThemeFor(locale: Locale): Theme {
+  const font = (weight: FontWeightName, slot: keyof Theme['fonts']) => {
+    const style = fontStyleFor(weight, locale, TEXT_PLATFORM);
+    return { fontFamily: style.fontFamily ?? DefaultTheme.fonts[slot].fontFamily, fontWeight: style.fontWeight };
+  };
+  return {
+    ...DefaultTheme,
+    fonts: {
+      regular: font('regular', 'regular'),
+      medium: font('medium', 'medium'),
+      bold: font('semibold', 'bold'),
+      heavy: font('bold', 'heavy'),
+    },
+    colors: {
+      ...DefaultTheme.colors,
+      primary: colors['gold-deep'],
+      background: colors.hanji,
+      card: colors.hanji,
+      text: colors.muk,
+      border: colors.line,
+    },
+  };
+}
+
+function NavThemeProvider({ children }: { children: React.ReactNode }) {
+  const [locale] = useLocale();
+  const theme = useMemo(() => navThemeFor(locale), [locale]);
+  return <ThemeProvider value={theme}>{children}</ThemeProvider>;
+}
 
 export default function RootLayout() {
   const [loaded, error] = useFonts(FONT_FILES);
@@ -74,7 +94,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <I18nProvider>
           <ProvidersWithLabels>
-            <ThemeProvider value={navTheme}>
+            <NavThemeProvider>
               {/* 모달 시트 포털은 이 Provider 의 자식 뒤에 그려진다 — 시트 안에서도 useI18n()·세션·테마가 닿도록 그 안쪽에 둔다(G2-G07). */}
               <BottomSheetModalProvider>
                 <Stack screenOptions={{ contentStyle: { backgroundColor: colors.hanji } }}>
@@ -87,16 +107,13 @@ export default function RootLayout() {
                   <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
                   {/* OAuth 복귀는 처리 중에 빠져나가면 교환 결과를 잃는다 — 스와이프로 닫지 않는다. */}
                   <Stack.Screen name="auth/callback" options={{ headerShown: false, gestureEnabled: false }} />
-                  {/* 대안 화면은 루트 헤더(뒤로)를 쓰고 제목·왼쪽 버튼은 화면이 정한다. */}
-                  <Stack.Screen name="explore/recommend" options={{ headerBackButtonDisplayMode: 'minimal' }} />
-                  {/* 마이페이지 하위 화면은 자기 Stack(app/mypage/_layout)이 헤더를 그린다 — 헤더가 둘이 되지 않게. */}
-                  <Stack.Screen name="mypage" options={{ headerShown: false }} />
+                  {/* 마이 하위 화면·대안 화면·/explore/map 은 (tabs) 안이다(하단 막대가 보인다 — app/(tabs)/_layout). */}
                 </Stack>
                 {/* 첫 실행 게이트 — 라우터 훅을 쓰므로 Stack 과 같은 트리 안, Stack 바로 뒤(features/onboarding/FirstRunGate). */}
                 <FirstRunGate />
                 <TrackedShellBridge />
               </BottomSheetModalProvider>
-            </ThemeProvider>
+            </NavThemeProvider>
           </ProvidersWithLabels>
         </I18nProvider>
         <AppToaster />
@@ -115,6 +132,7 @@ function TrackedShellBridge() {
 }
 
 // 세션·계정·공개 설정 제공자 — 점검·공지 문구는 웹과 같은 systemNotice.* 키(4로케일)를 쓴다.
+// 점검 화면·공지 배너는 웹 모양 컴포넌트로 바꿔 끼운다(G2-34 · G2-33 — publicSettings.tsx 의 자리 컴포넌트 대신).
 function ProvidersWithLabels({ children }: { children: React.ReactNode }) {
   const t = useT();
   return (
@@ -124,6 +142,8 @@ function ProvidersWithLabels({ children }: { children: React.ReactNode }) {
         maintenanceBody: t('systemNotice.maintenanceBody'),
         dismiss: t('systemNotice.dismiss'),
       }}
+      renderMaintenance={(p) => <AppMaintenanceScreen {...p} />}
+      renderNotice={(p) => <AppNoticeBanner {...p} />}
     >
       {children}
     </AppProviders>

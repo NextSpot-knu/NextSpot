@@ -47,7 +47,7 @@ export default function CouponsScreen() {
   const coupons = data ?? [];
 
   return (
-    <Screen scroll edges={['left', 'right', 'bottom']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
       {state === 'loading' ? (
         <CardSkeletons label={t('common.loading')} />
       ) : state === 'unauthenticated' ? (

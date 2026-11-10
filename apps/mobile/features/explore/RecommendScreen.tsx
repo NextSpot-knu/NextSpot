@@ -1,11 +1,11 @@
 // /explore/recommend 화면 — 웹 apps/web/app/explore/recommend/page.tsx 의 RecommendContent(기준 커밋 0d145a1).
 // 빼고 옮긴 것은 PORTING.md 와 docs/MOBILE_APP_PLAN.md §3.1: 음성 비서(🎙)·온보딩 모달·자연어 선호 입력은 앱에 없다.
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, ChevronDown, Compass } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ChevronDown, Compass } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 
-import { Button, EmptyState, ErrorState, Icon, IconButton, Screen, Skeleton, Text } from '~/components/ui';
+import { Button, EmptyState, ErrorState, Icon, Screen, Skeleton, Text } from '~/components/ui';
 import { Pressable } from '~/components/ui/Pressable';
 import { apiClient } from '~/lib/core/apiClient';
 import { countKey, useI18n } from '~/lib/i18n/I18nProvider';
@@ -112,31 +112,12 @@ export default function RecommendScreen() {
   const twoColumns = width >= TWO_COLUMN_MIN_WIDTH;
   const goMap = () => router.replace('/');
 
-  const stackOptions = (
-    <Stack.Screen
-      options={{
-        title: '',
-        headerShadowVisible: false,
-        // 공유 링크로 바로 열려 돌아갈 화면이 없으면 지도로 보내는 버튼을 둔다.
-        headerLeft: router.canGoBack()
-          ? undefined
-          : () => (
-              <IconButton
-                icon={ArrowLeft}
-                accessibilityLabel={t('recommend.backToMap')}
-                box={44}
-                onPress={goMap}
-              />
-            ),
-      }}
-    />
-  );
-
+  // 스택 머리는 없다 — 이 화면은 탭 안 숨은 경로다(B6, G4a-15 1번). 그래서 위 안전 영역은 화면이 비우고, 아래는 탭 막대가 맡는다.
+  // 웹 원형 '지도 보기' 버튼·여백은 D3 이 내용 안에 둔다.
   if (!originOk) {
     return (
       <>
-        {stackOptions}
-        <Screen edges={['left', 'right']} maxWidth={WIDE_MAX_WIDTH} contentClassName="px-[16px] py-[16px]">
+        <Screen edges={['top', 'left', 'right']} maxWidth={WIDE_MAX_WIDTH} contentClassName="px-[16px] py-[16px]">
           <Skeleton height={120} radius={16} />
         </Screen>
       </>
@@ -145,10 +126,9 @@ export default function RecommendScreen() {
 
   return (
     <>
-      {stackOptions}
       <Screen
         scroll
-        edges={['left', 'right', 'bottom']}
+        edges={['top', 'left', 'right']}
         maxWidth={WIDE_MAX_WIDTH}
         contentClassName="gap-[20px] px-[16px] pb-[32px] pt-[8px]"
       >
