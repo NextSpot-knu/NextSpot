@@ -275,7 +275,7 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 | D3 | 대안 화면 | M | Sonnet | A2·B2·B4a·B4b·B5·B6 | 아니오 | 끝(27eb8bd) |
 | D4 | 코스 | L | Sonnet(01·08·20 은 Opus 검토) | A2·B2·B4a·B4b·B5 | 아니오 | 끝(17290c1) |
 | D5 | 대기 보드 | L | Sonnet | B2·B4a·B4b | 아니오 | 끝(7f4be0f) |
-| D6 | 마이 + 하위 7 | L | Sonnet | A1·B2·B3·B4a·B4b·B6 | 아니오 | 진행 |
+| D6 | 마이 + 하위 7 | L | Sonnet | A1·B2·B3·B4a·B4b·B6 | 아니오 | 끝(d968829) |
 | H1 | 추천 카드·여정·방문 확인·제보 | XL | Opus | A2·B2·B3·B4a | 아니오 | 끝(19c20d4) |
 | H2a | 홈 상단·도구·검색 결과·HomeToast·축제 추출 | M | Sonnet | A1·B1·B3·B4b | 아니오 | 끝(17616d3) |
 | H2b | 예측 띠·주차장 패널 | L | Opus | B4b·B5 | 아니오 | 끝(67cf3c9) |

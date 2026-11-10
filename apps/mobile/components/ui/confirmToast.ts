@@ -43,7 +43,7 @@ async function screenReaderOn(): Promise<boolean> {
 
 /**
  * 화면 아래 토스트로 확인을 받는다. 화면을 막지 않고, 답이 없으면 duration 뒤 false.
- * features/mypage/confirm.ts(OS 대화상자)와 같은 입력이라 가져오는 곳만 바꾸면 된다(화면 묶음 D2·D6).
+ * OS 대화상자(Alert)를 대신한다 — 저장 초기화(D2)·마이 확인(D6)이 쓴다.
  */
 export async function confirmDestructive(input: ConfirmDestructiveInput): Promise<boolean> {
   const id = input.id ?? `confirm-destructive-${++seq}`;
