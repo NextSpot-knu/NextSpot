@@ -1,6 +1,5 @@
 // 대안 화면의 데이터·행동 — 웹 page.tsx 의 RecommendContent(음성 비서·온보딩 모달·자연어 선호 입력 제외, 기준 커밋 0d145a1).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert } from 'react-native';
 
 import { useBusyThreshold } from '~/lib/core/publicSettings';
 import {
@@ -20,7 +19,7 @@ import type { TFunc } from '~/lib/i18n/I18nProvider';
 import { toast } from '~/components/ui';
 import { haptic } from '~/lib/platform/haptics';
 import { openDrivingDirections, openExternalUrl, openWalkingDirections } from '~/lib/platform/links';
-import { shareLink } from '~/lib/platform/share';
+import { shareLink, type ShareOutcome } from '~/lib/platform/share';
 import { recommendShareUrl } from '~/lib/platform/shareUrls';
 import { track } from '~/lib/platform/analytics';
 import { congestionKey } from '@/lib/congestionScale';
@@ -67,6 +66,9 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
   const tRef = useRef(t);
   tRef.current = t;
 
+  // 다시 시도 — 원래 장소·목록 조회가 모두 이 값에 묶인다(웹 ErrorState 의 reload 와 같은 범위, G4a-28). 아래 effect 들보다 먼저 선언한다(TDZ).
+  const [reloadKey, setReloadKey] = useState(0);
+
   // ── 원래 장소 ──
   const [loaded, setLoaded] = useState<OriginFacility | null>(null);
   const [loadingOriginalState, setLoadingOriginal] = useState(true);
@@ -106,7 +108,7 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
     return () => {
       alive = false;
     };
-  }, [facilityId, originTypeParam]);
+  }, [facilityId, originTypeParam, reloadKey]);
 
   // 실측이 없으면 대기 보드와 같은 추정 피드에서 지금 등급을 읽는다.
   const needsOriginEstimate = !loadingOriginal && origin !== null && origin.congestionLevel === null && !!facilityId;
@@ -141,7 +143,6 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
   const coordsRef = useRef(coords);
   coordsRef.current = coords;
   const isUserLocationRef = useRef(isUserLocation);
@@ -397,8 +398,9 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
   }, [recommendations, deps, facilityId, originNameParam, originTypeParam]);
 
   // ── 공유 ── (링크는 같은 화면으로 돌아오되 ref=share 가 붙는다)
+  // 결과(복사·실패)별 토스트와 ✓ 는 ShareButton 이 띄운다 — 여기서는 결과만 돌려준다(이중 알림 방지, G4a-23).
   const handleShare = useCallback(
-    async (rec: RecommendationResponse) => {
+    async (rec: RecommendationResponse): Promise<ShareOutcome> => {
       const tt = tRef.current;
       const here = coordsRef.current;
       const url = recommendShareUrl({
@@ -408,15 +410,25 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
         lat: here.lat,
         lng: here.lng,
       });
-      const outcome = await shareLink({
+      return shareLink({
         title: tt('common.appName'),
         message: tt('recommend.shareText', { name: rec.facility.name }),
         url,
       });
-      if (outcome === 'copied') toast.success(tt('common.linkCopied'));
-      else if (outcome === 'failed') Alert.alert(tt('common.shareFailed'), url);
     },
     [facilityId, originNameParam, originTypeParam],
+  );
+  // 공유 실패 토스트 아래에 보일 주소(웹 ShareButton url).
+  const shareUrl = useMemo(
+    () =>
+      recommendShareUrl({
+        facilityId: facilityId || null,
+        name: originNameParam,
+        type: originTypeParam,
+        lat: coords.lat,
+        lng: coords.lng,
+      }),
+    [facilityId, originNameParam, originTypeParam, coords.lat, coords.lng],
   );
 
   const noAlternatives = !loading && !loadFailed && recommendations.length === 0;
@@ -444,5 +456,6 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
     handleSatisfactionFeedback,
     handleRefresh,
     handleShare,
+    shareUrl,
   };
 }
