@@ -52,7 +52,7 @@ export function CreditLine({ credit, stacked = false, className = '' }: CreditLi
       ) : null}
     </View>
   ) : (
-    <View className="h-[24px] flex-row items-center self-start py-[5px]">
+    <View className="min-h-[24px] flex-row items-center self-start py-[5px]">
       <Text className={`${TEXT} ${underline} shrink`} numberOfLines={1}>
         {credit.label}
       </Text>

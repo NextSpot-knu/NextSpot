@@ -30,9 +30,20 @@ export function GoldenHourBadge({ facilityId, className = '' }: { facilityId?: s
     <View className={`flex-row items-center ${className}`}>
       {/* 웹 `px-2 py-0.5 rounded-md text-[10px] font-bold border bg-jade/10 border-jade/30 text-jade whitespace-nowrap`(109.7×21) */}
       <View className="self-start rounded-md border border-jade/30 bg-jade/10 px-[8px] py-[2px]">
-        <Text className="text-[10px] leading-[15px] text-jade" weight="bold" numberOfLines={1}>
-          {`🕐 ${t('golden.badge', { start: String(golden.start), end: String(golden.end) })}`}
-        </Text>
+        {/* 이모지는 읽기 화면에서 숨긴다(스크린리더가 '1시' 로 읽지 않게). 글자색 jade 10px/jade10% 는 웹과 같다(4.31:1, 웹도 동일 — 패리티 유지). */}
+        <View className="flex-row items-center">
+          <Text
+            className="text-[10px] leading-[15px] text-jade"
+            weight="bold"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {'🕐 '}
+          </Text>
+          <Text className="text-[10px] leading-[15px] text-jade" weight="bold" numberOfLines={1}>
+            {t('golden.badge', { start: String(golden.start), end: String(golden.end) })}
+          </Text>
+        </View>
       </View>
     </View>
   );
