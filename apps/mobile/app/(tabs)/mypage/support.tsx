@@ -86,7 +86,7 @@ export default function SupportScreen() {
           </View>
           <Text className="text-center text-2xl" weight="bold" accessibilityRole="header">{t('support.doneTitle')}</Text>
           <Text className="mb-[16px] text-center text-muk-soft">{t('support.doneDesc')}</Text>
-          <Button label={t('support.backToMypage')} onPress={() => router.navigate('/mypage')} />
+          <Button label={t('support.backToMypage')} onPress={() => router.dismissTo('/mypage')} />
         </View>
       </Screen>
     );

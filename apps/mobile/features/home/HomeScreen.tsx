@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import { getArrivalOpenStatus } from '@/lib/restDate';
+import { pushMypageSub, useOpenMypageHome } from '~/components/navigation/useOpenMypage';
 import { EmptyState, ErrorState, Icon, IconButton, Pressable, Text, toast } from '~/components/ui';
 import {
   declutterPins,
@@ -124,6 +125,7 @@ type PlacePin = { id: string; name: string; latitude: number; longitude: number 
 export function HomeScreen() {
   const t = useT();
   const router = useRouter();
+  const openMypageHome = useOpenMypageHome();
   const insets = useSafeAreaInsets();
   const busyAt = useBusyThreshold();
   const mapRef = useRef<NextSpotMapHandle>(null);
@@ -850,7 +852,7 @@ export function HomeScreen() {
             <View style={{ display: tripOverlay.card === 'visit' ? 'flex' : 'none' }}>
               <VisitCheckCard
                 onActiveChange={setVisitActive}
-                onOpenCoupons={() => router.push('/mypage/coupons' as never)}
+                onOpenCoupons={() => pushMypageSub('coupons')}
               />
             </View>
             <View style={{ display: tripOverlay.card === 'journey' ? 'flex' : 'none' }}>
@@ -877,8 +879,8 @@ export function HomeScreen() {
         onReject={onReject}
         onShowAlternatives={selected && canSeeInstead(selected.type) ? showAlternatives : undefined}
         onClose={closeSheet}
-        onViewProfile={() => router.push('/mypage' as never)}
-        onViewLab={() => router.push('/mypage/lab' as never)}
+        onViewProfile={openMypageHome}
+        onViewLab={() => pushMypageSub('lab')}
         onStateChange={setSheetState}
         onPeekHeightChange={setSheetPeekPx}
         maxWidth={HOME_PANEL_MAX_WIDTH}

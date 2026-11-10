@@ -25,9 +25,21 @@ export function activeTabFor(routeName: string | null | undefined): TabName {
   return top === 'saved' || top === 'waiting' || top === 'course' || top === 'mypage' ? top : 'index';
 }
 
-/** 누른 탭으로 이동할까 — 활성 탭을 다시 누르면 아무 일 없음(웹 handleTabClick 첫 줄 :69, D13(d)). */
-export function shouldNavigateOnPress(pressed: TabName, active: TabName): boolean {
-  return pressed !== active;
+/**
+ * 누른 탭으로 이동할까 — 지금 그 탭 자리(탭 내비게이터의 포커스 route 가 그 탭)에서 다시 누르면 아무 일 없음
+ * (웹 handleTabClick 첫 줄 :69, D13(d) — 마이 하위에서 '마이'도 무시). 숨은 경로(explore/*)에서 '홈'은 활성으로 그려지지만
+ * 누르면 홈으로 간다 — 대안 화면에 머리가 없어 지도로 돌아갈 길이 막히지 않게(B6 검토 M5).
+ */
+export function shouldNavigateOnPress(pressed: TabName, focusedRouteName: string | null | undefined): boolean {
+  return pressed !== focusedRouteName;
+}
+
+/**
+ * 탭을 누를 때 navigate 에 줄 params — 마이는 늘 마이 첫 화면으로(웹 router.push('/mypage')).
+ * 중첩 Stack 에 `pop: true` 로 보내야 이미 있는 index 까지 되돌아간다(없으면 StackRouter 가 index 를 하나 더 쌓는다).
+ */
+export function tabPressParams(tab: TabName): { screen: string; pop: true } | undefined {
+  return tab === 'mypage' ? { screen: 'index', pop: true } : undefined;
 }
 
 /**

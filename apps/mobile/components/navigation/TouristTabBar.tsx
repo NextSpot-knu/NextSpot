@@ -5,7 +5,9 @@
 // · 모양: 흰 90% + 위 테두리 + 그림자. 유리·흐림은 쓰지 않는다(D14 — 아래가 한지라 사실상 흰색, 유리 글자색 바꿈도 피한다).
 // · 안내 줄(32): 왼쪽 '서비스 소개'(openGuide), 오른쪽 콘솔 입구 둘(D7 ① — 운영 웹을 외부 브라우저로).
 // · 탭 줄(48): 다섯 칸, 활성 알약 56×48 이 스프링으로 미끄러진다(동작 줄이기면 바로 옮김).
-// · 누름: 활성 탭을 다시 누르면 아무 일 없음(햅틱도 없음, 웹 :69 · D13(d)). 아니면 햅틱 → tabPress emit → 막히지 않았으면 이동.
+// · 누름: 그 탭 자리에서 다시 누르면 아무 일 없음(햅틱도 없음, 웹 :69 · D13(d) — 마이 하위의 '마이'도). 숨은 경로의 '홈'은 홈으로 간다.
+//   아니면 tabPress emit → 막히지 않았으면 햅틱 → 이동. 마이는 중첩 Stack 첫 화면까지 되돌린다(pop).
+// · 키보드가 떠 있는 동안은 숨긴다(네이티브만 — tabBarHideOnKeyboard 와 같은 이벤트). 폰 웹도 고정 막대가 키보드에 가려진다.
 // · 숨은 경로(explore/recommend · explore/map)는 그리지 않고, 활성은 경로로 정한다(explore → 홈, mypage 하위 → 마이).
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import {
@@ -20,7 +22,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import { View, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, Platform, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { Icon } from '~/components/ui/Icon';
@@ -49,6 +51,7 @@ import {
   activeTabFor,
   isCompactLabel,
   shouldNavigateOnPress,
+  tabPressParams,
   type TabName,
 } from './tabBarModel';
 
@@ -62,20 +65,23 @@ const TAB_ICONS: Record<TabName, LucideIcon> = {
 
 export function TouristTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const t = useT();
-  const active = activeTabFor(state.routes[state.index]?.name);
+  const focusedName = state.routes[state.index]?.name;
+  const active = activeTabFor(focusedName);
   const activeIndex = TAB_ORDER.indexOf(active);
+  const keyboardShown = useKeyboardShown();
 
   const onTabPress = (tab: TabName) => {
-    if (!shouldNavigateOnPress(tab, active)) return;
+    if (!shouldNavigateOnPress(tab, focusedName)) return;
     const route = state.routes.find((r) => r.name === tab);
     if (!route) return;
     const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
     if (event.defaultPrevented) return;
     haptic('selection');
-    // 마이는 늘 마이 첫 화면으로(웹 router.push('/mypage')) — 전에 열어 둔 하위 화면이 남아 있으면 그 Stack 을 첫 화면까지 되돌린다.
-    if (tab === 'mypage') navigation.navigate(route.name, { screen: 'index' });
-    else navigation.navigate(route.name, route.params);
+    // 마이는 늘 마이 첫 화면으로(웹 router.push('/mypage')) — 열어 둔 하위 화면이 있으면 그 Stack 을 index 까지 pop 한다.
+    navigation.navigate(route.name, tabPressParams(tab) ?? route.params);
   };
+
+  if (keyboardShown) return null;
 
   return (
     <View
@@ -253,4 +259,20 @@ function GuideRow() {
       </View>
     </View>
   );
+}
+
+/** 키보드가 떠 있나(네이티브). iOS 는 will·안드로이드는 did 이벤트(react-navigation BottomTabBar 와 같다), 웹 빌드는 늘 false. */
+function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true));
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return shown;
 }

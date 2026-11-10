@@ -75,7 +75,7 @@ export function SearchPanel({ query, local, external, onPickLocal, onViewPlace, 
                   className="text-[12px] text-gold-deep"
                   weight="semibold"
                   accessibilityRole="link"
-                  onPress={() => router.push(AI_SETTINGS_ROUTE as Href)}
+                  onPress={() => router.push(AI_SETTINGS_ROUTE as Href, { withAnchor: true })}
                 >
                   {t('app.aiConsent.openSettings')}
                 </Text>

@@ -11,6 +11,7 @@ import { Redirect, type Href } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { useEffect, useState } from 'react';
 
+import { homeFirstTabRouter } from '~/components/navigation/hiddenTabCore';
 import { TouristTabBar } from '~/components/navigation/TouristTabBar';
 import {
   decideTabsFirstRunRedirect,
@@ -40,6 +41,8 @@ export default function TabLayout() {
   return (
     <Tabs
       backBehavior="history"
+      // 콜드 딥링크(/saved · /explore/recommend · /mypage/coupons …)에서도 뒤로 = 홈(기록 맨 앞에 홈을 깐다 — hiddenTabCore).
+      UNSTABLE_router={(original) => homeFirstTabRouter(original)}
       tabBar={(props) => <TouristTabBar {...props} />}
       screenOptions={{
         headerShown: false,

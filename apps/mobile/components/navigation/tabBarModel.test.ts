@@ -8,6 +8,7 @@ import {
   activeTabFor,
   isCompactLabel,
   shouldNavigateOnPress,
+  tabPressParams,
 } from './tabBarModel';
 
 // 경로 → 활성 탭: 숨은 경로는 홈, 마이 하위는 마이(탭 내비게이터 route 이름 기준).
@@ -21,10 +22,19 @@ assert.equal(activeTabFor('explore/map'), 'index');
 assert.equal(activeTabFor(undefined), 'index');
 assert.equal(activeTabFor('nope'), 'index');
 
-// 활성 탭 다시 누름은 무시(웹 :69)
+// 그 탭 자리에서 다시 누름은 무시(웹 :69) — 마이 하위(포커스 route 'mypage')에서 '마이'도 무시
 assert.equal(shouldNavigateOnPress('mypage', 'mypage'), false);
 assert.equal(shouldNavigateOnPress('index', 'index'), false);
 assert.equal(shouldNavigateOnPress('saved', 'index'), true);
+// 숨은 경로에서 '홈'(활성으로 그려짐)은 홈으로 간다(B6 검토 M5)
+assert.equal(shouldNavigateOnPress('index', 'explore/recommend'), true);
+assert.equal(shouldNavigateOnPress('index', 'explore/map'), true);
+assert.equal(shouldNavigateOnPress('saved', undefined), true);
+
+// 마이는 중첩 Stack 의 첫 화면으로 되돌아간다(pop) — 다른 탭은 params 없음
+assert.deepEqual(tabPressParams('mypage'), { screen: 'index', pop: true });
+assert.equal(tabPressParams('index'), undefined);
+assert.equal(tabPressParams('saved'), undefined);
 
 assert.deepEqual([...TAB_ORDER], ['index', 'saved', 'waiting', 'course', 'mypage']);
 assert.equal(isCompactLabel('waiting'), true);

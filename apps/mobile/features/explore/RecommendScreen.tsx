@@ -1,10 +1,11 @@
 // /explore/recommend 화면 — 웹 apps/web/app/explore/recommend/page.tsx 의 RecommendContent(기준 커밋 0d145a1).
 // 빼고 옮긴 것은 PORTING.md 와 docs/MOBILE_APP_PLAN.md §3.1: 음성 비서(🎙)·온보딩 모달·자연어 선호 입력은 앱에 없다.
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ChevronDown, Compass } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 
+import { useLeaveHiddenTab } from '~/components/navigation/useLeaveHiddenTab';
 import { Button, EmptyState, ErrorState, Icon, Screen, Skeleton, Text } from '~/components/ui';
 import { Pressable } from '~/components/ui/Pressable';
 import { apiClient } from '~/lib/core/apiClient';
@@ -31,7 +32,10 @@ const WIDE_MAX_WIDTH = 960;
 
 export default function RecommendScreen() {
   const { t, locale } = useI18n();
-  const router = useRouter();
+  // 지도(홈)로 바꿔치기 — 탭 안 숨은 경로라 router.replace(탭에서는 JUMP_TO)를 쓰면 이 화면이 탭 기록에 남아
+  // 뒤로 키가 빈 화면으로 돌아온다. 기록에서 이 경로를 빼고 홈으로 옮긴다(hiddenTabCore, B6 검토 M4).
+  const leaveHiddenTab = useLeaveHiddenTab();
+  const leaveToHome = useCallback(() => leaveHiddenTab('index'), [leaveHiddenTab]);
   const raw = useLocalSearchParams();
   const { width } = useWindowDimensions();
   const params = useMemo(
@@ -42,10 +46,13 @@ export default function RecommendScreen() {
   );
   const originOk = hasOrigin(params);
 
-  // 고를 장소가 없으면(깨진 공유 링크) 빈 화면 대신 지도로 — 뒤로 가기에 이 빈 화면이 남지 않게 replace.
-  useEffect(() => {
-    if (!originOk) router.replace('/');
-  }, [originOk, router]);
+  // 고를 장소가 없으면(깨진 공유 링크) 빈 화면 대신 지도로 — 뒤로 가기에 이 빈 화면이 남지 않게 기록에서 뺀다.
+  // 포커스 뒤에 보낸다 — 콜드 스타트 첫 마운트의 useEffect 에서 탭 상태를 reset 하면 내비게이터가 아직 준비 전이라 무시된다(웹 빌드 실측).
+  useFocusEffect(
+    useCallback(() => {
+      if (!originOk) leaveToHome();
+    }, [originOk, leaveToHome]),
+  );
 
   // 공유 유입 계측 — 공유 링크(ref=share)로 들어온 방문을 한 번 기록한다(실패는 조용히).
   useEffect(() => {
@@ -110,7 +117,7 @@ export default function RecommendScreen() {
   const pillTone = originName ? originPillTone(originGrade) : null;
   const otherKindsShown = !loading && showsOtherKinds(data.candidateTypes, recommendations);
   const twoColumns = width >= TWO_COLUMN_MIN_WIDTH;
-  const goMap = () => router.replace('/');
+  const goMap = () => leaveToHome();
 
   // 스택 머리는 없다 — 이 화면은 탭 안 숨은 경로다(B6, G4a-15 1번). 그래서 위 안전 영역은 화면이 비우고, 아래는 탭 막대가 맡는다.
   // 웹 원형 '지도 보기' 버튼·여백은 D3 이 내용 안에 둔다.

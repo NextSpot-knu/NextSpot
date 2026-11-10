@@ -34,7 +34,7 @@ export function AiConsentNotice({ className }: { className?: string }) {
         <Pressable
           accessibilityRole="link"
           accessibilityLabel={t('app.aiConsent.openSettings')}
-          onPress={() => router.push(AI_SETTINGS_ROUTE as Href)}
+          onPress={() => router.push(AI_SETTINGS_ROUTE as Href, { withAnchor: true })}
           className="min-h-[44px] justify-center self-start"
         >
           <Text className="text-[12px] leading-[17px] text-gold-deep" weight="semibold">{t('app.aiConsent.openSettings')}</Text>

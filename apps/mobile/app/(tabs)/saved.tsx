@@ -6,6 +6,7 @@ import { Compass, Star } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, View } from 'react-native';
 
+import { pushMypageSub, useOpenMypageHome } from '~/components/navigation/useOpenMypage';
 import { Button, Chip, EmptyState, Icon, Screen, Skeleton, Text, toast } from '~/components/ui';
 import { submitFeedback } from '~/lib/core/apiClient';
 import { clearSavedAll, loadSavedLocal, removeBookmark, syncSaved } from '~/lib/core/savedFacilities';
@@ -31,6 +32,7 @@ function toBookmarks(list: unknown[]): SavedBookmark[] {
 export default function SavedScreen() {
   const t = useT();
   const router = useRouter();
+  const openMypageHome = useOpenMypageHome();
   const [bookmarks, setBookmarks] = useState<SavedBookmark[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SavedBookmark | null>(null);
@@ -203,8 +205,8 @@ export default function SavedScreen() {
         bookmark={selected}
         onClose={() => setSelected(null)}
         onRemove={(b) => remove(b, t('saved.removedFromSaved', { name: b.name }))}
-        onViewProfile={() => router.push('/mypage' as never)}
-        onViewLab={() => router.push('/mypage/lab' as never)}
+        onViewProfile={openMypageHome}
+        onViewLab={() => pushMypageSub('lab')}
       />
     </View>
   );

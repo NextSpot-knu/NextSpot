@@ -3,6 +3,7 @@
 // 높이 68(20 + 28 + 20), 내 문의·고객지원은 테두리까지 69.
 //
 // · 뒤로 = 늘 마이 첫 화면(웹 router.push(MYPAGE_BACK)) — 딥링크로 들어와도 홈이 아니라 /mypage(G5b-02 2번). 하드웨어 뒤로는 Stack pop.
+//   router.dismissTo: 같은 Stack 의 index 까지 pop(없으면 이 화면을 index 로 바꿔치기). navigate 는 pop 없이 index 를 하나 더 쌓는다(B6 검토 H1).
 // · 두 가지 자리: 고정 머리(Stack 의 header — 위 안전 영역을 여기서 비운다, insetTop) / 스크롤 머리(내 문의·고객지원 —
 //   화면 스크롤 내용 맨 앞에 두어 함께 올라간다, G5b-R02 — 위 안전 영역은 Screen edges 'top' 이 비운다).
 import { useRouter } from 'expo-router';
@@ -45,7 +46,7 @@ export function SubPageHeader({ title, backLabel, variant = 'plain', insetTop = 
           box={24}
           color="muk-soft"
           accessibilityLabel={backLabel}
-          onPress={() => router.navigate(MYPAGE_HOME)}
+          onPress={() => router.dismissTo(MYPAGE_HOME)}
         />
         {/* 웹 h1 text-xl(20/28) font-bold tracking-wide(0.025em = 0.5px). */}
         <Text weight="bold" accessibilityRole="header" className="min-w-0 shrink text-[20px] leading-[28px] tracking-[0.5px]">
