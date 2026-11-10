@@ -1,4 +1,13 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-02c — 모바일 2단계: 관광객 화면 전부 이식 · 검토 3렌즈 반영(에뮬레이터 실데이터 확인)
+
+- 도구·브랜치: Claude Code(화면 묶음 에이전트 7 — 반복 이식 Sonnet · 인증 Opus, 검토 Opus) / `yunseong`
+- 커밋: `6003a0c`..`bb60ae3` + 이 기록. 묶음·통합·수정 커밋은 [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md) §9.2 진행표.
+- 한 것: 홈 지도·추천 카드 시트·여정/방문 확인·대안·코스·대기·저장·마이(+7)·로그인·첫 실행(소개 → 위치기반서비스 약관 동의 → 첫 설정). 위치는 약관 동의 없으면 읽지도 묻지도 않는다. 외부 AI(Upstage)로 문장을 보내는 3곳은 첫 사용 허락. 앱 처리방침을 앱 사실로 바꾸고 초안 [`MOBILE_PRIVACY_DRAFT.md`](../MOBILE_PRIVACY_DRAFT.md)(법무 검토 전). 문구 126키 4로케일, 웹 키 검사가 앱도 본다. 안드로이드 구글 지도는 키 없으면 앱이 죽어 키 없는 빌드는 판만 그린다.
+- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · web lint 0 error(148)·test·build · 에뮬레이터 실데이터 흐름. **실수**: `be63804`·`7a49c64`(빨간 테스트)와 `03138ca`(문구 파일 빠짐)를 푸시했다 — 다음 커밋에서 고쳤다(게이트 명령의 실패 코드 유실·없는 경로로 git add 실패).
+- 다음·미결: 3단계는 Google Maps 키, 4단계는 Expo 조직·진석 님 권한 대기. 위치정보법 서버 요건과 접속 로그 좌표(M22)는 법무 확인 뒤. 웹에도 같은 버그 하나(`userData.ts` 에 `nextspot_saved_pending_deletes` 없음).
+- 사람 작업: "사람 작업 대기" 모바일 ①·② + Supabase Redirect URL `nextspot://**`.
+
 ## 2026-11-02b — 모바일 1단계: Expo SDK 57 뼈대 · 공용 층 4개 · 탭 셸(에뮬레이터 확인)
 
 - 도구·브랜치: Claude Code(공용 층 에이전트 4 · worktree) / `yunseong`

@@ -62,7 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
-   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, §3 결정 D1~D19 답 대기 → §5 묶음 A1 부터)**. 묶음 A1 의 모달 시트 버그(`Sheet.tsx` 첫 마운트 dismiss — 필터·날씨·축제·화장실·지금 한산·묶음 핀·혼잡 제보 시트가 안드로이드에서도 안 열릴 가능성)는 동등성과 별개인 앱 버그라 먼저 고친다. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
+   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, 결정 D1~D19 = 추천대로 · 11-11 웨이브 A·B 끝 → 웨이브 D·H 차례, 상태는 §5.2 표)**. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -304,6 +304,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-11 — 웹 ↔ Expo 동등성 구현 웨이브 A·B(앱 버그·값 오류·토큰·기반 부품·지도 래퍼·탭 막대)
+
+- 도구·브랜치: Claude Code(i7, 메인 + 묶음별 worktree 에이전트 9 · 독립 검토 5) / `yunseong`
+- 커밋: e70dea8..(이 기록) — 결정 확정 · A1~A3 · A 검토 수정 2 · B1~B6 · export·PORTING·상태 정리
+- 한 것: 사용자 답 "추천대로"로 D1~D19 확정. A1 모달 시트 7곳이 안 열리던 원인(gorhom DISMISSING 함정)을 상태 기계로 고침 + Card 기본색, A2 SPOT ×100·직접 고른 곳 도보 분·킵 북마크를 웹 recToSpot 과 같게, A3 토큰·`navMetrics`·새 키 4. 웨이브 B: 글자 줄 높이·글꼴·유리(B1), Button·Chip·Pressable·ErrorState(B2), 시트 선택 prop·토스트·확인 토스트(B3), 새 그림·조작 부품 14종(B4a·B4b), 지도 래퍼(B5), 웹과 같은 101pt 탭 막대 + 마이 하위·대안 화면을 탭 안으로(B6). 부품 기본값은 지금 모양 — 화면 묶음(D·H)이 웹 값을 넣는다.
+- 검증: 모바일 tsc · npm test 90 · check:shared · expo-doctor 21/21 · export android·web, 웹 lint/typecheck/test/build(A3), check-docs. 묶음마다 하네스 재촬영(짝은 i7 세션 scratchpad).
+- 다음·미결: 웨이브 B 검토 4렌즈 결과 반영 → 웨이브 D(D1~D6)·H(H1·H2a·H2b) → H3a → H3b → F. Z Fold7 확인 목록은 계획 §8.2 + 각 묶음 보고(시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14, 탭 막대 뒤로 키, 지도 패딩·기본 핀). 웹 `saved/page.tsx` 점수 정규화는 W1(§7 #10).
+- 사람 작업: 없음.
+
 ## 2026-11-10c — 웹 ↔ Expo 화면 동등성 비교 · 차이 252건 기록 · 구현 계획(결정 답 대기)
 
 - 도구·브랜치: Claude Code(i7, 인벤토리·하네스 각 1 · 비교 7 · 독립 검토 3 · 종합 1) / `yunseong` · 이 기록 + `docs/MOBILE_WEB_PARITY.md` · `docs/parity/*`(발견 7 · 검토 3). 앱 코드 변경 없음.
@@ -368,15 +377,6 @@ from checks order by seq;
 - 한 것: EAS 프로젝트 `@oys030408s-team/nextspot`(로봇 사용자 토큰은 `apps/mobile/.env.local` 의 `Expo_Token_for_Claude`, 명령마다 `EXPO_TOKEN` 으로). Supabase 공개 값·`GOOGLE_MAPS_ANDROID_API_KEY` 는 EAS 환경 변수(3환경). 에뮬레이터에서 실제 구글 지도 확인. development APK 빌드 `66dad613`.
 - 서명 SHA-1(지도 키 제한용, 비밀 아님): EAS 업로드 키 `C8:94:4D:49:95:9E:8F:96:E2:52:24:DB:BD:98:4D:14:34:2F:35:DF` · 로컬 debug `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` · Play 앱 서명 키는 콘솔 등록 뒤 추가.
 - 다음: Z Fold7 실기기 확인 → 3단계(지도 줌 보정·위치 마무리) → 4단계(진석 님 스토어 권한).
-
-## 2026-11-02c — 모바일 2단계: 관광객 화면 전부 이식 · 검토 3렌즈 반영(에뮬레이터 실데이터 확인)
-
-- 도구·브랜치: Claude Code(화면 묶음 에이전트 7 — 반복 이식 Sonnet · 인증 Opus, 검토 Opus) / `yunseong`
-- 커밋: `6003a0c`..`bb60ae3` + 이 기록. 묶음·통합·수정 커밋은 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md) §9.2 진행표.
-- 한 것: 홈 지도·추천 카드 시트·여정/방문 확인·대안·코스·대기·저장·마이(+7)·로그인·첫 실행(소개 → 위치기반서비스 약관 동의 → 첫 설정). 위치는 약관 동의 없으면 읽지도 묻지도 않는다. 외부 AI(Upstage)로 문장을 보내는 3곳은 첫 사용 허락. 앱 처리방침을 앱 사실로 바꾸고 초안 [`MOBILE_PRIVACY_DRAFT.md`](./MOBILE_PRIVACY_DRAFT.md)(법무 검토 전). 문구 126키 4로케일, 웹 키 검사가 앱도 본다. 안드로이드 구글 지도는 키 없으면 앱이 죽어 키 없는 빌드는 판만 그린다.
-- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · web lint 0 error(148)·test·build · 에뮬레이터 실데이터 흐름. **실수**: `be63804`·`7a49c64`(빨간 테스트)와 `03138ca`(문구 파일 빠짐)를 푸시했다 — 다음 커밋에서 고쳤다(게이트 명령의 실패 코드 유실·없는 경로로 git add 실패).
-- 다음·미결: 3단계는 Google Maps 키, 4단계는 Expo 조직·진석 님 권한 대기. 위치정보법 서버 요건과 접속 로그 좌표(M22)는 법무 확인 뒤. 웹에도 같은 버그 하나(`userData.ts` 에 `nextspot_saved_pending_deletes` 없음).
-- 사람 작업: "사람 작업 대기" 모바일 ①·② + Supabase Redirect URL `nextspot://**`.
 
 ## 기록 규칙
 
