@@ -62,7 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
-   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, 결정 D1~D19 = 추천대로 · 11-11 웨이브 A·B·D·H1·H2·H3a·F1 끝 → H3b·F2~F4 차례, 상태는 §5.2 표)**. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
+   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, 결정 D1~D19 = 추천대로 · 11-11 계획 묶음 A~F 전부 끝 — 남은 것은 W1 웹 수정(§7)·L1 개인정보(법무 뒤)·Z Fold7 실기기 확인, 상태는 §5.2 표)**. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -305,14 +305,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
-## 2026-11-11 — 웹 ↔ Expo 동등성 구현 웨이브 A·B·D·H(일부)·F1(앱 버그·기반 부품·화면 6개·추천 카드·홈 부품·골든타임 알림)
+## 2026-11-11 — 웹 ↔ Expo 동등성 구현 전부(A·B·D·H·F) · 묶음마다 다른 렌즈 검토 반영 · 전체 재촬영
 
 - 도구·브랜치: Claude Code(i7, 메인 + 묶음별 worktree 에이전트 9 · 독립 검토 5) / `yunseong`
 - 커밋: e70dea8..(이 기록) — 결정 확정 · A1~A3 · A 검토 수정 2 · B1~B6 · export·PORTING·상태 정리
 - 한 것: 사용자 답 "추천대로"로 D1~D19 확정. A1 모달 시트 7곳이 안 열리던 원인(gorhom DISMISSING 함정)을 상태 기계로 고침 + Card 기본색, A2 SPOT ×100·직접 고른 곳 도보 분·킵 북마크를 웹 recToSpot 과 같게, A3 토큰·`navMetrics`·새 키 4. 웨이브 B: 글자 줄 높이·글꼴·유리(B1), Button·Chip·Pressable·ErrorState(B2), 시트 선택 prop·토스트·확인 토스트(B3), 새 그림·조작 부품 14종(B4a·B4b), 지도 래퍼(B5), 웹과 같은 101pt 탭 막대 + 마이 하위·대안 화면을 탭 안으로(B6). 부품 기본값은 지금 모양 — 화면 묶음(D·H)이 웹 값을 넣는다.
 - 검증: 모바일 tsc · npm test 90 · check:shared · expo-doctor 21/21 · export android·web, 웹 lint/typecheck/test/build(A3), check-docs. 묶음마다 하네스 재촬영(짝은 i7 세션 scratchpad).
 - 이어서(같은 날): 웨이브 B 검토 반영, 화면 D1~D6, 추천 카드 H1, 홈 부품 H2a·H2b, 홈·저장 상세에 카드 연결 H3a, 골든타임 '알림 받기' F1(expo-notifications — 기기 안 예약만, 서버·푸시 토큰 없음). 묶음마다 다른 렌즈 검토 → 중간 이상 반영.
-- 다음·미결: H3b(홈 지도·카메라·위치·예측 띠·주차장) → F2(✨) · F3(대안 혼잡 제보, 진행 중) → F4(죽은 키·파일 정리·전체 재촬영). Z Fold7 확인 목록은 계획 §8.2 + 각 묶음 보고(시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14, 탭 막대 뒤로 키, 지도 패딩·기본 핀). 웹 `saved/page.tsx` 점수 정규화는 W1(§7 #10).
+- 마무리(같은 날): H3b 홈 지도·카메라·위치·예측 띠·주차장, F2 ✨ 경주 테마, F3 대안 혼잡 제보, F4 죽은 문구 키 4로케일·재수출·죽은 코드 정리 + 전체 재촬영(78 스크립트), 마지막 갭(첫 카메라 = 지역 중심, 웹 빌드 Reanimated className, 모달 토스트 폭, 콘솔 버튼 줄바꿈, /intro 딥링크 소개). 끝 커밋 `1068c9c`.
+- 다음·미결: Z Fold7 실기기 확인(사람 작업), W1 웹 수정(§7 #1~19 — main 반영은 지시 때), L1 개인정보 문안(법무 뒤 — F1 로컬 알림·FCM 미초기화 문구 포함), 옛 3단 시트를 전제로 한 하네스 스크립트 다시 짜기(G3 01~12 등 — 목록은 i7 scratchpad f4-results.md), 남은 P2(언어 알약 폭·코스 핀·레이더 라벨 등). 로컬 web 테스트 `engineValidation.test.ts` 는 이 PC 의 CRLF 체크아웃에서만 실패(코드 문제 아님). Z Fold7 확인 목록은 계획 §8.2 + 각 묶음 보고(시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14, 탭 막대 뒤로 키, 지도 패딩·기본 핀). 웹 `saved/page.tsx` 점수 정규화는 W1(§7 #10).
 - 사람 작업: 없음.
 
 ## 2026-11-10c — 웹 ↔ Expo 화면 동등성 비교 · 차이 252건 기록 · 구현 계획(결정 답 대기)
