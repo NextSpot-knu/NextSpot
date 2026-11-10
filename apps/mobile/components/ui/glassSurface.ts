@@ -1,6 +1,6 @@
 // 유리 판 규칙 — 순수 값·함수(테스트: glassSurface.test.ts). Glass.tsx 가 플랫폼 값을 넣어 부른다.
 // 웹 기준: apps/web/app/globals.css:408-466 `.liquid-glass`, :594-614 `.rail-glass`.
-import { colors } from '~/lib/theme/tokens';
+import { colors, shadows } from '~/lib/theme/tokens';
 
 /**
  * D14(2026-11-11 '① 시험 후 ③'): 안드로이드 SDK 31 이상 + 흐릴 대상(GlassBlurTarget)이 있으면 흐림 + 35%(①).
@@ -8,15 +8,13 @@ import { colors } from '~/lib/theme/tokens';
  */
 export const ANDROID_GLASS_BLUR = true;
 
-// TODO(A3 요청) tokens.ts 로: colors['glass-bg-android'] — D14 ③ 흐림 없는 안드로이드 유리 바탕(hanji 70%).
-export const GLASS_BG_NO_BLUR = 'rgba(250, 245, 236, 0.7)';
+/** D14 ③ 흐림 없는 안드로이드 유리 바탕(hanji 70%). */
+export const GLASS_BG_NO_BLUR = colors['glass-bg-android'];
 
-// TODO(A3 요청) tokens.ts 로: shadows.glass 를 웹 --glass-shadow 전체(안쪽 빛선 둘 + 바깥 그림자)로 바꾸거나 glassInset 추가.
 /** 웹 --glass-shadow(globals.css:411) — 위 1px 흰 빛선 · 아래 1px 옅은 빛선 · 바깥 그림자. */
-export const GLASS_SHADOW_LIGHT =
-  'inset 0px 1px 0px rgba(255, 255, 255, 0.95), inset 0px -1px 0px rgba(255, 255, 255, 0.35), 0px 6px 22px rgba(43, 35, 32, 0.16)';
+export const GLASS_SHADOW_LIGHT = shadows.glassInset;
 /** 웹 .rail-glass box-shadow(globals.css:605). */
-export const GLASS_SHADOW_RAIL = 'inset 0px 1px 0px rgba(255, 255, 255, 0.18), 0px 6px 22px rgba(0, 0, 0, 0.28)';
+export const GLASS_SHADOW_RAIL = shadows.railInset;
 
 /** 웹 backdrop-filter 값 그대로(웹 빌드만). */
 export const GLASS_BACKDROP_LIGHT = 'blur(8px) saturate(180%)';

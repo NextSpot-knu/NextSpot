@@ -5,7 +5,7 @@
 // 2) defaultLineHeight — 웹 preflight 의 line-height 1.5 를 물려받는 기본 줄 높이(G2-G05)
 // 3) glassColor — 유리 판 안에서 보조 글자색을 진하게(G2-G03, 웹 .liquid-glass 의 --nextspot-* 재정의)
 import type { Locale } from '@/lib/i18n/config';
-import { colors, fontFamilies, type ColorToken, type FontWeightName } from '~/lib/theme/tokens';
+import { colors, fontFamilies, fontStacks, type ColorToken, type FontWeightName } from '~/lib/theme/tokens';
 
 import { isTextColorClass } from './cn';
 
@@ -21,17 +21,13 @@ export const FONT_WEIGHT_NUMBER: Record<FontWeightName, '400' | '500' | '600' | 
   black: '900',
 };
 
-// TODO(A3 요청) tokens.ts 로 옮긴다 — 웹 apps/web/app/globals.css:122 `--font-sans` 의 'Freesentation' 뒤 대체 목록.
 /** 웹 빌드에서 Freesentation 을 못 받았을 때(늦음·실패) 명조 대신 고딕으로 그리게 붙이는 목록. */
-export const WEB_FALLBACK_FONTS = "'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
+export const WEB_FALLBACK_FONTS = fontStacks.webFallback;
 
-// TODO(A3 요청) tokens.ts 로 옮긴다 — 웹 apps/web/app/globals.css:182-189 `html:lang(ja|zh)` 의 font-family 앞부분.
+// 웹 apps/web/app/globals.css `html:lang(ja|zh)` 의 font-family 앞부분(tokens.fontStacks).
 // 웹 목록의 'Freesentation'(굵기 묶음 하나) 자리에는 앱의 굵기별 family 이름이 들어간다 — 한글 장소명은 그 글꼴이 받는다.
 /** 일본어·중국어 시스템 글꼴 목록(내려받지 않는다 — 각 OS 에 있다). */
-export const CJK_FONT_LISTS: Record<'ja' | 'zh', string> = {
-  ja: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, "Yu Gothic UI"',
-  zh: '"PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei"',
-};
+export const CJK_FONT_LISTS: Record<'ja' | 'zh', string> = { ja: fontStacks.ja, zh: fontStacks.zh };
 
 export type FontStyle = {
   fontFamily?: string;

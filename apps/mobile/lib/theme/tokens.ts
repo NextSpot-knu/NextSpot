@@ -92,6 +92,8 @@ export const colors = {
   'glass-bg': 'rgba(250, 245, 236, 0.35)',
   /** 흐림이 없을 때(안드로이드)의 유리 바탕 — 흐린 지도가 없으니 글자 대비를 위해 거의 불투명하게. */
   'glass-bg-solid': 'rgba(250, 245, 236, 0.92)',
+  /** 흐림 없는 안드로이드 유리 바탕(D14 ③ — hanji 70%). 흐림이 되는 기기는 glass-bg. */
+  'glass-bg-android': 'rgba(250, 245, 236, 0.7)',
   /** 유리 가장자리 빛. */
   'glass-edge': 'rgba(255, 255, 255, 0.85)',
   /** 왼쪽 내비 캡슐(.rail-glass) — 매우 어두운 갈색 반투명. 흐림 위 72%, 흐림 없으면 95%. */
@@ -160,6 +162,10 @@ export const shadows = {
   /** 유리 판 */
   glass: '0px 6px 22px rgba(43, 35, 32, 0.16)',
   rail: '0px 6px 22px rgba(0, 0, 0, 0.28)',
+  /** 웹 --glass-shadow 전체(globals.css .liquid-glass) — 위 1px 흰 빛선 · 아래 1px 옅은 빛선 · 바깥 그림자. */
+  glassInset: 'inset 0px 1px 0px rgba(255, 255, 255, 0.95), inset 0px -1px 0px rgba(255, 255, 255, 0.35), 0px 6px 22px rgba(43, 35, 32, 0.16)',
+  /** 웹 .rail-glass box-shadow 전체. */
+  railInset: 'inset 0px 1px 0px rgba(255, 255, 255, 0.18), 0px 6px 22px rgba(0, 0, 0, 0.28)',
 } as const;
 
 /**
@@ -173,6 +179,16 @@ export const fontFamilies = {
   bold: 'Freesentation-7Bold',
   extrabold: 'Freesentation-8ExtraBold',
   black: 'Freesentation-9Black',
+} as const;
+
+/**
+ * 글꼴 목록(웹 globals.css) — 웹 빌드의 Freesentation 대체 목록(--font-sans 뒤쪽)과 ja·zh 시스템 글꼴(html:lang(ja|zh) 앞쪽).
+ * components/ui/textStyle.ts fontStyleFor 가 쓴다.
+ */
+export const fontStacks = {
+  webFallback: "'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif",
+  ja: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, "Yu Gothic UI"',
+  zh: '"PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei"',
 } as const;
 
 export type FontWeightName = keyof typeof fontFamilies;

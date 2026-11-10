@@ -20,7 +20,7 @@
  * 5. grid → `flex-row flex-wrap gap-[8px]` + 자식 폭(w-[48%] 등). grid-cols-* 는 없다.
  * 6. 그라데이션(bg-gradient-to-* · .cta-primary · .gradient-text) → `Gradient`(expo-linear-gradient). 주 버튼은 `Button`
  *    variant="primary" 가 이미 그린다. 글자 그라데이션은 없다 — text-gold-deep 단색.
- * 7. 유리(.liquid-glass · backdrop-blur · .rail-glass) → `Glass`. iOS 는 expo-blur, 안드로이드는 거의 불투명한 판(흐림 없음).
+ * 7. 유리(.liquid-glass · backdrop-blur · .rail-glass) → `Glass`. iOS 는 expo-blur, 안드로이드는 D14(SDK 31+ 이고 GlassBlurTarget 이 있으면 흐림 + 35%, 아니면 70%).
  *    탐색 층에만, 유리 위에 유리를 겹치지 않는다. 유리 안 보조 글자는 text-glass-muk-soft · text-glass-gold-deep.
  * 8. hover: · focus-visible: · transition-* · cursor-* → 버린다. 누름 피드백은 `Pressable`(0.96 줄어듦, 웹 .toss-pressable).
  *    active:scale-* 를 같이 쓰지 않는다(두 번 줄어든다).
@@ -46,7 +46,8 @@ export { Chip, type ChipProps } from './Chip';
 export { cn, withDefault } from './cn';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { ErrorState, type ErrorStateProps } from './ErrorState';
-export { Glass, useReduceTransparency, type GlassProps } from './Glass';
+export { Glass, GlassBlurProvider, GlassBlurTarget, useReduceTransparency, type GlassProps } from './Glass';
+export { GlassToneContext, useGlassTone } from './glassContext';
 export { Gradient, type GradientName, type GradientProps } from './Gradient';
 export { Icon, type IconProps } from './Icon';
 export { IconButton, type IconButtonProps } from './IconButton';
@@ -75,3 +76,4 @@ export { BackCircleButton, type BackCircleButtonProps } from './BackCircleButton
 export { LoadingReveal, WaitingSectorSkeleton, type LoadingRevealProps, type LoadingRevealVariant } from './LoadingReveal';
 export { NowChip, formatClock } from './NowChip';
 export { SelectField, type SelectFieldProps, type SelectOption, type SelectVariant } from './SelectField';
+export { fontStyleFor } from './textStyle';
