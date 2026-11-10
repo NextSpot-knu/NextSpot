@@ -257,16 +257,6 @@ export function walkingMinutes(distM: number): number {
   return Math.max(1, Math.ceil((d * 1.18) / 66.67));
 }
 
-/** 핀 놓을 순서 — 서버 상위 추천(순위) 먼저, 그다음 내 위치에서 가까운 순(웹은 SPOT 미러 점수순). */
-export function orderForPins<T extends { id: string; latitude: number; longitude: number }>(
-  list: readonly T[],
-  rankById: ReadonlyMap<string, number>,
-  origin: { lat: number; lng: number },
-): T[] {
-  const d = (f: T) => haversineMeters(origin.lat, origin.lng, f.latitude, f.longitude);
-  return [...list].sort((a, b) => (rankById.get(a.id) ?? 99) - (rankById.get(b.id) ?? 99) || d(a) - d(b));
-}
-
 // ── 핀 ───────────────────────────────────────────────────────────────────
 
 export interface PinContext {
@@ -467,78 +457,21 @@ export function resolveUserLocation(coords: { latitude: number; longitude: numbe
 
 // ── 지도 위 여정 카드(진행 중 여행 · 방문 확인) ─────────────────────────────
 
-/** 홈 지도 위에 얹는 여정 카드 — 한 번에 하나만. */
-export type TripOverlayCard = 'visit' | 'journey' | null;
-
 /**
- * 카드별 최소 높이(dp) — 남은 자리가 이보다 작으면 카드를 감춘다. 카드는 접은 판 없이 하나의 판을 그리고 남은 높이 안에서
- * 스크롤되므로(자리가 좁으면 위쪽만, 스크롤 막대 표시), 이 값은 '맨 위 이름 줄 전체 + 첫 행동 버튼의 글자까지(30dp 남짓)'
- * 가 보이는 높이다(카드 위 여백 16 + 이름 줄 20~22 + 사이 10~12 + 버튼 30). 버튼 전체(+14)는 자리가 92dp 를 넘으면 보인다.
- * 기준 화면: 411×833dp 는 시트 기본 높이(52%)에서 남은 자리가 약 103dp(버튼까지 다 보임), 360×780dp 는 약 83dp
- * (이름 + 버튼 윗부분). 예전 접은 판(62dp)이 들어가던 자리에서 카드가 사라지지 않게 그보다 크게 잡지 않는다.
- *   journey — 진행 중 여행: '진행 중 · 이름' 한 줄 → 도착했어요 / 아직 가는 중 / 상황 변경 → (도보 시간 · 상황 변경 · 길안내 다시 열기)
- *   visit   — 방문 확인: 질문 한 줄 → 아직이요 / 네 → (설명 · 단계 점). 혼잡 단계는 버튼이 60dp 다.
+ * 진행 중 여행 카드(위)의 자리와 최대 높이 — 웹 ActiveJourneyCard `absolute top-24 left-4 right-4 max-h-[calc(100dvh-7rem)]`(G3-28).
+ * 앱 홈은 상태 표시줄 밑부터 그리므로 위는 insets.top + 96. 웹 최대 높이(100dvh − 112)는 카드 아래가 화면 아래 16 위에서 끝나는
+ * 값이다 — 앱 홈 루트는 탭 막대 위에서 끝나므로 루트 높이 − 위 − 16 으로 잰다. 키보드가 루트 아래를 가리면(상황 변경 입력) 그만큼
+ * 줄여 입력 칸이 키보드 밑에 숨지 않게 하되, 이름 + 첫 행동 줄(JOURNEY_MIN_HEIGHT)은 남긴다.
+ * 방문 확인 카드(아래, NAV_GAP + 8)와 함께 보인다 — 옛 '한 번에 하나 · 자리 없으면 감춤' 규칙(pickTripOverlay)은 지웠다(G3-31).
  */
-export const TRIP_CARD_HEIGHT = { journey: 78, visit: 78 } as const;
+export const JOURNEY_TOP_OFFSET = 96;
+export const JOURNEY_BOTTOM_GAP = 16;
+export const JOURNEY_MIN_HEIGHT = 120;
 
-export interface TripOverlayInput {
-  /** 방문 확인 카드가 그릴 것이 있다(때가 된 방문 — 답하는 중 · 고마워요 단계 포함). 카드가 알려 준다. */
-  visitActive: boolean;
-  /** 진행 중 여행 카드가 그릴 것이 있다(길안내 중, '아직 가는 중'으로 닫지 않음). 카드가 알려 준다. */
-  journeyActive: boolean;
-  /** 검색 결과 판이 위를 차지하고 있다. */
-  searching: boolean;
-  /** 위 칩 줄 아래부터 아래 시트·배너·키보드 위까지 남은 높이(dp). */
-  room: number;
-  /** 키보드를 빼고(시트·배너만) 남은 높이(dp). 없으면 room 과 같다. */
-  roomWithoutKeyboard?: number;
-  /**
-   * 여정 카드 안 입력 칸(상황 변경)에 쓰는 중이다. 그 입력으로 올라온 키보드가 자리를 줄여 카드를 감추면 → 키보드가 닫히는
-   * 고리가 생기므로, 쓰는 동안은 키보드 가림만 무시한다. 시트·배너가 가리면(시트를 펼침으로 올림 등) 그대로 감춘다.
-   */
-  typing?: boolean;
-}
-
-export interface TripOverlay {
-  /** 보여 줄 카드. 둘 다 늘 붙여 두고(답하던 단계·입력이 사라지지 않게) 이것만 보인다. */
-  card: TripOverlayCard;
-  /** 지금은 자리가 없어 감춘다(검색 판 · 시트를 올림 · 키보드). 카드는 붙어 있다 — 감추기만. */
-  hidden: boolean;
-}
-
-/**
- * 여정 카드 고르기. 웹 /main 은 진행 중 여행(위)과 방문 확인(아래, 추천 카드 위 z-55)을 함께 띄웠지만, 두 카드는 같은 여정이다
- * (recordActiveTrip 이 대기 방문도 같이 쓴다). 그래서 앱 휴대폰 화면에서는 하나만 보인다:
- *  1. 방문 확인이 때가 되면 그것이 먼저다 — 웹도 이 카드를 가장 위 층(z-55)에 띄웠고, 답('네'·'아직이요')이 여정까지 끝낸다.
- *     '도착했어요'를 누르면 바로 이 카드로 넘어간다.
- *  2. 아니면 길안내 중인 여정.
- *  3. 검색 결과 판이 열려 있거나, 남은 높이가 그 카드의 최소 높이(이름 + 첫 행동 줄)보다 작으면 감춘다(시트가 내려오면 다시 보인다).
- *     접은 판·펼친 판은 따로 없다 — 카드는 늘 같은 판이고 남은 높이 안에서 스크롤되므로(위쪽부터 보인다) 시트와 겹치지 않는다.
- */
-export function pickTripOverlay(input: TripOverlayInput): TripOverlay {
-  const card: TripOverlayCard = input.visitActive ? 'visit' : input.journeyActive ? 'journey' : null;
-  if (!card) return { card: null, hidden: true };
-  const basis = input.typing ? (input.roomWithoutKeyboard ?? input.room) : input.room;
-  const room = Number.isFinite(basis) ? basis : 0;
-  const hidden = input.searching || room < TRIP_CARD_HEIGHT[card];
-  return { card, hidden };
-}
-
-/**
- * 여정 카드 스크롤의 최대 높이 — 남은 자리(키보드 포함). 입력 칸에 쓰는 중이면 키보드 위 자리가 최소 높이보다 작아도 최소 높이만큼은
- * 남기되, 시트·배너가 가린 선(roomWithoutKeyboard)은 넘지 않는다 — 시트 밑에 숨은 칸에 쓰게 되지 않도록.
- */
-export function tripScrollMaxHeight(room: number, roomWithoutKeyboard: number, card: TripOverlayCard, typing: boolean): number {
-  const r = Number.isFinite(room) ? Math.max(0, room) : 0;
-  if (!typing || !card) return r;
-  const cap = Number.isFinite(roomWithoutKeyboard) ? Math.max(0, roomWithoutKeyboard) : r;
-  return Math.min(cap, Math.max(r, TRIP_CARD_HEIGHT[card]));
-}
-
-/** 카드가 쓸 수 있는 높이 — 위 칩 줄 아래(top)부터 아래에서 가린 두께(bottomCover) 위까지, 사이 여백 8씩. */
-export function tripOverlayRoom(containerHeight: number, top: number, bottomCover: number): number {
-  if (!(containerHeight > 0)) return 0;
-  return Math.max(0, Math.round(containerHeight - top - bottomCover - 8));
+export function journeyCardMaxHeight(containerHeight: number, top: number, keyboardCover = 0): number {
+  if (!(containerHeight > 0)) return JOURNEY_MIN_HEIGHT;
+  const room = containerHeight - top - JOURNEY_BOTTOM_GAP - Math.max(0, keyboardCover);
+  return Math.round(Math.max(JOURNEY_MIN_HEIGHT, room));
 }
 
 /**

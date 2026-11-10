@@ -2,7 +2,7 @@
 //
 // 웹 모델: 미리보기(짧은 판) → 전체(위쪽 스크롤 영역 + 바닥 고정 버튼 두 줄) → 상세(전체 카드 스크롤 안에 덧붙임).
 // 높이 3단 시트가 아니다 — 카드 높이는 늘 내용 높이(최대 maxHeight)이고, 손잡이 글자 버튼 · 탭 · 끌기(한 칸씩)로 바꾼다.
-// 11-09 의 '이어 보이기' 바텀시트(RecommendationSheet)는 11-10 결정(웹에 맞춘다)으로 이 카드로 바뀐다 — 홈 연결은 H3a.
+// 11-09 의 '이어 보이기' 바텀시트(RecommendationSheet)는 11-10 결정(웹에 맞춘다)으로 이 카드로 바뀌었다(H3a 에서 지움).
 //
 // 바로잡은 설계(docs/parity/review-R2.md §2 G3-01):
 // - 틀은 두 겹 — 바깥은 그림자·둥글기, 안쪽은 overflow hidden(안드로이드는 같은 View 의 overflow 가 그림자를 자른다).
@@ -10,7 +10,7 @@
 //   스크롤 영역 안 끌기는 스크롤만 한다(웹 실기기에서도 .rec-scroll 이 세로 이동을 먼저 갖는다).
 // - ScrollView 는 flexGrow 0 · flexShrink 1(기본 flexGrow 1 이면 최대 높이까지 늘거나 0 으로 접힌다).
 // - 가장자리 흐림은 더 볼 내용이 있을 때만.
-// - 상태·행동 함수(수락 · 킵 · 거절 · 영업 확인 · 실시간 새로고침)는 RecommendationSheet 의 CardBody 에서 옮겼다.
+// - 상태·행동 함수(수락 · 킵 · 거절 · 영업 확인 · 실시간 새로고침)는 옛 RecommendationSheet 의 CardBody 에서 옮겼다.
 import { useFocusEffect } from 'expo-router';
 import {
   Bookmark,

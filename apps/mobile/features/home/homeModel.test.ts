@@ -15,12 +15,9 @@ import {
   mapInfrastructures,
   matchesCuisineChip,
   NO_CONVENIENCE,
+  journeyCardMaxHeight,
+  JOURNEY_MIN_HEIGHT,
   keyboardCoverFor,
-  orderForPins,
-  pickTripOverlay,
-  tripScrollMaxHeight,
-  TRIP_CARD_HEIGHT,
-  tripOverlayRoom,
   resolveUserLocation,
   selectByCategoryOrSearch,
   shouldAskExternal,
@@ -98,14 +95,7 @@ assert.equal(walkingMinutes(0), 1);
 assert.equal(walkingMinutes(500), Math.ceil((500 * 1.18) / 66.67));
 assert.equal(walkingMinutes(Number.NaN), 1);
 
-// 순서 — 순위 먼저, 그다음 가까운 순.
-const near = fac({ id: 'near', latitude: 35.8362, longitude: 129.2095 });
 const far = fac({ id: 'far', latitude: 35.845, longitude: 129.23 });
-const ranked = fac({ id: 'ranked', latitude: 35.848, longitude: 129.235 });
-assert.deepEqual(
-  orderForPins([far, near, ranked], new Map([['ranked', 1]]), { lat: 35.8362, lng: 129.2095 }).map((f) => f.id),
-  ['ranked', 'near', 'far'],
-);
 
 // 핀 — 묶음은 가장 붐비는 24시간 안 실측 + 최소 순위, 선택은 묶음 키로.
 const a = fac({ id: 'a', address: '경북 경주시 황남동 123-4', congestionLevel: 0.2, lastUpdated: iso(10), source: 'user_report' });
@@ -189,42 +179,13 @@ assert.equal(resolveUserLocation({ latitude: 35.835, longitude: 129.21 }).known,
 
 console.log('homeModel ok');
 
-// ── 여정 카드: 한 번에 하나, 방문 확인이 먼저, 자리가 없으면 감추기만(떼지 않는다) ──
+// ── 진행 중 여행 카드 최대 높이: 루트 − 위 − 16, 키보드가 가리면 그만큼 줄이되 최소 높이는 남긴다 ──
 {
-  const roomy = { searching: false, room: 400 };
-  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: true, ...roomy }), { card: 'visit', hidden: false });
-  assert.deepEqual(pickTripOverlay({ visitActive: false, journeyActive: true, ...roomy }), { card: 'journey', hidden: false });
-  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: false, ...roomy }), { card: 'visit', hidden: false });
-  assert.deepEqual(pickTripOverlay({ visitActive: false, journeyActive: false, ...roomy }), { card: null, hidden: true });
-  // 검색 판이 위를 쓰는 동안은 감춘다 — 고른 카드는 그대로(붙여 둔 채)
-  assert.deepEqual(pickTripOverlay({ visitActive: true, journeyActive: true, searching: true, room: 400 }), { card: 'visit', hidden: true });
-  // 접은 판이 없다 — 남은 높이가 줄어도 판은 같고(스크롤), 이름 + 첫 행동 줄이 들어갈 자리가 없을 때만 감춘다
-  assert.equal(pickTripOverlay({ visitActive: true, journeyActive: false, searching: false, room: TRIP_CARD_HEIGHT.visit }).hidden, false);
-  assert.equal(pickTripOverlay({ visitActive: true, journeyActive: false, searching: false, room: TRIP_CARD_HEIGHT.visit - 1 }).hidden, true);
-  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.journey }).hidden, false);
-  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: TRIP_CARD_HEIGHT.journey - 1 }).hidden, true);
-  assert.equal(pickTripOverlay({ visitActive: false, journeyActive: true, searching: false, room: Number.NaN }).hidden, true);
-  assert.ok(!('compact' in pickTripOverlay({ visitActive: true, journeyActive: false, ...roomy })), '판 모양을 고르지 않는다');
-  // 짧은 화면(360x780dp, 시트 기본 높이에서 남은 자리 약 83dp)에서도 사라지지 않게 최소 높이를 크게 잡지 않는다
-  assert.ok(TRIP_CARD_HEIGHT.journey <= 82 && TRIP_CARD_HEIGHT.visit <= 82);
-  const typing = { visitActive: false, journeyActive: true, searching: false, typing: true } as const;
-  // 상황 변경 입력에 쓰는 동안은 키보드 가림만 무시한다(감춤 → 키보드 닫힘 고리 방지)
-  assert.equal(pickTripOverlay({ ...typing, room: 10, roomWithoutKeyboard: 200 }).hidden, false);
-  // 시트를 펼침으로 올려 시트가 가리면 쓰는 중이어도 감춘다(보이지 않는 칸에 쓰지 않게)
-  assert.equal(pickTripOverlay({ ...typing, room: 10, roomWithoutKeyboard: 20 }).hidden, true);
-  // 쓰는 중이 아니면 키보드 포함 자리로 판단, 검색 판은 늘 감춘다
-  assert.equal(pickTripOverlay({ ...typing, typing: false, room: 10, roomWithoutKeyboard: 200 }).hidden, true);
-  assert.equal(pickTripOverlay({ ...typing, searching: true, room: 400, roomWithoutKeyboard: 400 }).hidden, true);
-  // 스크롤 높이: 쓰는 중이면 최소 높이만큼 남기되 시트가 가린 선은 넘지 않는다
-  assert.equal(tripScrollMaxHeight(10, 200, 'journey', true), TRIP_CARD_HEIGHT.journey);
-  assert.equal(tripScrollMaxHeight(10, 60, 'journey', true), 60);
-  assert.equal(tripScrollMaxHeight(10, 200, 'journey', false), 10);
-  assert.equal(tripScrollMaxHeight(300, 300, 'journey', true), 300);
-  assert.equal(tripScrollMaxHeight(Number.NaN, Number.NaN, 'visit', false), 0);
-  // 남은 높이: 컨테이너 − 위 − 아래 − 8
-  assert.equal(tripOverlayRoom(800, 200, 300), 292);
-  assert.equal(tripOverlayRoom(800, 500, 400), 0);
-  assert.equal(tripOverlayRoom(0, 100, 100), 0);
+  assert.equal(journeyCardMaxHeight(760, 143), 760 - 143 - 16);
+  assert.equal(journeyCardMaxHeight(760, 143, 266), 760 - 143 - 16 - 266);
+  assert.equal(journeyCardMaxHeight(760, 143, 600), JOURNEY_MIN_HEIGHT);
+  assert.equal(journeyCardMaxHeight(0, 143), JOURNEY_MIN_HEIGHT);
+  assert.equal(journeyCardMaxHeight(760, 143, -5), 760 - 143 - 16);
 }
 
 // 키보드가 가린 두께 — 안드로이드 15 edge-to-edge(창 = 화면) · 14 이하(창 = 화면 − 막대) 가 같은 값, 분할 창은 창 기준

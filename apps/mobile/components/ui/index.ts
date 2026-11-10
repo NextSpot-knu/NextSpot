@@ -57,17 +57,13 @@ export {
   MODAL_SHEET_CLOSE_BOX,
   ModalSheet,
   ModalSheetHost,
-  Sheet,
   SheetScrollView,
-  useSheetScrollTopLock,
-  SHEET_HANDLE_HEIGHT,
   SheetView,
   type ModalSheetBackdrop,
   type ModalSheetBackground,
   type ModalSheetCloseVariant,
   type ModalSheetPadding,
   type ModalSheetProps,
-  type SheetProps,
   type SheetState,
 } from './Sheet';
 export { Skeleton, type SkeletonProps } from './Skeleton';
