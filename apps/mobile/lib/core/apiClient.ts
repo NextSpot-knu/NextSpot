@@ -170,6 +170,123 @@ export const loadSharedCongestionEstimates: () => Promise<CongestionEstimatesRes
   4 * 60 * 1000,
 );
 
+// --- 혼잡 예측(🔮 예측 띠 — H2b) ---
+// 웹 /main 은 이 호출들을 page.tsx·lib/predictModel.ts·lib/areaDemandCurve.ts 에서 apiClient.get/post 로 직접 부른다. 앱은 모양을
+// 여기 한 곳에 적는다(응답 모델: apps/api/app/routers/predict.py · area_demand.py). 모두 읽기다 — /predict/batch 는 POST 지만 쓰지 않는다.
+// 주의: predict 라우터는 /api/v1 이 아닌 /predict 아래에 있다(main.py 프리픽스).
+
+/** GET /predict/model-info 의 일부. */
+export interface PredictModelInfo {
+  trained: boolean;
+  /** 미학습 시 서버 폴백 이름(예: "degraded_rules"). */
+  fallbackState: string | null;
+}
+
+/** 모델 학습 여부를 묻는다. 모양이 어긋나거나 못 물었으면 null(웹 parsePredictModelInfo·fetchPredictModelInfo). */
+export async function getPredictModelInfo(): Promise<PredictModelInfo | null> {
+  try {
+    const body: { trained?: unknown; fallbackState?: unknown } | null = await apiClient.get('/predict/model-info', {
+      timeoutMs: 4000,
+    });
+    if (!body || typeof body.trained !== 'boolean') return null;
+    return { trained: body.trained, fallbackState: typeof body.fallbackState === 'string' ? body.fallbackState : null };
+  } catch {
+    return null;
+  }
+}
+
+let predictTrainedPending: Promise<boolean> | null = null;
+
+/**
+ * 예측 모델이 학습돼 있으면 true — 앱 실행마다 한 번만 묻는다(웹 isPredictModelTrained 는 세션 저장). 미학습이면 /predict/batch 는
+ * 언제나 503 이라 부르지 않는다. 못 물었으면 false 로 보되 기억하지 않는다(다음에 다시 묻는다).
+ */
+export function isPredictModelTrained(): Promise<boolean> {
+  if (predictTrainedPending) return predictTrainedPending;
+  const pending = getPredictModelInfo().then((info) => {
+    if (!info) predictTrainedPending = null;
+    return info?.trained === true;
+  });
+  predictTrainedPending = pending;
+  return pending;
+}
+
+export interface BatchPredictionItem {
+  facilityId: string;
+  predictedCongestion: number;
+  /** 실측에 앵커된 예측인가. false 면 화면은 '추정' 을 붙인다. */
+  anchored?: boolean;
+  eventBoost?: number;
+}
+
+export interface BatchPredictResponse {
+  generatedAt: string;
+  hoursAhead: number;
+  predictions: BatchPredictionItem[];
+}
+
+/** POST /predict/batch — 지금 + hoursAhead 시간의 장소별 혼잡 예측(읽기). 실패는 throw. */
+export async function predictBatch(hoursAhead: number, options?: { signal?: AbortSignal }): Promise<BatchPredictResponse> {
+  return apiClient.post('/predict/batch', { hoursAhead }, { signal: options?.signal });
+}
+
+export interface AreaDemandForecastResponse {
+  available?: boolean;
+  forecast?: { level?: number | null } | null;
+}
+
+/** GET /api/v1/area-demand/forecast — 한 도착 시각의 권역 수요 전망(서버 창: 지금+30분~+6시간). 전송 실패는 throw. */
+export async function getAreaDemandForecast(
+  point: { lat: number; lng: number },
+  arrivalAt: Date,
+  options?: { signal?: AbortSignal },
+): Promise<AreaDemandForecastResponse> {
+  return apiClient.get('/api/v1/area-demand/forecast', {
+    params: { lat: String(point.lat), lng: String(point.lng), arrivalAt: arrivalAt.toISOString() },
+    timeoutMs: 8000,
+    signal: options?.signal,
+    noRetry: true,
+  });
+}
+
+// --- 공영주차장(주차장 탭 — H2b) ---
+
+/** GET /api/v1/area-demand/parking-lots 항목(area_demand.py ParkingLotItem). */
+export interface ParkingLotItem {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  distanceM: number;
+  totalSpaces: number | null;
+  availableSpaces: number | null;
+  occupancy: number | null;
+  live: boolean;
+  observedAt: string | null;
+  source: string | null;
+}
+
+export interface ParkingLotsResponse {
+  available: boolean;
+  state: string;
+  source: string | null;
+  radiusM: number;
+  observedAt: string | null;
+  lots: ParkingLotItem[];
+}
+
+/** 경주시 ITS 공식 위치·실시간 잔여면(공개 GET). 웹 /main 주차장 탭과 같은 반경 5km·6초. 실패는 throw. */
+export async function getParkingLots(
+  point: { lat: number; lng: number },
+  options?: { radiusM?: number; signal?: AbortSignal },
+): Promise<ParkingLotsResponse> {
+  return apiClient.get('/api/v1/area-demand/parking-lots', {
+    params: { lat: String(point.lat), lng: String(point.lng), radiusM: String(options?.radiusM ?? 5000) },
+    timeoutMs: 6000,
+    signal: options?.signal,
+  });
+}
+
 // --- 추천 ---
 
 export interface RecommendationResponse {
