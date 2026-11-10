@@ -411,6 +411,8 @@ export function HomeScreen() {
   headerRef.current = headerH;
   const navGapRef = useRef(nav.gap);
   navGapRef.current = nav.gap;
+  const navBarRef = useRef(nav.barHeight);
+  navBarRef.current = nav.barHeight;
   const bandInsets = useCallback(() => ({
     top: headerRef.current + 8,
     bottom: bandBottomInset({
@@ -472,29 +474,29 @@ export function HomeScreen() {
     schedulePadding();
   }, [refocusIfRecent, schedulePadding]);
 
-  // 첫 진입: 이번 세션에 보던 자리가 있으면 그대로(웹 sessionStorage 복원), 없으면 내 위치(또는 지역 중심)를 띠 가운데로(웹 centerOnFreeArea).
+  // 첫 진입(웹 initMap): 이번 세션에 보던 자리가 있으면 그대로(sessionStorage 복원), 없으면 지금 기준점(내 위치 또는 지역 중심)을
+  // 띠 가운데로(centerOnFreeArea). 지도가 뜨기 전에 추천 1위로 옮기라는 요청이 이미 왔으면 그 자리로 — 웹은 위치가 늦게 잡혀도
+  // 지도를 내 위치로 끌고 가지 않는다(1위 핀이 기준점 가까이에 있다).
   const [restored] = useState(() => parseMapSession(
     sessionGet(MAP_SESSION_KEYS.lat), sessionGet(MAP_SESSION_KEYS.lng), sessionGet(MAP_SESSION_KEYS.level),
   ));
   const centeredRef = useRef(false);
-  const knownRef = useRef(false);
   useEffect(() => {
     if (!mapReady || centeredRef.current) return;
+    centeredRef.current = true;
     if (restored && !nearCenter(restored, REGION.center)) {
-      centeredRef.current = true;
-      knownRef.current = true; // 사용자가 옮겨 둔 자리 — 위치가 늦게 잡혀도 끌고 가지 않는다
       mapRef.current?.animateTo({ latitude: restored.latitude, longitude: restored.longitude }, { level: restored.level ?? 4, duration: 0 });
       return;
     }
-    if (loc.status === 'checking' || loc.status === 'needs-primer') return;
-    centeredRef.current = true;
+    const last = lastFocusRef.current;
+    if (last) {
+      // 지금 옮긴 것으로 친다 — 곧 스택이 스켈레톤 → 카드로 바뀌면 새 띠로 한 번 더 맞춘다(refocusIfRecent).
+      lastFocusRef.current = { ...last, at: Date.now() };
+      mapRef.current?.animateTo({ latitude: last.latitude, longitude: last.longitude }, { level: last.level ?? restored?.level ?? 4, duration: 0, insets: bandInsets() });
+      return;
+    }
     mapRef.current?.animateTo({ latitude: userPoint.lat, longitude: userPoint.lng }, { level: restored?.level ?? 4, duration: 0, insets: bandInsets() });
-  }, [mapReady, loc.status, userPoint.lat, userPoint.lng, restored, bandInsets]);
-  useEffect(() => {
-    if (!loc.known || knownRef.current || !mapReady) return;
-    knownRef.current = true;
-    focusOn(userPoint.lat, userPoint.lng);
-  }, [loc.known, mapReady, userPoint.lat, userPoint.lng, focusOn]);
+  }, [mapReady, userPoint.lat, userPoint.lng, restored, bandInsets]);
   const onRegionChangeComplete = useCallback((v: MapViewport) => {
     setViewport(v);
     if (!centeredRef.current) return; // 첫 영역(기본 중심)으로 세션 기억을 덮지 않는다
@@ -857,7 +859,11 @@ export function HomeScreen() {
     setFestival(null);
     pickedRef.current = false;
     lastFocusRef.current = null;
-    mapRef.current?.animateTo({ latitude: cluster.anchor.latitude, longitude: cluster.anchor.longitude });
+    // 웹 panTo 는 '화면' 가운데(지도가 탭 막대 뒤까지 이어진다) — 앱 지도는 막대 위에서 끝나니 막대 높이만큼 위를 비워 같은 자리로.
+    mapRef.current?.animateTo(
+      { latitude: cluster.anchor.latitude, longitude: cluster.anchor.longitude },
+      { insets: { top: navBarRef.current } },
+    );
   }, []);
   const popover: MapPopover | null = useMemo(() => (activeGroup
     ? {
@@ -1071,6 +1077,8 @@ export function HomeScreen() {
   const searchFont = fontStyleFor('regular', locale, Platform.OS === 'web' ? 'web' : 'native');
   const short = windowHeight < SHORT_SCREEN_MAX;
   const mapPadding = useMemo(() => ({ bottom: mapPaddingBottom }), [mapPaddingBottom]);
+  // 웹은 지도가 탭 막대 뒤까지 이어져 가운데 카드가 '화면' 가운데에 선다 — 앱 지도는 막대 위에서 끝나니 막대 높이만큼 위를 띄워 같은 자리로.
+  const centerOnScreen = { paddingTop: nav.barHeight };
   const toolsActive = accessibleOn || strollerOn || parkingFilter || cuisineId !== null;
 
   const weatherPill = !searching && weather ? (
@@ -1256,14 +1264,14 @@ export function HomeScreen() {
 
         {/* 가운데 — 불러오는 중 · 실패 · 빈 상태(웹 :4596-4631, 주차장 탭에서는 없음) */}
         {!parkingTab && loading && !hasFacilities ? (
-          <View pointerEvents="none" className="absolute inset-0 items-center justify-center gap-[12px]">
+          <View pointerEvents="none" className="absolute inset-0 items-center justify-center gap-[12px]" style={centerOnScreen}>
             <NextSpotMascot variant="full" size={80} shadow={MASCOT_SHADOW} />
             <RingSpinner size={40} borderWidth={2} trackColor={colors.line} headColor="gold" />
             <Text className="text-[14px]" weight="medium">{t('map.loadingRec')}</Text>
           </View>
         ) : null}
         {!parkingTab && !loading && error ? (
-          <View pointerEvents="box-none" className="absolute inset-0 items-center justify-center px-[24px]">
+          <View pointerEvents="box-none" className="absolute inset-0 items-center justify-center px-[24px]" style={centerOnScreen}>
             <Card padded={false} className="max-w-[320px] items-center gap-[12px] px-[24px] py-[20px]" style={{ boxShadow: SOFT_SHADOW }}>
               <Text className="text-[24px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">⚠️</Text>
               <Text className="text-center text-[14px]" weight="semibold" accessibilityRole="header">{t('map.loadErrorTitle')}</Text>
@@ -1280,7 +1288,7 @@ export function HomeScreen() {
           </View>
         ) : null}
         {!parkingTab && !loading && !error && !hasFacilities ? (
-          <View pointerEvents="none" className="absolute inset-0 items-center justify-center px-[24px]">
+          <View pointerEvents="none" className="absolute inset-0 items-center justify-center px-[24px]" style={centerOnScreen}>
             <Card padded={false} className="max-w-[320px] items-center gap-[8px] px-[24px] py-[20px]" style={{ boxShadow: SOFT_SHADOW }}>
               <NextSpotMascot variant="full" size={64} />
               <Text className="text-center text-[14px]" weight="semibold">{t('map.emptyTitle')}</Text>
