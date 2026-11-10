@@ -292,6 +292,7 @@ export default function RecommendScreen() {
                   onAccept={data.requestAccept}
                   onVote={data.handleSatisfactionFeedback}
                   onShare={data.handleShare}
+                  onReported={data.markReported}
                   onHoursAnswer={data.submitHoursStatus}
                   onHoursDismiss={data.dismissHoursPrompt}
                 />

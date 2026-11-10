@@ -17,6 +17,7 @@ import { queueRecommendationOutcome } from '~/lib/core/recommendationOutcomes';
 import { createPublicClient } from '~/lib/core/supabase';
 import type { TFunc } from '~/lib/i18n/I18nProvider';
 import { toast } from '~/components/ui';
+import type { ReportLevel } from '~/features/recommendation-card/reportCore';
 import { haptic } from '~/lib/platform/haptics';
 import { openDrivingDirections, openExternalUrl, openWalkingDirections } from '~/lib/platform/links';
 import { shareLink, type ShareOutcome } from '~/lib/platform/share';
@@ -397,6 +398,28 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recommendations, deps, facilityId, originNameParam, originTypeParam]);
 
+  // ── 혼잡 제보 ── 제보 직후에는 서버 재조회 없이 이 카드만 실측 상태로 갱신한다(웹 onReported, G4a-22).
+  // congestionIsCurrent 를 함께 덮어써야 한다 — 남기면 방금 본 제보가 '마지막 관측' 으로 밀리고 추정이 '지금' 을 차지한다.
+  const markReported = useCallback((rec: RecommendationResponse, level: ReportLevel) => {
+    const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
+    const congestionTimestamp = new Date().toISOString();
+    setRecommendations((current) =>
+      current.map((item) =>
+        item.recommendationId === rec.recommendationId
+          ? {
+              ...item,
+              congestionLevel,
+              congestionSource: 'measured',
+              congestionTimestamp,
+              congestionLogSource: 'user_report',
+              congestionIsStale: false,
+              congestionIsCurrent: true,
+            }
+          : item,
+      ),
+    );
+  }, []);
+
   // ── 공유 ── (링크는 같은 화면으로 돌아오되 ref=share 가 붙는다)
   // 결과(복사·실패)별 토스트와 ✓ 는 ShareButton 이 띄운다 — 여기서는 결과만 돌려준다(이중 알림 방지, G4a-23).
   const handleShare = useCallback(
@@ -456,6 +479,7 @@ export function useAlternatives({ params, coords, locationReady, isUserLocation 
     handleSatisfactionFeedback,
     handleRefresh,
     handleShare,
+    markReported,
     shareUrl,
   };
 }

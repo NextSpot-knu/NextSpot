@@ -1,12 +1,14 @@
 // 대안 카드 한 장 — 웹 page.tsx 의 recommendations.map 본문(기준 커밋 0d145a1).
 // 사진 → 이름 줄(종류·순위·휴무 칩, 이름, 대표 메뉴, SPOT 점수) → 혜택 칩 → 주 행동 둘(도보·자동차) → 보조 행동
-// (👍 👎 공유) → '추천 근거 자세히'(펼침). 순위 근거·주변 수요·추정 근거는 원할 때만.
-// 옮기지 않은 것: 현장 혼잡 제보 버튼(F3 에서 더한다), 구역 근거(내부 검증 지역 전용), 음성 비서 강조(v1.1).
+// (👍 👎 혼잡 제보 공유) → '추천 근거 자세히'(펼침). 순위 근거·주변 수요·추정 근거는 원할 때만.
+// 옮기지 않은 것: 구역 근거(내부 검증 지역 전용), 음성 비서 강조(v1.1).
 import { ChevronDown } from 'lucide-react-native';
 import { memo, useState } from 'react';
 import { View } from 'react-native';
 
 import { ShareButton } from '~/components/ShareButton';
+import { CongestionReportButton } from '~/features/recommendation-card/CongestionReportButton';
+import type { ReportLevel } from '~/features/recommendation-card/reportCore';
 import { Button, Icon, Text } from '~/components/ui';
 import { Pressable } from '~/components/ui/Pressable';
 import { RankBadge } from '~/components/ui/RankBadge';
@@ -58,6 +60,8 @@ export interface AlternativeCardProps {
   widthPct?: number;
   onAccept(rec: RecommendationResponse, mode: 'walk' | 'car'): void;
   onVote(rec: RecommendationResponse, vote: 'up' | 'down'): void;
+  /** 혼잡 제보가 끝났다 — 이 카드만 실측 상태로 바꾼다. */
+  onReported(rec: RecommendationResponse, level: ReportLevel): void;
   /** 공유 결과를 돌려준다 — 복사 ✓·실패 토스트는 ShareButton 이 띄운다. */
   onShare(rec: RecommendationResponse): Promise<ShareOutcome>;
   /** 공유 실패 토스트 아래에 보일 주소. */
@@ -330,6 +334,13 @@ function AlternativeCardImpl(props: AlternativeCardProps) {
             </Pressable>
           </>
         )}
+        {/* 현장 혼잡 제보 — 근거가 없으면 비취 알약 '지금 붐비나요?'(isFirst), 있으면 '혼잡 제보'. 높이는 웹 min-h-11 */}
+        <CongestionReportButton
+          facility={{ id: rec.facility.id, name: rec.facility.name }}
+          isFirst={rec.congestionSource === 'none'}
+          className="min-h-[44px]"
+          onReported={(level) => props.onReported(rec, level)}
+        />
         <ShareButton onShare={() => props.onShare(rec)} url={props.shareUrl} className="min-h-[44px]" />
       </View>
 
