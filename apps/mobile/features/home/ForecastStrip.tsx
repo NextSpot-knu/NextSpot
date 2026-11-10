@@ -14,6 +14,7 @@
 import { ChevronDown, Clock3 } from 'lucide-react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  AccessibilityInfo,
   Modal,
   Platform,
   View,
@@ -25,6 +26,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { CongestionKey } from '@/lib/congestionScale';
 import { PIN_GRADE_COLORS, RANK_BADGE } from '@/lib/map/markerSvg';
@@ -115,6 +117,16 @@ export function ForecastStrip({
   // 휴대폰 칸(약 55px)은 짧은 이름 — 일·중은 '後/后' 를 뺀다(ko·en 은 같은 글).
   const shortLabel = (h: number) => (h === 0 ? t('forecast.now') : t('forecast.aheadShort', { h }));
 
+  // 예측 배지 알림 — 웹 role=status 의 앱판. 네이티브는 바뀔 때 한 번 announceForAccessibility(안드로이드 live region 은 새로
+  // 붙은 뷰를 읽지 않고, iOS 에는 live region 이 없다). 웹 빌드는 aria-live(아래 accessibilityLiveRegion)가 읽는다.
+  const badgeText = badge?.text ?? null;
+  const announcedRef = useRef<string | null>(badgeText);
+  useEffect(() => {
+    if (badgeText === announcedRef.current) return;
+    announcedRef.current = badgeText;
+    if (badgeText && Platform.OS !== 'web') AccessibilityInfo.announceForAccessibility(badgeText);
+  }, [badgeText]);
+
   // 등장(웹 .strip-enter) — 마운트 때 한 번.
   const appear = useSharedValue(reduceMotion ? 1 : 0);
   useEffect(() => {
@@ -201,6 +213,7 @@ export function ForecastStrip({
   const [menu, setMenu] = useState<{ x: number; y: number; w: number } | null>(null);
   const [menuHeight, setMenuHeight] = useState(0);
   const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const openMenu = () => {
     const node = triggerRef.current;
     if (!node) return;
@@ -234,7 +247,7 @@ export function ForecastStrip({
             testID="forecast-badge-short"
             accessible
             accessibilityLabel={badge.text}
-            accessibilityLiveRegion="polite"
+            accessibilityLiveRegion={Platform.OS === 'web' ? 'polite' : 'none'}
             className={`shrink-0 rounded-full border px-[6px] py-[2px] ${badgeTone[0]}`}
           >
             <Text className={`text-[11px] leading-[13.75px] ${badgeTone[1]}`} weight="extrabold" numberOfLines={1}>
@@ -261,6 +274,8 @@ export function ForecastStrip({
           accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
           onAccessibilityAction={onAccessibilityAction}
           onLayout={onTrackLayout}
+          // 트랙은 웹처럼 27 — 누르는 자리는 위아래 8 씩(판 안쪽 여백 안이라 지도 끌기와 겹치지 않는다).
+          hitSlop={{ top: 8, bottom: 8 }}
           {...responder}
           {...webKeyProps}
           className="min-w-0 flex-1 flex-row rounded-full bg-hanji-deep p-[2px]"
@@ -368,7 +383,8 @@ export function ForecastStrip({
             style={{
               // 웹 bottom-full right-0 mb-2 — 단추 위 8, 오른쪽 끝 맞춤. 높이를 재기 전에는 숨긴다.
               right: Math.max(8, windowWidth - (menu.x + menu.w)),
-              top: menu.y - 8 - menuHeight,
+              // 위 안전 영역 아래로만(상태 표시줄 밑으로 들어가지 않게).
+              top: Math.max(insets.top + 8, menu.y - 8 - menuHeight),
               opacity: menuHeight > 0 ? 1 : 0,
               boxShadow: MENU_SHADOW,
             }}
@@ -376,6 +392,7 @@ export function ForecastStrip({
             {presets.map((preset) => {
               const selected = preset.id === presetId;
               return (
+                // 행은 최소 44(탭 영역 기준 — 웹 행은 36). 이웃 행과 붙어 있어 hitSlop 으로는 넓히지 않는다.
                 <Pressable
                   key={preset.id}
                   accessibilityRole="menuitem"
@@ -384,7 +401,7 @@ export function ForecastStrip({
                     closeMenu();
                     onSelectPreset(preset.id);
                   }}
-                  className={`flex-row items-center justify-between rounded-xl px-[12px] py-[8px] ${selected ? 'bg-gold/15' : ''}`}
+                  className={`min-h-[44px] flex-row items-center justify-between rounded-xl px-[12px] py-[8px] ${selected ? 'bg-gold/15' : ''}`}
                 >
                   <Text className={`text-[13px] ${selected ? 'text-gold-deep' : 'text-muk'}`} weight="bold">
                     {preset.label}

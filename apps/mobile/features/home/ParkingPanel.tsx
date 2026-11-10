@@ -6,7 +6,10 @@
 //     검정 '자동차 길안내'(카카오맵 자동차 길찾기 — 웹 openDrivingDirections 와 같은 주소).
 // 자리: 웹 `absolute inset-x-0 px-4 bottom-[clearance]` → 탭 화면 안 bottom NAV_GAP, 좌우 16 + 안전 영역(H3a 스택과 같다).
 // 주차장 탭에서는 카드 스택·예측 띠가 없다(웹 activeFilter !== '주차장' 조건) — 이 판이 그 자리를 쓴다. 넣는 곳은 H3b.
+// 높이: onHeightChange 가 잰 높이(dp)를 알리고, 그릴 판이 없어지거나(선택 해제) 빠지면 0 을 알린다 — 홈은 그 값으로
+// mapPadding(구글 로고)·카메라 띠 아래끝을 잡는다(판 위끝 = 탭 화면 높이 − NAV_GAP − 높이, 0 이면 판 없음).
 import { Car, X } from 'lucide-react-native';
+import { useEffect, useRef } from 'react';
 import { View, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,16 +37,42 @@ export interface ParkingPanelProps {
   onClose: () => void;
   /** '다시 시도'(useParkingLots.reload). */
   onRetry: () => void;
-  /** 판 높이 — 홈이 지도 mapPadding(구글 로고)·카메라 띠 아래끝을 잴 때(판 위끝 = 화면 높이 − NAV_GAP − 높이). */
-  onLayout?: (event: LayoutChangeEvent) => void;
+  /**
+   * 판 높이(dp, 반올림) — 바뀔 때만 부른다. 그릴 판이 없으면(선택을 풀었다) 0, 이 컴포넌트가 빠질 때도 0.
+   * 홈이 지도 mapPadding(구글 로고)·카메라 띠 아래끝을 잴 때 쓴다(판 위끝 = 탭 화면 높이 − NAV_GAP − 높이).
+   */
+  onHeightChange?: (height: number) => void;
 }
 
-export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry, onLayout }: ParkingPanelProps) {
+export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry, onHeightChange }: ParkingPanelProps) {
   const t = useT();
   const insets = useSafeAreaInsets();
   const empty = lots.length === 0;
   const mode: 'loading' | 'empty' | 'card' | null =
     loading && empty ? 'loading' : !loading && empty ? 'empty' : selected ? 'card' : null;
+
+  // 마지막으로 알린 높이 — 같은 값을 거듭 알리지 않는다. 판이 없어지거나 빠지면 0.
+  const reportRef = useRef(onHeightChange);
+  reportRef.current = onHeightChange;
+  const lastRef = useRef<number | null>(null);
+  const report = (height: number) => {
+    if (lastRef.current === height) return;
+    lastRef.current = height;
+    reportRef.current?.(height);
+  };
+  const onLayout = (e: LayoutChangeEvent) => report(Math.round(e.nativeEvent.layout.height));
+  useEffect(() => {
+    if (!mode) report(0);
+    // report 는 ref 로만 읽는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+  useEffect(
+    () => () => {
+      if (lastRef.current) reportRef.current?.(0);
+    },
+    [],
+  );
+
   if (!mode) return null;
 
   return (
@@ -83,6 +112,8 @@ export function ParkingPanel({ lots, loading, error, selected, onClose, onRetry,
           {error ? (
             <Pressable
               accessibilityRole="button"
+              // 알약은 웹처럼 32 — 누르는 자리는 위아래 6 씩 넓혀 44.
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               onPress={onRetry}
               className="mt-[12px] self-start rounded-full bg-muk px-[16px] py-[8px]"
             >
