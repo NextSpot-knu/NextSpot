@@ -10,6 +10,7 @@
 import { Redirect, type Href } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 import { homeFirstTabRouter } from '~/components/navigation/hiddenTabCore';
 import { TouristTabBar } from '~/components/navigation/TouristTabBar';
@@ -42,7 +43,8 @@ export default function TabLayout() {
     <Tabs
       backBehavior="history"
       // 콜드 딥링크(/saved · /explore/recommend · /mypage/coupons …)에서도 뒤로 = 홈(기록 맨 앞에 홈을 깐다 — hiddenTabCore).
-      UNSTABLE_router={(original) => homeFirstTabRouter(original)}
+      // 웹 빌드는 브라우저 뒤로가 있고, 기록 길이가 같으면 URL 을 바꿔치기해 뒤로가 앱을 떠난다 — 네이티브에서만.
+      UNSTABLE_router={Platform.OS === 'web' ? undefined : (original) => homeFirstTabRouter(original)}
       tabBar={(props) => <TouristTabBar {...props} />}
       screenOptions={{
         headerShown: false,

@@ -4,7 +4,6 @@ import {
   Platform,
   Pressable as RNPressable,
   Text as RNText,
-  findNodeHandle,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -224,8 +223,8 @@ function InlineToast({
     let focusTimer: ReturnType<typeof setTimeout> | null = null;
     if (hooksRef.current?.focusOnShow && Platform.OS !== 'web') {
       focusTimer = setTimeout(() => {
-        const tag = textRef.current ? findNodeHandle(textRef.current) : null;
-        if (tag != null) AccessibilityInfo.setAccessibilityFocus(tag);
+        // 새 아키텍처에서는 setAccessibilityFocus(findNodeHandle) 가 옛 경로라 듣지 않을 수 있다 — 참조로 초점 이벤트를 보낸다.
+        if (textRef.current) AccessibilityInfo.sendAccessibilityEvent(textRef.current, 'focus');
       }, FOCUS_DELAY_MS);
     }
     return () => {
@@ -252,7 +251,6 @@ function InlineToast({
         BOX_STYLE,
         { marginHorizontal: toastSideMargin(width), flexDirection: 'row', alignItems: 'center', gap: TOAST_BOX.gap },
       ]}
-      accessibilityLiveRegion="polite"
     >
       {variant === 'default' ? null : <ToastGlyph variant={variant} />}
       {/* 제목·설명을 한 칸으로 읽는다 — 그다음 칸이 [취소][행동]. */}
@@ -291,7 +289,8 @@ function show(
   plain: () => string | number,
   hooks?: InlineToastHooks,
 ) {
-  announce(title, data?.description);
+  // 한 번만 읽힌다: 알림(announce)이 유일한 낭독이고 카드에는 실시간 영역을 두지 않는다. 초점을 옮기는 확인은 초점이 읽는다.
+  if (!hooks?.focusOnShow) announce(title, data?.description);
   if (!data || !(isActionButton(data.action) || isActionButton(data.cancel))) return plain();
   const { action, cancel, description, icon: _icon, ...rest } = data;
   const id = rest.id ?? `app-toast-${++inlineSeq}`;
@@ -346,7 +345,6 @@ function ReportToastBody({ message, kind }: { message: string; kind: 'success' |
         paddingHorizontal: REPORT_TOAST.sideInset,
         alignItems: 'center',
       }}
-      accessibilityLiveRegion="polite"
     >
       <View
         style={{

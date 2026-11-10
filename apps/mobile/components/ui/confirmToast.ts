@@ -6,7 +6,7 @@
 // 글자 오른쪽 같은 줄, 행동을 눌러도 닫힌다(onClick 뒤 toast.dismiss(id)).
 // 답: 행동 = true · 취소 · 밀어 닫기 · 시간 초과 · 같은 id 의 새 확인 · 채널 해제 · 그려지지 않음 = false.
 // 약속은 한 번만 풀린다(confirmToastCore). 시간·초점 결정은 confirmPlan(화면 읽기 사용자는 시간 제한 없음 + 초점 이동).
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { confirmPlan, createConfirmRegistry } from './confirmToastCore';
 import { showInlineToast, toast } from './Toast';
@@ -47,7 +47,11 @@ async function screenReaderOn(): Promise<boolean> {
  */
 export async function confirmDestructive(input: ConfirmDestructiveInput): Promise<boolean> {
   const id = input.id ?? `confirm-destructive-${++seq}`;
-  const plan = confirmPlan({ duration: input.duration ?? DEFAULT_DURATION, screenReader: await screenReaderOn() });
+  const plan = confirmPlan({
+    duration: input.duration ?? DEFAULT_DURATION,
+    // react-native-web 의 isScreenReaderEnabled 는 늘 true 라 웹 빌드는 읽기 화면 판정을 하지 않는다(웹 원본처럼 8초에 끝).
+    screenReader: Platform.OS === 'web' ? false : await screenReaderOn(),
+  });
   return new Promise<boolean>((resolve) => {
     let fallback: ReturnType<typeof setTimeout> | null = null;
     const stopFallback = () => {
