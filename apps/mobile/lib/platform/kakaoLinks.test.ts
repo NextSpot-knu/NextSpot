@@ -42,3 +42,7 @@ assert.equal(normalizeKakaoPlaceId(' 42 '), '42');
 // 전화 — 웹 순수 모듈을 그대로 쓴다.
 assert.equal(telHref('054-772-3843~4'), 'tel:0547723843');
 assert.equal(telHref(null), null);
+
+// 좌표 없음(옛 저장 북마크) → 이름 검색(웹 saved/page.tsx)
+assert.equal(kakaoWalkingHandoff({ name: '향화정', latitude: NaN, longitude: NaN }).web, `https://map.kakao.com/?q=${encodeURIComponent('향화정')}`);
+assert.equal(kakaoDrivingHandoff({ name: '향화정', latitude: NaN, longitude: NaN }).web, `https://map.kakao.com/?q=${encodeURIComponent('향화정')}`);
