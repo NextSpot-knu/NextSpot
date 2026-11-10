@@ -30,6 +30,19 @@ function manualLabels(at: Date, locale: ClockLocale) {
   return { date, time: `${mer} ${h12}:${mm}` };
 }
 
+/** 날씨 예보 시각 글('오후 3시' 등) — 경주 현지(KST) 기준. 시간대를 못 다루는 엔진이면 UTC+9 로 계산한 '15시'. */
+export function kstHourLabel(at: Date, locale: ClockLocale): string {
+  const hour = kstFields(at).hour;
+  try {
+    const zone = { timeZone: 'Asia/Seoul' } as const;
+    const check = new Intl.DateTimeFormat('en-US', { ...zone, hour: 'numeric', hourCycle: 'h23' }).format(at);
+    if (Number.parseInt(check, 10) % 24 !== hour) return `${hour}:00`;
+    return new Intl.DateTimeFormat(INTL_LOCALE[locale], { ...zone, hour: 'numeric' }).format(at);
+  } catch {
+    return `${hour}:00`;
+  }
+}
+
 export function clockLabels(at: Date, locale: ClockLocale): { date: string; time: string } {
   try {
     const intlLocale = INTL_LOCALE[locale];

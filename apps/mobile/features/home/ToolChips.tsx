@@ -9,7 +9,7 @@
 // 축제·화장실 칩은 ToolsSheet(HomeOverlays) 안에 있다. 아래 옛 `WeatherChip`·`FestivalChip`·`RestroomChip`·`CalmChip` 은 H3b 가 홈에서 떼어 낼 때까지 남겨 둔다.
 import { ChevronDown, ChevronUp, Leaf, MapPin, Toilet, Umbrella } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable as RNPressable, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Pressable as RNPressable, View, useWindowDimensions } from 'react-native';
 
 import { formatDistance } from '@/lib/map/geo';
 import { Glass, Icon, MODAL_SHEET_CLOSE_BOX, ModalSheet, Pressable, SheetScrollView, Text } from '~/components/ui';
@@ -20,6 +20,7 @@ import { openKakaoHandoff } from '~/lib/platform/links';
 import { FestivalBanner } from './FestivalBanner';
 import type { FestivalEvent } from './festival';
 import { calmKey, calmSpots, type CalmSpot, type HomeFacility } from './homeModel';
+import { kstHourLabel, type ClockLocale } from './kstClock';
 
 export type { FestivalEvent };
 
@@ -71,7 +72,8 @@ export function useWeather(): WeatherData | null {
 function useHourOf() {
   const { locale } = useI18n();
   return (value: string) => {
-    try { return new Intl.DateTimeFormat(locale, { hour: 'numeric' }).format(new Date(value)); } catch { return ''; }
+    const at = new Date(value);
+    return Number.isNaN(at.getTime()) ? '' : kstHourLabel(at, locale as ClockLocale);
   };
 }
 
@@ -169,8 +171,20 @@ export function WeatherPopover({ data, anchor, indoorRequired, onIndoorRequiredC
   const width = Math.min(288, screenW - 32);
   // 웹 popoverLeft — 칩 왼쪽 끝에 붙이되 오른쪽 16 여백을 넘으면 그만큼 왼쪽으로, 왼쪽 16 안으로.
   const shift = Math.max(16 - anchor.x, Math.min(0, screenW - 16 - (anchor.x + width)));
+  // 안드로이드 뒤로 가기는 팝오버부터 닫는다(화면을 떠나지 않는다).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose]);
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }}>
+    <View
+      pointerEvents="box-none"
+      accessibilityViewIsModal
+      onAccessibilityEscape={onClose}
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 60 }}>
       <RNPressable accessibilityRole="button" accessibilityLabel={t('common.close')} onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
       <View
         className="absolute rounded-2xl border border-line bg-white px-[14px] pb-[12px] pt-[10px]"

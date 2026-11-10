@@ -1,4 +1,4 @@
-// 홈 지도 위에 얹는 조각들 — 검색 결과 · 필터·편의 시트 · 같은 건물 목록 · 위치 안내 · 위치 배너.
+﻿// 홈 지도 위에 얹는 조각들 — 검색 결과 · 필터·편의 시트 · 같은 건물 목록 · 위치 안내 · 위치 배너.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 검색 결과 블록 · showMobileTools 시트 · 그룹 마커 팝업.
 import { useRouter, type Href } from 'expo-router';
 import { ChevronRight, Search, X } from 'lucide-react-native';
@@ -342,7 +342,7 @@ export function ToolsSheet(props: ToolsSheetProps) {
                   key={chip.id}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
-                  hitSlop={{ top: 7, bottom: 7 }}
+                  hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
                   onPress={() => props.onSelectCuisine(chip)}
                   className={`shrink-0 flex-row items-center gap-[4px] rounded-full border px-[12px] py-[6px] ${on ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}
                   style={ring ? { boxShadow: GOLD_RING } : undefined}
@@ -436,7 +436,7 @@ export function PlaceSearchResults({ items, loading, onView, onOpenKakao, onSeeI
               accessibilityRole="button"
               accessibilityLabel={t('map.placeSearchView')}
               onPress={() => onView(item)}
-              hitSlop={{ top: 7, bottom: 7 }}
+              hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               className="rounded-full border px-[10px] py-[6px]"
               style={{ borderColor: 'rgba(193, 154, 62, 0.5)' }}
             >
@@ -491,10 +491,10 @@ export function TourSearchResults({ items, loading, requested, pendingId, onView
               <View className="mt-[8px] flex-row flex-wrap items-center gap-[6px]">
                 {hasPoint ? (
                   <>
-                    <Pressable accessibilityRole="button" onPress={() => onView(item)} hitSlop={{ top: 7, bottom: 7 }} className="rounded-full bg-jade px-[10px] py-[6px]">
+                    <Pressable accessibilityRole="button" onPress={() => onView(item)} hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }} className="rounded-full bg-jade px-[10px] py-[6px]">
                       <Text className="text-[11px] text-white" weight="bold">{t('map.placeSearchView')}</Text>
                     </Pressable>
-                    <Pressable accessibilityRole="button" onPress={() => onRoute(item)} hitSlop={{ top: 7, bottom: 7 }} className="rounded-full border px-[10px] py-[6px]" style={{ borderColor: 'rgba(62, 124, 106, 0.5)' }}>
+                    <Pressable accessibilityRole="button" onPress={() => onRoute(item)} hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }} className="rounded-full border px-[10px] py-[6px]" style={{ borderColor: 'rgba(62, 124, 106, 0.5)' }}>
                       <Text className="text-[11px] text-jade" weight="semibold">{t('map.searchKakaoRoute')}</Text>
                     </Pressable>
                   </>
@@ -504,7 +504,7 @@ export function TourSearchResults({ items, loading, requested, pendingId, onView
                   accessibilityState={{ disabled: done || pending }}
                   disabled={done || pending}
                   onPress={() => onRequestIngest(item)}
-                  hitSlop={{ top: 7, bottom: 7 }}
+                  hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
                   className="rounded-full border border-line px-[10px] py-[6px]"
                   style={done || pending ? { opacity: 0.6 } : undefined}
                 >

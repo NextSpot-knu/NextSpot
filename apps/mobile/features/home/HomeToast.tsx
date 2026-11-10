@@ -5,7 +5,7 @@
 // actions.ts 의 인사·쿠폰·킵·거절·방문 완료)을 `home.show(t(...))` 로 바꾸고, 홈 루트(지도 위 맨 위 층)에 `<HomeToast toast={home.current} />`.
 // 바닥 자리는 탭 화면 안 좌표로 환산한다 — useNavInsets().fromScreenBottom(350).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { useNavInsets } from '~/components/navigation/navMetrics';
@@ -20,10 +20,19 @@ export type HomeToastState = { id: number; message: string } | null;
 export function useHomeToast(): { current: HomeToastState; show: (message: string) => void } {
   const [current, setCurrent] = useState<HomeToastState>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shown = useRef<string | null>(null);
   const show = useCallback((message: string) => {
+    // 웹 showToast(같은 글)은 상태가 그대로라 3초 타이머를 다시 시작하지 않는다 — 같게 둔다.
+    if (shown.current === message) return;
+    shown.current = message;
     if (timer.current) clearTimeout(timer.current);
     setCurrent((prev) => nextToast(prev, message));
-    timer.current = setTimeout(() => setCurrent(null), HOME_TOAST.durationMs);
+    // 알림 낭독은 이 한 곳만(iOS 는 live region 을 무시하고, 없다가 생기는 live region 은 안드로이드도 자주 못 읽는다).
+    AccessibilityInfo.announceForAccessibility(message);
+    timer.current = setTimeout(() => {
+      shown.current = null;
+      setCurrent(null);
+    }, HOME_TOAST.durationMs);
   }, []);
   useEffect(
     () => () => {
@@ -37,12 +46,17 @@ export function useHomeToast(): { current: HomeToastState; show: (message: strin
 export function HomeToast({ toast }: { toast: HomeToastState }) {
   const { fromScreenBottom } = useNavInsets();
   const reduceMotion = useReduceMotion();
-  const progress = useSharedValue(1);
+  // 숨긴 채로 시작한다 — 1 에서 시작하면 첫 그림에서 한 프레임 번쩍인다.
+  const progress = useSharedValue(0);
   const id = toast?.id ?? 0;
   useEffect(() => {
     if (!id) return;
-    progress.value = reduceMotion ? 1 : 0;
-    if (!reduceMotion) progress.value = withTiming(1, { duration: HOME_TOAST.enterMs, easing: Easing.bezier(0.21, 1.02, 0.73, 1) });
+    if (reduceMotion) {
+      progress.value = 1;
+      return;
+    }
+    progress.value = 0;
+    progress.value = withTiming(1, { duration: HOME_TOAST.enterMs, easing: Easing.bezier(0.21, 1.02, 0.73, 1) });
   }, [id, reduceMotion, progress]);
   const enter = useAnimatedStyle(() => ({
     opacity: progress.value,
@@ -66,8 +80,6 @@ export function HomeToast({ toast }: { toast: HomeToastState }) {
         style={[{ width: '100%', maxWidth: HOME_TOAST.maxWidth, paddingHorizontal: HOME_TOAST.sidePadding, alignItems: 'center' }, enter]}
       >
         <View
-          accessibilityLiveRegion="polite"
-          accessibilityRole="alert"
           style={{
             maxWidth: '100%',
             borderRadius: 9999,
