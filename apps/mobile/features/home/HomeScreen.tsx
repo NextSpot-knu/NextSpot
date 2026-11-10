@@ -1,7 +1,9 @@
 // 홈(지도) 화면 — 웹 /main(apps/web/app/main/page.tsx, 기준 yunseong e8d1c07)의 앱판.
 //
 // 뺀 것(계획 §3.1 · D9 · D12): 음성 비서 · 히트맵(v1.1) · 데모 조작 패널 · 지역 전환(내부 계정) · '내 위치' 버튼·위치 배너(D3 ① — 웹처럼
-//   실패 알약만, 다시 켜기는 마이>설정). ✨ 경주 테마는 F2 가 날씨 줄 끝에 더한다.
+//   실패 알약만, 다시 켜기는 마이>설정).
+// ✨ 경주 테마(F2 · G2-14): 날씨 줄 끝 알약 → 위 묶음의 테마 판 → 고르면 그 테마의 기준 명소로 POST /recommendations(discovery_theme)를
+//   묻고, 결과가 칩 추천 자리(recs)를 대신한다 — 카드·핀 순위·다시 계산은 칩 추천과 같은 길. 칩·음식 칩·✕ 가 테마를 끈다(웹 :1509-1550).
 // 화면 층(웹 page.tsx 와 같은 순서): 지도(유리가 흐릴 대상) → 상단 묶음(언어·출처·시계) → 검색·날씨·칩(유리) → 아래 스택(예측 띠 ·
 //   추천 카드 · 제안 상자) / 주차장 판 → 진행 중 여행 카드(위) → 홈 알약 토스트 → 방문 확인 카드(아래) → 날씨 팝오버 → 시트들.
 // 추천 카드(features/recommendation-card/RecommendationCard)는 rec_* 이용 이벤트와 수락·킵·거절 쓰기를 스스로 한다 —
@@ -48,7 +50,7 @@ import {
 import { formatSpotComparison } from '~/features/explore/port/spotComparison';
 import { displayWalkingMinutes } from '~/features/explore/port/walking';
 import { loadTravelContext, saveTravelContext } from '~/features/course/travelContext';
-import { recommendByType, type RecommendationResponse } from '~/lib/core/apiClient';
+import { getRecommendations, recommendByType, type RecommendationResponse } from '~/lib/core/apiClient';
 import { assumedPresetLabelKey } from '~/lib/core/assumedTime';
 import { loadSavedLocal, syncSaved } from '~/lib/core/savedFacilities';
 import type { TravelContext } from '~/lib/core/travelContextTypes';
@@ -87,6 +89,17 @@ import {
   type PinAttribute,
   type SuggestionModel,
 } from './chipModel';
+import { DiscoveryActivePanel, DiscoveryChip, DiscoveryThemePanel } from './discovery/DiscoveryPanel';
+import {
+  activateDiscovery,
+  discoveryCompareAnchor,
+  discoveryRequestContext,
+  discoveryRequestKey,
+  discoveryResultItems,
+  getDiscoveryTheme,
+  type ActiveDiscovery,
+  type DiscoveryTheme,
+} from './discovery/discoveryModel';
 import { ForecastStrip } from './ForecastStrip';
 import { forecastLevelFor, shouldShowForecastStrip, stripBadgeFor, stripLegendFor } from './forecastStripModel';
 import { LocationPrimer, PlaceSearchResults, SearchNoResultPill, ToolsSheet, TourSearchResults } from './HomeOverlays';
@@ -276,6 +289,12 @@ export function HomeScreen() {
   const [rejectedIds, setRejectedIds] = useState<ReadonlySet<string>>(loadRejectedIds);
   const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(savedIdSet);
   const excluded = useMemo<ReadonlySet<string>>(() => new Set(buildExcludeIds(rejectedIds, savedIds)), [rejectedIds, savedIds]);
+  // ✨ 경주 테마(웹 showDiscoveryThemes · activeDiscovery · discoveryLoading). 켜져 있으면 추천 요청이 칩 대신 테마로 간다.
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
+  const [activeDiscovery, setActiveDiscovery] = useState<ActiveDiscovery | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const activeDiscoveryRef = useRef(activeDiscovery);
+  activeDiscoveryRef.current = activeDiscovery;
   const [activeGroup, setActiveGroup] = useState<PinCluster<HomeFacility> | null>(null);
   const [festival, setFestival] = useState<FestivalFocus | null>(null);
   const [placePin, setPlacePin] = useState<PlacePin | null>(null);
@@ -342,6 +361,8 @@ export function HomeScreen() {
       setCategory(homeFilterSeed(nextStored).category);
       setCuisineId(null);
       setCuisineIntent(cuisineIntentOf(nextStored));
+      setActiveDiscovery(null);
+      setDiscoveryLoading(false);
       setSelection(null);
       pickedRef.current = false;
     }
@@ -546,7 +567,8 @@ export function HomeScreen() {
   recsRef.current = recs;
   const keepSelectionRef = useRef(false);
   useEffect(() => {
-    const tabKey = parkingTab ? 'parking' : category;
+    const discovery = parkingTab ? null : activeDiscovery;
+    const tabKey = discoveryRequestKey(discovery) ?? (parkingTab ? 'parking' : category);
     const prev = lastRequestRef.current;
     const tabChanged = prev?.tab !== tabKey;
     const basisChanged = prev?.basis !== rankBasis;
@@ -565,6 +587,41 @@ export function HomeScreen() {
     if (tabChanged) { setRecs(null); setRecsFailed(false); }
     let cancelled = false;
     const controller = new AbortController();
+    // ✨ 경주 테마(웹 :1926-2027) — 유명 장소 자체가 아니라 그 명소를 기준(original)으로 보내, TourAPI 연관성·도착 영업·보행 경로를
+    // 통과한 같은 종류 대안을 서버 SPOT 으로 다시 매긴다. 칩 추천(by-type)과 섞이지 않게 이 갈래만 묻는다.
+    if (discovery) {
+      const theme = getDiscoveryTheme(discovery.themeId);
+      setDiscoveryLoading(true);
+      (async () => {
+        try {
+          const res = await getRecommendations(discovery.anchorId, userPoint, discoveryRequestContext(storedRef.current, theme), {
+            preferenceIntent: theme.preferenceIntent,
+            candidateTypes: [theme.candidateType],
+            discoveryTheme: theme.id,
+            signal: controller.signal,
+          });
+          if (cancelled) return;
+          const known = new Set(facilitiesRef.current.map((f) => f.id));
+          const listed = res.filter((r) => known.has(r.facility.id));
+          setDiscoveryLoading(false);
+          setWalkRelaxedFor(null);
+          setRecsFailed(false);
+          if (!listed.some((r) => !excludedRef.current.has(r.facility.id))) {
+            // 이 경우의 안내는 토스트 하나 — '다시 계산했어요' 를 겹치지 않는다. '서버가 대안을 못 찾았다' 일 때만 그렇게 말한다(웹 :2003-2011).
+            abandonRecalc();
+            if (res.length === 0) showToast(t('discovery.noAlternatives', { anchor: discovery.anchorName }));
+          }
+          setRecs(listed);
+        } catch {
+          // 웹은 테마 실패를 '추천 없음'으로 둔다(오류 판 아님, :2017-2026) — 다시 계산은 끝났다고 말한다(recs 효과의 finishRecalc).
+          if (cancelled) return;
+          setDiscoveryLoading(false);
+          setRecsFailed(false);
+          setRecs([]);
+        }
+      })();
+      return () => { cancelled = true; controller.abort(); };
+    }
     // 칩 안에 여행 조건으로 오를 곳이 하나도 없으면 묻지 않는다(웹 chipCandidates 0 → noRecommendation).
     const eligible = chipCandidates(chipPool(facilitiesRef.current, category), travelContext, userPoint);
     if (eligible.items.length === 0) {
@@ -610,7 +667,7 @@ export function HomeScreen() {
     return () => { cancelled = true; controller.abort(); };
     // userPoint 는 userKey 로, facilities 는 ref 로 본다 — 목록이 갱신될 때마다 다시 묻지 않는다. strip.assumedAtIso 는 rankBasis 로.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasFacilities, parkingTab, category, userKey, rankBasis, recsNonce]);
+  }, [hasFacilities, parkingTab, category, userKey, rankBasis, recsNonce, activeDiscovery]);
 
   const visibleRecs = useMemo(() => (recs ?? []).filter((r) => !excluded.has(r.facility.id)), [recs, excluded]);
   const rankById = useMemo(() => {
@@ -691,10 +748,51 @@ export function HomeScreen() {
     setActiveGroup(null);
     setCuisineId(null);
     setCuisineIntent(null); // 웹 selectCategory 가 cuisineIntentRef 를 비운다(page.tsx 3320)
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
     setFestival(null);
     parking.select(null);
     sessionSet(MAP_SESSION_KEYS.filter, FILTER_IDS[next]);
   }, [parking]);
+
+  /**
+   * ✨ 테마를 켠다(웹 activateDiscoveryTheme) — 기준 명소가 지도에 없으면 토스트만. 켜면 그 테마의 종류 칩으로 옮기고, 카드 자리에
+   * '… 기준으로 다시 계산 중' 스켈레톤을 바로 띄운다(결과가 와야만 바뀌면 그 몇 초는 죽은 칩이다). 이용 이벤트는 웹과 같은 한 건.
+   */
+  const onPickTheme = useCallback((theme: DiscoveryTheme) => {
+    haptic('selection');
+    const next = activateDiscovery(facilitiesRef.current, theme);
+    if (!next) { showToast(t('discovery.noAnchor')); return; }
+    startRecalc(t(`discovery.theme.${theme.id}`));
+    firstViewPendingRef.current = false;
+    pickedRef.current = false;
+    setCuisineId(null);
+    setCuisineIntent(theme.preferenceIntent); // 웹 cuisineIntentRef = theme.preferenceIntent(핀 순서도 이 의도로)
+    setActiveGroup(null);
+    parking.select(null);
+    setParkingTab(false);
+    setCategory(theme.candidateType);
+    setActiveDiscovery(next);
+    setDiscoveryLoading(true);
+    setSelection(null);
+    setExhausted(null);
+    setDiscoveryOpen(false);
+    sessionSet(MAP_SESSION_KEYS.filter, FILTER_IDS[theme.candidateType]);
+    track('gyeongju_theme_selected', {
+      theme_id: theme.id,
+      reference_facility_id: next.anchorId,
+      candidate_type: theme.candidateType,
+    });
+  }, [parking, startRecalc, showToast, t]);
+  /** 일반 추천으로 돌아간다(웹 clearDiscoveryTheme) — 지금 칩으로 다시 묻는다(요청 열쇠가 바뀐다). */
+  const clearTheme = useCallback(() => {
+    pickedRef.current = false;
+    setCuisineIntent(null); // 웹 clearDiscoveryTheme — cuisineIntentRef = null
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
+    setSelection(null);
+    setExhausted(null);
+  }, []);
   const onTabChip = useCallback((next: HomeTab) => {
     haptic('selection');
     // 웹 selectCategory 는 이용 이벤트를 보내지 않는다 — 같은 동작에 웹에 없는 쓰기를 더하지 않는다.
@@ -728,6 +826,8 @@ export function HomeScreen() {
     if (!top) {
       setSelection(null);
       finishRecalc(null);
+      // 테마 대안이 0곳이면 테마 판과 토스트가 말한다 — 조건 핀 맞추기·밤의 첫 화면은 칩 추천에만(웹 테마 갈래에는 없다).
+      if (activeDiscoveryRef.current) return;
       // ♿·👶 가 켜져 있는데 0곳 — 빈 지도로 두지 않고 조건 핀으로 지도를 맞춘다(제안 상자가 '지도에 N곳').
       fitAttributePins(category, pinAttributesOf(travelContext.requiredAttributes));
       maybeSwitchFirstView(category);
@@ -798,11 +898,14 @@ export function HomeScreen() {
 
   const selectCuisine = useCallback((chip: (typeof CUISINE_CHIPS)[number]) => {
     haptic('selection');
-    if (cuisineId === chip.id) { setCuisineId(null); setCuisineIntent(null); return; }
+    // 음식 칩을 켜거나 끄면 ✨ 테마도 끈다(웹 applyCuisineChip · selectCuisineChip).
+    if (cuisineId === chip.id) { setCuisineId(null); setCuisineIntent(null); setActiveDiscovery(null); setDiscoveryLoading(false); return; }
     const pool = filtered.filter((f) => matchesCuisineChip(f, chip) && !excludedRef.current.has(f.id));
     if (pool.length === 0) { showToast(t('cuisine.noMatch')); return; }
     // 웹 applyCuisineChip(3356-3370) — 밤의 첫 화면 전환을 끄고, 음식 의도를 그 칩으로.
     firstViewPendingRef.current = false;
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
     setCategory('restaurant');
     setCuisineId(chip.id);
     setCuisineIntent(chip.kw);
@@ -1028,10 +1131,31 @@ export function HomeScreen() {
     return strip.timeShifted ? { ...c, congestionIsCurrent: false, congestionEstimate: null } : c;
   }, [selected, selection, visibleRecs, userPoint.lat, userPoint.lng, estimateById, strip.timeShifted]);
   // 비교 헤더의 기준 명소(G3-13) · 2·3위 '추천 이유'(G3-14).
-  const compareAnchor = useMemo(() => compareAnchorFor(selectedCandidate, facilities, estimateById), [selectedCandidate, facilities, estimateById]);
+  // ✨ 테마가 켜져 있으면 테마 기준 명소가 이름을 대신한다(웹 anchorContextFor — 거리는 두 좌표 사이).
+  const compareAnchor = useMemo(() => (activeDiscovery
+    ? discoveryCompareAnchor(activeDiscovery, selectedCandidate, facilities, { estimateById, timeShifted: strip.timeShifted })
+    : compareAnchorFor(selectedCandidate, facilities, estimateById)),
+  [activeDiscovery, selectedCandidate, facilities, estimateById, strip.timeShifted]);
   const comparisons = useMemo(() => spotComparisonsById(visibleRecs), [visibleRecs]);
   const comparison = comparisonFor(comparisons, selectedCandidate, visibleRecs);
   const comparisonReason = comparison ? formatSpotComparison(t, comparison) : undefined;
+  // 카드 가치 상자의 ✨ 칩(G3-05 · 웹 :4800-4802)과 테마 판의 대안 3칸(웹 :4365-4402).
+  const contextBadge = activeDiscovery
+    ? t('compare.contextBadge', { label: t(`discovery.theme.${activeDiscovery.themeId}`) })
+    : null;
+  const discoveryItems = useMemo(() => (activeDiscovery ? discoveryResultItems(visibleRecs) : []), [activeDiscovery, visibleRecs]);
+  const discoveryComparison = useCallback((id: string) => {
+    const c = comparisons.get(id);
+    return c ? formatSpotComparison(t, c) : undefined;
+  }, [comparisons, t]);
+  /** 테마 판의 대안 칸을 누르면 그 장소를 카드에(웹 setSelectedFacility + panToVisible — 순위 그대로, 이용 이벤트 없음). */
+  const onPickDiscoveryResult = useCallback((id: string) => {
+    const facility = byId.get(id);
+    if (!facility) return;
+    haptic('selection');
+    setSelection({ id: facility.id, kind: 'recommended' });
+    focusOn(facility.latitude, facility.longitude);
+  }, [byId, focusOn]);
   const status = cardStatus({ hasFacilities, recsLoaded: recs !== null, recsFailed, hasSelection: selection !== null, searching });
   // 오류 판의 '다시 시도' — 오류를 걷고 스켈레톤부터 다시(그대로 두면 같은 판이 아무 표시 없이 남는다).
   const retryRecs = useCallback(() => {
@@ -1049,8 +1173,9 @@ export function HomeScreen() {
 
   // 카드 조건 칩(G3-06) — 도보 칩은 그 조건이 지금 카드에 정말 걸려 있을 때만.
   const walkRelaxed = useMemo(
-    () => clientWalkRelaxed(facilities, category, travelContext, userPoint) || walkRelaxedFor === `${category}|${rankBasis}`,
-    [facilities, category, travelContext, userPoint, walkRelaxedFor, rankBasis],
+    // 테마 순위는 도보 제한을 클라이언트에서 넓히지 않는다(웹 clientWalkRelaxed — activeDiscovery 면 false).
+    () => (!activeDiscovery && clientWalkRelaxed(facilities, category, travelContext, userPoint)) || walkRelaxedFor === `${category}|${rankBasis}`,
+    [activeDiscovery, facilities, category, travelContext, userPoint, walkRelaxedFor, rankBasis],
   );
   const cardWalkMin = selectedCandidate
     ? displayWalkingMinutes(selectedCandidate.breakdown?.travelTime, selectedCandidate.distanceM)
@@ -1121,6 +1246,11 @@ export function HomeScreen() {
       onToggle={(anchor) => setWeatherAnchor((open) => (open ? null : anchor))}
     />
   ) : null;
+  // ✨ 알약(웹 :4113) — 장소를 다 불러온 뒤, 테마가 꺼져 있을 때만. 검색 중에는 날씨 줄과 함께 감춘다.
+  const discoveryChip = !searching && hasFacilities && !loading && !activeDiscovery ? (
+    <DiscoveryChip open={discoveryOpen} compact={short} onToggle={() => setDiscoveryOpen((open) => !open)} />
+  ) : null;
+  const showThemePanel = hasFacilities && !loading && discoveryOpen && !activeDiscovery && !searching;
 
   return (
     <View ref={rootRef} className="flex-1 bg-hanji" onLayout={(e) => setContainerH(Math.round(e.nativeEvent.layout.height))}>
@@ -1212,12 +1342,14 @@ export function HomeScreen() {
               </Glass>
               </RNPressable>
               {short ? weatherPill : null}
+              {short ? discoveryChip : null}
             </View>
 
-            {/* 날씨 · ✨ 한 줄(웹 :4092-4127) — 가로 스크롤이 아니다. 검색 중에는 감춘다. ✨ 경주 테마 알약은 F2 가 이 줄 끝에 더한다. */}
-            {!short && weatherPill ? (
+            {/* 날씨 · ✨ 한 줄(웹 :4092-4127) — 가로 스크롤이 아니다. 검색 중에는 감춘다. */}
+            {!short && (weatherPill || discoveryChip) ? (
               <View pointerEvents="box-none" className="flex-row items-center gap-[8px]">
                 {weatherPill}
+                {discoveryChip}
               </View>
             ) : null}
 
@@ -1259,6 +1391,20 @@ export function HomeScreen() {
                   onRequestIngest={(item) => void ingest.request(item)}
                 />
               </>
+            ) : null}
+
+            {/* ✨ 테마 고르기 판 · 켜진 테마 판(웹 :4307-4405) — 검색 결과 아래, 분류 칩 줄 위. 위 묶음 높이에 들어가 카메라 띠도 따라 내려간다. */}
+            {showThemePanel ? <DiscoveryThemePanel onPick={onPickTheme} onClose={() => setDiscoveryOpen(false)} /> : null}
+            {activeDiscovery ? (
+              <DiscoveryActivePanel
+                active={activeDiscovery}
+                loading={discoveryLoading}
+                items={discoveryItems}
+                selectedId={selection?.id ?? null}
+                comparisonText={discoveryComparison}
+                onSelect={onPickDiscoveryResult}
+                onClear={clearTheme}
+              />
             ) : null}
 
             {parkingFilterEmpty ? <SearchNoResultPill message={`🅿 ${t('map.searchNoResult', { q: t('map.filterParking') })}`} /> : null}
@@ -1390,6 +1536,7 @@ export function HomeScreen() {
                   onRemoveCondition={onRemoveCondition}
                   comparisonReason={comparisonReason}
                   compareAnchor={compareAnchor}
+                  contextBadge={contextBadge}
                   assumedTimeLabel={assumedTimeLabel}
                   assumedTimeBadge={assumedTimeBadge}
                   forecastLevel={cardForecastLevel}
