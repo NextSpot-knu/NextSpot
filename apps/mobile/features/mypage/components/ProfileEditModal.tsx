@@ -48,7 +48,7 @@ export function ProfileEditModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { if (!saving) onClose(); }} statusBarTranslucent>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 justify-center px-[24px]">
           {/* 바탕을 누르면 닫힌다 — 읽기 화면용 닫기 버튼은 머리 X */}
@@ -56,6 +56,7 @@ export function ProfileEditModal({
             noFeedback
             accessibilityRole="button"
             accessibilityLabel={t('common.close')}
+            disabled={saving}
             onPress={onClose}
             style={StyleSheet.absoluteFill}
           >
@@ -72,7 +73,7 @@ export function ProfileEditModal({
                 <Icon icon={Edit2} size="lg" color="gold" />
                 <Text className="text-lg" weight="bold" accessibilityRole="header">{t('mypage.editNameTitle')}</Text>
               </View>
-              <IconButton icon={X} accessibilityLabel={t('common.close')} color="muk-soft" box={36} onPress={onClose} />
+              <IconButton icon={X} accessibilityLabel={t('common.close')} color="muk-soft" box={36} disabled={saving} onPress={onClose} />
             </View>
             <Text className="mb-[8px] text-sm text-muk-soft" weight="semibold">{t('mypage.editNameLabel')}</Text>
             <TextField
@@ -89,7 +90,7 @@ export function ProfileEditModal({
             />
             <Text className="mt-[8px] text-xs text-muk-soft">{t('mypage.editNameHint')}</Text>
             <View className="mt-[24px] flex-row gap-[12px]">
-              <Button className="flex-1" variant="hanji" size={48} labelSize={16} labelWeight="semibold" shape="xl" label={t('common.cancel')} onPress={onClose} />
+              <Button className="flex-1" variant="hanji" size={48} labelSize={16} labelWeight="semibold" shape="xl" label={t('common.cancel')} disabled={saving} onPress={onClose} />
               <Button
                 className="flex-1"
                 variant="gold"

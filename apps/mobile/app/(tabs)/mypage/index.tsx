@@ -8,7 +8,7 @@ import {
   Bell, Bookmark, ChevronRight, Edit2, Footprints, FlaskConical, Hourglass, LogOut, Menu, MessageSquare,
   Settings as SettingsIcon, Sparkles, Ticket, User, type LucideIcon,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { LanguageSwitcher } from '~/components/LanguageSwitcher';
@@ -44,9 +44,15 @@ export default function MypageScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileFailed, setProfileFailed] = useState(false);
   const [editing, setEditing] = useState(false);
+  const signingOutRef = useRef(false);
+  const editingRef = useRef(false);
+  // 최신 계정 키 — 재시도 응답이 계정이 바뀐 뒤에 오면 덮어쓰지 않는다.
+  const accountKeyRef = useRef('');
+  editingRef.current = editing;
 
   // 계정이 바뀌면(로그인·로그아웃·삭제) 프로필을 다시 읽는다.
   const accountKey = `${account?.id ?? ''}:${account?.isAnonymous ?? ''}`;
+  accountKeyRef.current = accountKey;
   useEffect(() => {
     let alive = true;
     setProfileFailed(false);
@@ -73,7 +79,13 @@ export default function MypageScreen() {
   const showSignOut = Boolean(profile?.isMember) || (account !== null && !account.isAnonymous);
 
   const onSignOut = async () => {
-    await signOutAndClear();
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
+    try {
+      await signOutAndClear();
+    } finally {
+      signingOutRef.current = false;
+    }
     toast.success(t('mypage.signedOut'));
     // 웹은 로그아웃 뒤 '/' 로 간다 — 앱엔 랜딩이 없어 홈 탭이 대응(G5b-18, R3: 탭 전환이라 navigate).
     router.navigate('/');
@@ -88,7 +100,8 @@ export default function MypageScreen() {
     } catch (err) {
       console.warn('[mypage] 이름 저장 실패', err);
       // RN Modal 은 별도 창 — 모달 안 채널에 띄워야 보인다(G5b-17).
-      toast.error(t('mypage.editNameFailed'), { toasterId: PROFILE_EDIT_TOASTER });
+      // 모달이 이미 닫혔으면(저장 중에는 막아 두지만 방어) 없는 채널이 아니라 루트 토스터로.
+      toast.error(t('mypage.editNameFailed'), editingRef.current ? { toasterId: PROFILE_EDIT_TOASTER } : undefined);
     }
   };
 
@@ -131,7 +144,14 @@ export default function MypageScreen() {
           {profileFailed && !profile ? (
             <Card className="mt-[16px] mb-[16px] items-center gap-[12px]">
               <Text className="text-center text-sm" weight="semibold">{t('common.error')}</Text>
-              <Button variant="secondary" label={t('common.retry')} onPress={() => { setProfileFailed(false); void loadProfile().then(setProfile, () => setProfileFailed(true)); }} />
+              <Button variant="secondary" label={t('common.retry')} onPress={() => {
+                const key = accountKeyRef.current;
+                setProfileFailed(false);
+                void loadProfile().then(
+                  (p) => { if (accountKeyRef.current === key) setProfile(p); },
+                  () => { if (accountKeyRef.current === key) setProfileFailed(true); },
+                );
+              }} />
             </Card>
           ) : !profile ? (
             // 웹 로딩: 프로필 · 레이더 · 통계 세 블록만(나머지는 프로필이 온 뒤).
@@ -215,11 +235,11 @@ export default function MypageScreen() {
               ) : null}
 
               {/* 콘솔 입구 — 계정 판정이 끝난 뒤에만(웹 ConsoleEntries). 역할이 없으면 두 콘솔의 미리보기 하나. */}
-              {accountStatus !== 'loading' ? (
+              {accountStatus !== 'loading' && SHOW_CONSOLE_ENTRIES ? (
                 hasConsoleRole ? (
                   <View className="mb-[16px] gap-[12px]">
-                    {canEnterMerchantConsole(account) ? <MerchantLinkCard url={`${WEB_ORIGIN}/merchant`} /> : null}
-                    {canEnterAdminConsole(account) ? <AdminLinkCard url={`${WEB_ORIGIN}/admin/dashboard`} /> : null}
+                    {SHOW_CONSOLE_ENTRIES && canEnterMerchantConsole(account) ? <MerchantLinkCard url={`${WEB_ORIGIN}/merchant`} /> : null}
+                    {SHOW_CONSOLE_ENTRIES && canEnterAdminConsole(account) ? <AdminLinkCard url={`${WEB_ORIGIN}/admin/dashboard`} /> : null}
                   </View>
                 ) : SHOW_CONSOLE_ENTRIES ? (
                   <View className="mb-[16px]">
@@ -286,7 +306,7 @@ export default function MypageScreen() {
                 ))}
               </Card>
 
-              {roleEntry !== 'hidden' ? (
+              {SHOW_CONSOLE_ENTRIES && roleEntry !== 'hidden' ? (
                 <View className="mb-[16px]">
                   <RoleRequestCard pending={roleEntry === 'pending'} url={`${WEB_ORIGIN}/account/business`} />
                 </View>

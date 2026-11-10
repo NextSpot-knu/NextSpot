@@ -9,7 +9,7 @@
 import Constants from 'expo-constants';
 import { useRouter, type Href } from 'expo-router';
 import { Database, Globe, Info, MapPin, Sparkles, Trash2, UserX } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { Button, Text, confirmDestructive, toast } from '~/components/ui';
@@ -19,6 +19,7 @@ import { getLocationConsent, setLocationConsent } from '~/features/auth/consent'
 import { LOCATION_CONSENT_ROUTE } from '~/features/auth/locationAccess';
 import { useLocationConsent } from '~/features/auth/useLocationConsent';
 import { canEnterMerchantConsole, useAccount } from '~/lib/core/account';
+import { SHOW_CONSOLE_ENTRIES } from '~/lib/core/consoleEntries';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { WEB_ORIGIN } from '~/lib/platform/shareUrls';
 
@@ -32,6 +33,8 @@ export default function SettingsScreen() {
   const { account, status } = useAccount();
   const [deleting, setDeleting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // 확인 토스트를 기다리는 동안 두 번 눌러도 하나만(상태는 다음 렌더에야 바뀐다) — 취소·끝나면 푼다.
+  const confirmingRef = useRef<{ reset: boolean; delete: boolean }>({ reset: false, delete: false });
   const locationConsent = useLocationConsent();
   // 기록이 없으면(저장 실패 · 약관 판 변경) 아직 고르지 않은 것 — 어느 쪽이든 동의가 없으면 위치를 쓰지 않는다.
   const consentRecord = getLocationConsent();
@@ -52,13 +55,15 @@ export default function SettingsScreen() {
   const isMember = accountKnown && !account.isAnonymous;
 
   const onReset = async () => {
-    if (resetting) return;
+    if (resetting || confirmingRef.current.reset) return;
+    confirmingRef.current.reset = true;
     const ok = await confirmDestructive({
+      id: 'mypage-reset',
       title: t('settings.resetConfirm'),
       message: t('settings.resetConfirmDesc'),
       confirmLabel: t('settings.resetAction'),
       cancelLabel: t('common.cancel'),
-    });
+    }).finally(() => { confirmingRef.current.reset = false; });
     if (!ok) return;
     setResetting(true);
     try {
@@ -103,12 +108,13 @@ export default function SettingsScreen() {
   };
 
   const onDelete = async () => {
-    if (deleting) return;
+    if (deleting || confirmingRef.current.delete) return;
+    confirmingRef.current.delete = true;
     const ok = await confirmDestructive(
       isMember
-        ? { title: t('settings.deleteAccountConfirm'), message: t('settings.deleteAccountConfirmDesc'), confirmLabel: t('settings.deleteAccountAction'), cancelLabel: t('common.cancel'), duration: 10000 }
-        : { title: t('app.mypage.deleteDataConfirm'), message: t('app.mypage.deleteDataConfirmDesc'), confirmLabel: t('app.mypage.deleteDataAction'), cancelLabel: t('common.cancel'), duration: 10000 },
-    );
+        ? { id: 'mypage-delete', title: t('settings.deleteAccountConfirm'), message: t('settings.deleteAccountConfirmDesc'), confirmLabel: t('settings.deleteAccountAction'), cancelLabel: t('common.cancel'), duration: 10000 }
+        : { id: 'mypage-delete', title: t('app.mypage.deleteDataConfirm'), message: t('app.mypage.deleteDataConfirmDesc'), confirmLabel: t('app.mypage.deleteDataAction'), cancelLabel: t('common.cancel'), duration: 10000 },
+    ).finally(() => { confirmingRef.current.delete = false; });
     if (!ok) return;
     setDeleting(true);
     const result = await deleteAccountOrGuestData();
@@ -127,7 +133,7 @@ export default function SettingsScreen() {
         <LanguageSwitcher />
       </SectionCard>
 
-      {canEnterMerchantConsole(account) ? <MerchantLinkCard compact url={`${WEB_ORIGIN}/merchant`} /> : null}
+      {SHOW_CONSOLE_ENTRIES && canEnterMerchantConsole(account) ? <MerchantLinkCard compact url={`${WEB_ORIGIN}/merchant`} /> : null}
 
       <SectionCard
         icon={MapPin}
