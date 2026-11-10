@@ -62,7 +62,7 @@
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
-   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, 결정 D1~D19 = 추천대로 · 11-11 웨이브 A·B 끝 → 웨이브 D·H 차례, 상태는 §5.2 표)**. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
+   **Play 앱 주력 = Expo 앱(`apps/mobile`) — 11-10 오후 사용자가 다시 바꿨다**(같은 날 오전엔 TWA 주력). 다음 작업은 Expo 앱을 웹앱(`apps/web`)과 같은 모습으로 맞추기 — **계획 [`MOBILE_WEB_PARITY.md`](./MOBILE_WEB_PARITY.md)(차이 252건, 결정 D1~D19 = 추천대로 · 11-11 웨이브 A·B·D·H1·H2·H3a·F1 끝 → H3b·F2~F4 차례, 상태는 §5.2 표)**. TWA(`feat/twa` · `apps/twa`)는 만들어 둔 채 보류. **패키지명: Expo 가 `kr.nextspot.app` 을 되찾았다(11-10 사용자 결정 · 11-10 i7 반영 — `54a90b0` 되돌림)** — 기존 EAS 서명키·지도 키 제한·폰과 팀원의 빌드가 그대로 맞는다(`kr.nextspot.expo` 로는 빌드한 적이 없다). TWA 를 다시 살리면 다른 패키지명(예: `kr.nextspot.twa`)을 써야 한다 — `feat/twa` 의 `apps/twa/twa-manifest.json` 이 아직 `kr.nextspot.app` 이다(보류라 지금은 그대로).
    **모바일 앱 재구현(11-01 계획, 검토 대기)** — Expo React Native, 관광객 화면 전부를 v1 로 [`MOBILE_APP_PLAN.md`](./MOBILE_APP_PLAN.md). 11-02 답 반영(SDK 57 · CAPTCHA 끔 · Z Fold7 · 지도 키는 사용자 Google Cloud). Expo 조직(M6)이 생기면 1단계부터.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
@@ -75,6 +75,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **(11-11) Expo 개발 빌드 다시 만들기 + Z Fold7 확인** — F1 이 네이티브 모듈 `expo-notifications` 를 더했다. `eas build --profile development --platform android` 로 새 개발 빌드를 깔고 `npx expo start --dev-client`. 확인 목록은 `MOBILE_WEB_PARITY.md` §8.2 + 묶음 보고(첫 탭에만 알림 권한 창, 예약됨 유지·재부팅, 시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14 시험, 탭 막대 뒤로 키·콜드 딥링크, 지도 패딩·기본 핀·내 위치 점 탭, 첫 실행 OAuth 복귀). 재빌드 전 앱은 알림 버튼만 숨는다.
 - [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
 - [ ] **(10-31c ① · API 배포 전) Render `SEOUL_CITYDATA_TARGETS` 정리** — `nextspot-t2ib` 환경변수에 옛 5곳 값이 있으면 **지운다**(코드 기본값 9곳·주기 포함을 쓴다) 또는 새 값으로 바꾼다. 빈 값으로 두면 503 `seoul_targets_missing` 으로 서울 수집이 멈춘다. 표기는 `DEPLOY_AND_ENV.md` §2.
 - [ ] **(10-31c ②) `20261031120000_crowd_zones.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(서울 S1 구역 표) — 확인 `select count(*) from public.zones;` → 9. 적용 전에도 수집은 돌고 정규화 표 이중 저장만 상태에 '표 없음'으로 남는다.
@@ -304,13 +305,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
-## 2026-11-11 — 웹 ↔ Expo 동등성 구현 웨이브 A·B(앱 버그·값 오류·토큰·기반 부품·지도 래퍼·탭 막대)
+## 2026-11-11 — 웹 ↔ Expo 동등성 구현 웨이브 A·B·D·H(일부)·F1(앱 버그·기반 부품·화면 6개·추천 카드·홈 부품·골든타임 알림)
 
 - 도구·브랜치: Claude Code(i7, 메인 + 묶음별 worktree 에이전트 9 · 독립 검토 5) / `yunseong`
 - 커밋: e70dea8..(이 기록) — 결정 확정 · A1~A3 · A 검토 수정 2 · B1~B6 · export·PORTING·상태 정리
 - 한 것: 사용자 답 "추천대로"로 D1~D19 확정. A1 모달 시트 7곳이 안 열리던 원인(gorhom DISMISSING 함정)을 상태 기계로 고침 + Card 기본색, A2 SPOT ×100·직접 고른 곳 도보 분·킵 북마크를 웹 recToSpot 과 같게, A3 토큰·`navMetrics`·새 키 4. 웨이브 B: 글자 줄 높이·글꼴·유리(B1), Button·Chip·Pressable·ErrorState(B2), 시트 선택 prop·토스트·확인 토스트(B3), 새 그림·조작 부품 14종(B4a·B4b), 지도 래퍼(B5), 웹과 같은 101pt 탭 막대 + 마이 하위·대안 화면을 탭 안으로(B6). 부품 기본값은 지금 모양 — 화면 묶음(D·H)이 웹 값을 넣는다.
 - 검증: 모바일 tsc · npm test 90 · check:shared · expo-doctor 21/21 · export android·web, 웹 lint/typecheck/test/build(A3), check-docs. 묶음마다 하네스 재촬영(짝은 i7 세션 scratchpad).
-- 다음·미결: 웨이브 B 검토 4렌즈 결과 반영 → 웨이브 D(D1~D6)·H(H1·H2a·H2b) → H3a → H3b → F. Z Fold7 확인 목록은 계획 §8.2 + 각 묶음 보고(시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14, 탭 막대 뒤로 키, 지도 패딩·기본 핀). 웹 `saved/page.tsx` 점수 정규화는 W1(§7 #10).
+- 이어서(같은 날): 웨이브 B 검토 반영, 화면 D1~D6, 추천 카드 H1, 홈 부품 H2a·H2b, 홈·저장 상세에 카드 연결 H3a, 골든타임 '알림 받기' F1(expo-notifications — 기기 안 예약만, 서버·푸시 토큰 없음). 묶음마다 다른 렌즈 검토 → 중간 이상 반영.
+- 다음·미결: H3b(홈 지도·카메라·위치·예측 띠·주차장) → F2(✨) · F3(대안 혼잡 제보, 진행 중) → F4(죽은 키·파일 정리·전체 재촬영). Z Fold7 확인 목록은 계획 §8.2 + 각 묶음 보고(시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14, 탭 막대 뒤로 키, 지도 패딩·기본 핀). 웹 `saved/page.tsx` 점수 정규화는 W1(§7 #10).
 - 사람 작업: 없음.
 
 ## 2026-11-10c — 웹 ↔ Expo 화면 동등성 비교 · 차이 252건 기록 · 구현 계획(결정 답 대기)
@@ -370,13 +372,6 @@ from checks order by seq;
 - 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · i18n · web test. 검토 3회(Med 3 → 0). 화면 확인은 에뮬레이터(폰·폴드 크기). 위치 점·키보드는 실기기 미확인.
 - 다음·미결: 실기기에서 위치 점·구글 로그인 복귀·펼친 화면 확인 → 4단계. 오류 URL 이 `seenCodes` 에 안 남는 OAuth 틈(결정 필요). Metro 8081 감시가 죽어 8082 를 쓴다.
 - 사람 작업: Supabase Redirect `nextspot://**`·익명 30/h 는 사용자가 저장(11-05). 남은 것: 진석 님 권한(Apple $99 가입 여부 확인 포함)·법무 검토.
-
-## 2026-11-02d — 모바일: EAS 연결 · 지도 키 · 첫 클라우드 개발 빌드
-
-- 도구·브랜치: Claude Code / `yunseong` · 커밋 `c929e52` + 이 기록
-- 한 것: EAS 프로젝트 `@oys030408s-team/nextspot`(로봇 사용자 토큰은 `apps/mobile/.env.local` 의 `Expo_Token_for_Claude`, 명령마다 `EXPO_TOKEN` 으로). Supabase 공개 값·`GOOGLE_MAPS_ANDROID_API_KEY` 는 EAS 환경 변수(3환경). 에뮬레이터에서 실제 구글 지도 확인. development APK 빌드 `66dad613`.
-- 서명 SHA-1(지도 키 제한용, 비밀 아님): EAS 업로드 키 `C8:94:4D:49:95:9E:8F:96:E2:52:24:DB:BD:98:4D:14:34:2F:35:DF` · 로컬 debug `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` · Play 앱 서명 키는 콘솔 등록 뒤 추가.
-- 다음: Z Fold7 실기기 확인 → 3단계(지도 줌 보정·위치 마무리) → 4단계(진석 님 스토어 권한).
 
 ## 기록 규칙
 

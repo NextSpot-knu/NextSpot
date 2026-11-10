@@ -1,4 +1,11 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-02d — 모바일: EAS 연결 · 지도 키 · 첫 클라우드 개발 빌드
+
+- 도구·브랜치: Claude Code / `yunseong` · 커밋 `c929e52` + 이 기록
+- 한 것: EAS 프로젝트 `@oys030408s-team/nextspot`(로봇 사용자 토큰은 `apps/mobile/.env.local` 의 `Expo_Token_for_Claude`, 명령마다 `EXPO_TOKEN` 으로). Supabase 공개 값·`GOOGLE_MAPS_ANDROID_API_KEY` 는 EAS 환경 변수(3환경). 에뮬레이터에서 실제 구글 지도 확인. development APK 빌드 `66dad613`.
+- 서명 SHA-1(지도 키 제한용, 비밀 아님): EAS 업로드 키 `C8:94:4D:49:95:9E:8F:96:E2:52:24:DB:BD:98:4D:14:34:2F:35:DF` · 로컬 debug `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` · Play 앱 서명 키는 콘솔 등록 뒤 추가.
+- 다음: Z Fold7 실기기 확인 → 3단계(지도 줌 보정·위치 마무리) → 4단계(진석 님 스토어 권한).
+
 ## 2026-11-02c — 모바일 2단계: 관광객 화면 전부 이식 · 검토 3렌즈 반영(에뮬레이터 실데이터 확인)
 
 - 도구·브랜치: Claude Code(화면 묶음 에이전트 7 — 반복 이식 Sonnet · 인증 Opus, 검토 Opus) / `yunseong`
