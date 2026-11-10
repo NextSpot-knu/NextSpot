@@ -11,8 +11,11 @@ const ERROR_BORDER = 'rgba(193, 85, 59, 0.25)'; // terracotta 25%
 export function BoardError({ message, retryLabel, onRetry }: { message: string; retryLabel: string; onRetry: () => void }) {
   useAnnounce(message);
   return (
-    <Card className="items-center gap-[12px]" padded={false} style={{ padding: 32, borderColor: ERROR_BORDER }} accessibilityRole="alert">
-      <Text className="text-[36px] leading-[40px]">⚠️</Text>
+    // 읽기 화면 알림은 useAnnounce 하나만 — role alert 를 함께 달면 같은 말을 두 번 읽는다(L6).
+    <Card className="items-center gap-[12px]" padded={false} style={{ padding: 32, borderColor: ERROR_BORDER }}>
+      <Text className="text-[36px] leading-[40px]" accessibilityElementsHidden importantForAccessibility="no">
+        ⚠️
+      </Text>
       <Text className="text-center text-[15px] leading-[22.5px]" weight="bold">
         {message}
       </Text>

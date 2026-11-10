@@ -2,8 +2,8 @@
 // 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)를 카드와 행이 **같은 순서로** 보여 준다.
 // 알림 버튼('알림 받기')은 이 파일이 아니라 골든타임 배지(F1)가 맡는다.
 import { ChevronRight } from 'lucide-react-native';
-import { useState } from 'react';
-import { View, type LayoutChangeEvent } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Platform, View, type LayoutChangeEvent } from 'react-native';
 
 import { Icon, Pressable, Text } from '~/components/ui';
 import { CreditLine } from '~/components/ui/CreditLine';
@@ -114,8 +114,9 @@ function WaitStats({ est, row, estimateLevel, display = PLAIN_DISPLAY }: StatPro
 
 // ── 카드 소개 블록 — 남는 자리에 **온전한 줄만** 싣는다(G5a-11, 웹 CardIntro + fitWholeLines) ──────────────────────
 // 소개 블록은 flexBasis 0 으로 자라기만 해서 글 양이 카드 높이를 바꾸지 않는다(카드는 min 316). 보이지 않는 측정용 사본이
-// 늘 2줄 상한으로 줄 수를 재고(react-native-web 은 onTextLayout 이 없어 높이 ÷ 줄 높이), 보이는 쪽은 fitWholeLines 결과로 자른다 —
+// 늘 2줄 상한으로 줄 수를 재고(네이티브 onTextLayout · 웹 빌드는 높이 ÷ 줄 높이), 보이는 쪽은 fitWholeLines 결과로 자른다 —
 // 자른 글의 onLayout 이 원래 줄 수를 덮어쓰지 않는다(R3).
+const IS_WEB = Platform.OS === 'web';
 const NAME_LH = 16.5;
 const SMALL_LH = 13.75;
 const NAME_CLASS = 'text-[12px] leading-[16.5px]';
@@ -125,26 +126,38 @@ const SUMMARY_CLASS = 'text-[10px] leading-[13.75px] text-muk-soft';
 function CardIntro({ name, menus, summary }: { name: string; menus: string[]; summary: string | null }) {
   const menuText = menus.length > 0 ? `🍽 ${menus.join(' · ')}` : null;
   const [avail, setAvail] = useState<number | null>(null);
-  const [heights, setHeights] = useState<{ name?: number; menu?: number; summary?: number }>({});
-  const measure = (key: 'name' | 'menu' | 'summary') => (e: LayoutChangeEvent) => {
-    const h = e.nativeEvent.layout.height;
-    setHeights((prev) => (prev[key] === h ? prev : { ...prev, [key]: h }));
-  };
+  type Key = 'name' | 'menu' | 'summary';
+  const [info, setInfo] = useState<Partial<Record<Key, { lines: number; lh: number }>>>({});
+  const put = (key: Key, lines: number, lh: number) =>
+    setInfo((prev) => (prev[key]?.lines === lines && prev[key]?.lh === lh ? prev : { ...prev, [key]: { lines, lh } }));
+  // 네이티브: 시스템 글자 크기에 따라 줄 높이가 커진다(Text 상한 1.6) — 실제 줄 수·줄 높이를 onTextLayout 으로 잰다(M1).
+  // 웹 빌드: react-native-web 에는 onTextLayout 이 없어 높이 ÷ 고정 줄 높이(웹은 글자 배율이 없다).
+  const measure = (key: Key) =>
+    IS_WEB
+      ? { onLayout: (e: LayoutChangeEvent) => put(key, Math.round(e.nativeEvent.layout.height / (key === 'name' ? NAME_LH : SMALL_LH)), key === 'name' ? NAME_LH : SMALL_LH) }
+      : {
+          onTextLayout: (e: { nativeEvent: { lines: { height: number }[] } }) => {
+            const lines = e.nativeEvent.lines;
+            if (lines.length > 0) put(key, Math.min(2, lines.length), lines[0].height);
+          },
+        };
+  // 잴 수 없는 환경(안 보이는 탭이라 레이아웃이 안 온다)에서도 글이 영영 숨지 않게 — 잠시 뒤 있는 그대로(2줄 상한) 보인다(L7).
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setGaveUp(true), 800);
+    return () => clearTimeout(id);
+  }, []);
 
-  const present: ('name' | 'menu' | 'summary')[] = ['name'];
+  const present: Key[] = ['name'];
   if (menuText) present.push('menu');
   if (summary) present.push('summary');
-  const ready = avail !== null && present.every((k) => heights[k] !== undefined);
-  const lineHeight = (k: 'name' | 'menu' | 'summary') => (k === 'name' ? NAME_LH : SMALL_LH);
-  const gap = (k: 'name' | 'menu' | 'summary') => (k === 'menu' ? 2 : k === 'summary' ? 4 : 0);
-  const shownCounts = ready
+  const measured = avail !== null && present.every((k) => info[k] !== undefined);
+  const ready = measured || gaveUp;
+  const gap = (k: Key) => (k === 'menu' ? 2 : k === 'summary' ? 4 : 0);
+  const shownCounts = measured
     ? fitWholeLines(
         avail!,
-        present.map((k) => ({
-          lineHeight: lineHeight(k),
-          lines: Math.round((heights[k] ?? 0) / lineHeight(k)),
-          gapBefore: gap(k),
-        })),
+        present.map((k) => ({ lineHeight: info[k]!.lh, lines: info[k]!.lines, gapBefore: gap(k) })),
       )
     : present.map(() => 2);
   const shown = (k: 'name' | 'menu' | 'summary') => shownCounts[present.indexOf(k)] ?? 0;
@@ -161,16 +174,16 @@ function CardIntro({ name, menus, summary }: { name: string; menus: string[]; su
         importantForAccessibility="no-hide-descendants"
         style={{ position: 'absolute', left: 0, right: 0, top: 0, opacity: 0 }}
       >
-        <Text className={NAME_CLASS} weight="bold" numberOfLines={2} onLayout={measure('name')}>
+        <Text className={NAME_CLASS} weight="bold" numberOfLines={2} {...measure('name')}>
           {name}
         </Text>
         {menuText ? (
-          <Text className={MENU_CLASS} weight="bold" numberOfLines={2} onLayout={measure('menu')}>
+          <Text className={MENU_CLASS} weight="bold" numberOfLines={2} {...measure('menu')}>
             {menuText}
           </Text>
         ) : null}
         {summary ? (
-          <Text className={SUMMARY_CLASS} numberOfLines={2} onLayout={measure('summary')}>
+          <Text className={SUMMARY_CLASS} numberOfLines={2} {...measure('summary')}>
             {summary}
           </Text>
         ) : null}

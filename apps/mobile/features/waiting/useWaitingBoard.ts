@@ -7,7 +7,7 @@
 // 가정 시각 프리셋(D11 ①, G5a-05): 고른 시각을 by-type `assumed_at`·대기 기준 시각·권역 곡선·캐시에 쓴다. 바꾸면 로더부터 다시.
 // 화면에 돌아올 때(D16 ⓑ, G5a-24): 웹은 라우트가 다시 마운트되며 캐시를 먼저 그린 뒤 로더 없이 다시 받는다 — 앱은 포커스마다 같게.
 // '다시 시도'(D16 ⓓ, G5a-23): 웹처럼 백오프만 풀고 다시 받는다. 자동 재시도 표식은 되돌리지 않는다.
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useIsFocused } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAssumedPreset } from '~/components/AssumedTimeSelect';
@@ -37,6 +37,8 @@ const USER_LOCATION = { lat: REGION.center.lat, lng: REGION.center.lng };
 interface Run {
   id: number;
   controller: AbortController;
+  /** 끝났거나 끊겼다 — 예약된 자동 재시도만 남은 run 은 아직 진행 중이다. 포커스 새로고침이 받는 중인 조회를 끊지 않게 쓴다. */
+  done: boolean;
 }
 
 type Settled = PromiseSettledResult<Awaited<ReturnType<typeof recommendByType>>>;
@@ -81,6 +83,11 @@ export function useWaitingBoard(): WaitingBoard {
   const unavailableRetriedRef = useRef(false);
   const runRef = useRef<Run | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // 화면이 포커스를 잃은 사이 프리셋이 바뀌어 조회를 미뤘다 — 돌아오면 포커스 새로고침이 받는다(L1).
+  const staleOnFocusRef = useRef(false);
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
 
   const later = useCallback((fn: () => void, ms: number) => {
     timersRef.current.push(setTimeout(fn, ms));
@@ -91,7 +98,8 @@ export function useWaitingBoard(): WaitingBoard {
       let run = continued;
       if (!run) {
         runRef.current?.controller.abort();
-        run = { id: (runRef.current?.id ?? 0) + 1, controller: new AbortController() };
+        if (runRef.current) runRef.current.done = true;
+        run = { id: (runRef.current?.id ?? 0) + 1, controller: new AbortController(), done: false };
         runRef.current = run;
       }
       const thisRun = run;
@@ -99,6 +107,7 @@ export function useWaitingBoard(): WaitingBoard {
       const stale = () => signal.aborted || runRef.current !== thisRun || presetRef.current !== preset;
       if (stale()) return;
 
+      staleOnFocusRef.current = false;
       setPartialBoard(null);
       // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
       const silent = hasResultsRef.current && renderedPresetRef.current === preset;
@@ -107,6 +116,7 @@ export function useWaitingBoard(): WaitingBoard {
       setFailed(false);
       failedRef.current = false;
       const showFailed = () => {
+        thisRun.done = true;
         setFailed(true);
         failedRef.current = true;
         setSectors(null);
@@ -117,6 +127,7 @@ export function useWaitingBoard(): WaitingBoard {
         renderedPresetRef.current = null;
       };
       const keepCached = () => {
+        thisRun.done = true;
         setPartialBoard(null);
         setLoading(false);
         loadingRef.current = false;
@@ -197,6 +208,7 @@ export function useWaitingBoard(): WaitingBoard {
         return showFailed();
       }
 
+      thisRun.done = true;
       setSectors(next);
       setPartialBoard(null);
       setLoading(false);
@@ -208,15 +220,22 @@ export function useWaitingBoard(): WaitingBoard {
     [later, preset],
   );
 
-  // 프리셋이 바뀌면 fetchBoard 가 바뀌어 이 효과가 이전 조회를 끊고(정리) 새 가정 시각으로 다시 시작한다.
+  // 효과·콜백이 fetchBoard 를 ref 로 부른다 — 프리셋이 바뀔 때 마운트 효과와 포커스 효과가 둘 다 받지 않게(L3).
+  const fetchBoardRef = useRef(fetchBoard);
+  fetchBoardRef.current = fetchBoard;
+
+  // 프리셋이 바뀌면 이 효과가 이전 조회를 끊고(정리) 새 가정 시각으로 다시 시작한다.
+  // 화면이 포커스를 잃은 사이(코스 탭에서 프리셋을 바꾼 경우)에는 받지 않고, 돌아올 때 포커스 새로고침이 받는다(L1).
   useEffect(() => {
-    void fetchBoard();
+    if (focusedRef.current) void fetchBoardRef.current();
+    else staleOnFocusRef.current = true;
     const timers = timersRef.current;
     return () => {
+      if (runRef.current) runRef.current.done = true;
       runRef.current?.controller.abort();
       timers.forEach(clearTimeout);
     };
-  }, [fetchBoard]);
+  }, [preset]);
 
   // 화면으로 돌아올 때마다 조용히 다시 받는다(D16 ⓑ — 웹은 방문마다 마운트되며 캐시를 먼저 그린 뒤 로더 없이 다시 받는다.
   // 서버에 사용자별 180초 캐시가 있어 탭을 오가도 노출 행이 곧바로 쌓이지 않는다). 첫 포커스는 건너뛴다 — 마운트 효과가 이미 보냈다.
@@ -226,10 +245,14 @@ export function useWaitingBoard(): WaitingBoard {
     useCallback(() => {
       if (firstFocusRef.current) {
         firstFocusRef.current = false;
-        return;
+        if (!staleOnFocusRef.current) return;
       }
-      if (hasResultsRef.current || (failedRef.current && !loadingRef.current)) void fetchBoard();
-    }, [fetchBoard]),
+      // 받는 중인 조회는 끊지 않는다(M2) — 이전 프리셋의 결과가 남아 있어도 진행 중이면 그대로 둔다.
+      if (runRef.current && !runRef.current.done) return;
+      if (staleOnFocusRef.current || hasResultsRef.current || (failedRef.current && !loadingRef.current)) {
+        void fetchBoardRef.current();
+      }
+    }, []),
   );
 
   // 자가 회복: 익명 세션이 나중에 생기면 실패 화면을 스스로 다시 채운다.
@@ -237,16 +260,16 @@ export function useWaitingBoard(): WaitingBoard {
     const { data } = createPublicClient().auth.onAuthStateChange((event, session) => {
       if (event !== 'SIGNED_IN' || !session || !failedRef.current) return;
       retriedRef.current = false;
-      later(() => void fetchBoard(), 0);
+      later(() => void fetchBoardRef.current(), 0);
     });
     return () => data.subscription.unsubscribe();
-  }, [fetchBoard, later]);
+  }, [later]);
 
   // 웹 '다시 시도' = 백오프를 풀고 다시 받는다(G5a-23). 자동 재시도 표식은 되돌리지 않는다.
   const retry = useCallback(() => {
     ensureAnonymousSession.resetBackoff();
-    void fetchBoard();
-  }, [fetchBoard]);
+    void fetchBoardRef.current();
+  }, []);
 
   // ── 보조 피드: 시설별 혼잡 추정 · 권역 수요 곡선. 둘 다 실패해도 내장 시간대 곡선으로 계속한다. ──
   const [estimateLevels, setEstimateLevels] = useState<Record<string, number>>({});
