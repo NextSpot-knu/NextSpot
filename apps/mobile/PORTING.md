@@ -7,7 +7,7 @@
 |---|---|---|---|
 | `lib/sessionStorage.ts` | (브라우저 `sessionStorage`) | — | 앱 실행 동안만 사는 메모리 대역 |
 | `features/map/declutter.ts` | `apps/web/app/main/page.tsx` (`computeDisplayFacilities` 지도 쪽 절반) | `e07ea61` | 카카오 getBounds·getProjection·getLevel 대신 RN 영역(Region)+상자 크기로 계산, 카테고리·검색 필터와 묶음 핀 색칠은 화면에 남김 |
-| `features/map/NextSpotMap.tsx` | `apps/web/app/main/page.tsx`(내 위치 점·축제 원·지도 이벤트), `apps/web/components/CourseMap.tsx`(번호 핀·점선·맞춤 패딩), `apps/web/app/explore/recommend/page.tsx`(MiniMap) | `e07ea61` | DOM 오버레이 → react-native-maps Marker/Circle/Polyline, 펄스 애니메이션은 정적 고리 |
+| `features/map/NextSpotMap.tsx` | `apps/web/app/main/page.tsx`(내 위치 점·축제 원·지도 이벤트), `apps/web/components/CourseMap.tsx`(번호 핀·점선·맞춤 패딩), `apps/web/app/explore/recommend/page.tsx`(MiniMap) | `e07ea61` | DOM 오버레이 → react-native-maps Marker/Circle/Polyline, 내 위치는 halo 100 정적 방사 그라데이션(웹 빌드는 1.2초 펄스), 기본 핀은 웹 카카오 marker.png 실측 29×42·끝점 (14,39) 을 SVG 로, 묶음 핀 팝오버·검색 이름표·지도 불가 그라데이션·mapPadding(안드로이드 로고 약관)은 B5 |
 | `lib/i18n/{I18nProvider.tsx,translate.ts,catalog.ts,initialLocale.ts,localeState.ts}` | `apps/web/lib/i18n/I18nProvider.tsx` | `e07ea61` | 조회 순서·치환 그대로, 첫 렌더부터 저장·기기 언어(expo-localization), en·ja·zh 는 처음 필요할 때 require, `<html lang>` 대신 localeState |
 | `lib/platform/{kakaoLinks.ts,links.ts}` | `apps/web/lib/navigation.ts`, `components/RecommendationCard.tsx`(장소 링크) | `e07ea61` | https 주소 그대로, 앱이 있으면 `kakaomap://`, 없으면 시스템 브라우저 |
 | `lib/platform/{shareCore.ts,share.ts,shareUrls.ts}` | `apps/web/components/ShareButton.tsx`, `app/course`·`app/explore/recommend` 공유 URL | `e07ea61` | RN Share → expo-clipboard 폴백, origin 은 운영 웹 주소 고정 |
