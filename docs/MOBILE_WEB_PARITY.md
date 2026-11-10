@@ -265,7 +265,7 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 | A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 끝(60f0042, 일부 토큰은 요청 때) |
 | B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 진행 |
 | B2 | Button·Chip·Pressable·ErrorState | M | Sonnet | A1·A3 | 아니오 | 끝(f2d7a27) |
-| B3 | ModalSheet 선택 prop·AppToaster·confirmToast | M | Opus | A1·A3 | 아니오 | 대기 |
+| B3 | ModalSheet 선택 prop·AppToaster·confirmToast | M | Opus | A1·A3 | 아니오 | 진행 |
 | B4a | Glow·RingSpinner·마스코트·표지·CreditLine·RankBadge·GoldenHourBadge·자산 | M | Sonnet | A3 | 아니오 | 끝(8f21d81) |
 | B4b | SelectField·LanguageSwitcher·NowChip·LoadingReveal·BackCircleButton·ShareButton·가정 시간 | M | Sonnet | A3 | 아니오 | 끝(528ba50) |
 | B5 | 지도 래퍼 | L | Opus | A3 | 아니오 | 진행 |
