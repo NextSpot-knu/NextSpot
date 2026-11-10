@@ -59,6 +59,11 @@ assert.equal(anchor?.name, '대릉원');
 assert.equal(anchor?.distanceM, 184);
 assert.equal(anchor?.level, 0.3);
 assert.equal(compareAnchorFor(withTourism, [], {}, now)?.level, null, '명소 시설이 없으면 등급 없음');
+// 가정 시각이면 이름·거리는 그대로, '지금' 등급은 쓰지 않는다(웹 anchorContextFor)
+const shifted = compareAnchorFor(withTourism, [anchorFacility], { a1: { level: 0.3, source: 'estimated', observedAt: '2026-11-10T05:30:00Z' } }, now, true);
+assert.equal(shifted?.name, '대릉원');
+assert.equal(shifted?.distanceM, 184);
+assert.equal(shifted?.level, null);
 assert.equal(compareAnchorFor(rec, [anchorFacility], {}, now), null, '관광 근거가 없으면 기준 명소 없음');
 assert.equal(compareAnchorFor(null, [anchorFacility], {}, now), null);
 

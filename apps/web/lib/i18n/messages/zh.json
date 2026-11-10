@@ -1648,8 +1648,6 @@
       "emailRequired": "请输入电子邮箱。"
     },
     "consent": {
-      "title": "同意使用位置信息",
-      "lead": "NextSpot 使用位置信息为您推荐附近人少的地方。请阅读以下内容并选择是否同意。",
       "purposeTitle": "使用目的",
       "purposeBody": "用于推荐您附近人少的地方、计算步行时间，以及确认您是否在庆州。",
       "whenTitle": "使用时机",
@@ -1659,51 +1657,27 @@
       "declineTitle": "如果不同意",
       "declineBody": "我们不会使用您的位置，将以皇理团路为中心进行推荐。之后可在“我的”设置中更改。",
       "ageConfirm": "我已满 14 周岁",
-      "ageHint": "未满 14 周岁需要法定监护人同意，因此应用无法接受其位置信息使用同意。请点按“不同意”。",
-      "agree": "同意",
-      "decline": "不同意",
       "saveFailed": "无法保存您的选择。将在不使用位置的情况下继续。"
     },
     "intro": {
-      "languageLabel": "语言",
       "faq1Q": "需要注册才能使用吗？",
       "faq1A": "不需要。无需登录即可直接使用。注册后，收藏的地点和偏好可以在其他设备上继续使用。"
     },
     "course": {
-      "emptyBody": "再多选一种类型，或放宽步行时间、行程时间，就能马上为你生成路线。",
-      "slotLateNight": "时间较晚，难以确认营业情况。白天再来查看，餐厅和咖啡馆的选择会更多。",
       "reorderHint": "长按并拖动即可调整顺序",
       "moveEarlier": "将{type}前移",
       "moveLater": "将{type}后移"
     },
     "home": {
-      "searchLocalTitle": "NextSpot 地点搜索结果",
       "locationPrimer": {
         "title": "为你寻找附近人少的地方",
         "body": "允许定位后，我们会优先显示你当前位置步行可到的空闲地点。不允许也会以皇理团路为中心推荐。",
         "continue": "继续"
       },
-      "locationBanner": {
-        "enable": "开启附近推荐",
-        "coarse": "开启精确定位可找到更近的地点"
-      },
-      "festivalAreaLabel": "🏮 {title} 一带",
-      "myLocation": {
-        "recenter": "移到我的位置",
-        "blockedTitle": "位置权限已关闭",
-        "blockedBody": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置权限改为“仅在使用应用期间允许”。",
-        "blockedBodyIos": "如需获取附近人少地点的推荐，请在设置中将 NextSpot 的位置访问权限改为“使用App期间”。",
-        "coarseTitle": "精确位置已关闭",
-        "openSettings": "打开设置"
-      },
-      "tripCard": {
-        "expand": "展开行程卡片",
-        "collapse": "收起行程卡片"
-      }
+      "festivalAreaLabel": "🏮 {title} 一带"
     },
     "mypage": {
       "openOnWeb": "在网页中打开",
-      "privacyWebLink": "在网页中查看全文",
       "deleteDataTitle": "删除我的数据",
       "deleteDataDesc": "将从服务器永久删除已收藏的地点以及推荐和到访记录，并清除本设备上的数据。",
       "deleteData": "永久删除我的数据",
@@ -1714,13 +1688,6 @@
       "deleteDataFailed": "删除失败，请稍后再试。"
     },
     "cardSheet": {
-      "handle": "调整推荐卡片高度",
-      "state": {
-        "minimized": "预览",
-        "normal": "标准",
-        "expanded": "展开"
-      },
-      "emptyTitle": "目前没有可推荐的地点",
       "photoMenu": "照片选项",
       "photoReport": "举报照片",
       "photoReportTitle": "要举报这张照片吗？",

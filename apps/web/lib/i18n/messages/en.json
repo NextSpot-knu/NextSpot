@@ -1648,8 +1648,6 @@
       "emailRequired": "Enter your email."
     },
     "consent": {
-      "title": "Consent to use location information",
-      "lead": "NextSpot uses your location to recommend less crowded places near you. Please read the details below and choose whether to agree.",
       "purposeTitle": "Purpose",
       "purposeBody": "To recommend quiet places near you, estimate walking times, and check whether you are in Gyeongju.",
       "whenTitle": "When it is used",
@@ -1659,51 +1657,27 @@
       "declineTitle": "If you don't agree",
       "declineBody": "We won't use your location and will recommend places around Hwangnidan-gil instead. You can change this later in My Page settings.",
       "ageConfirm": "I am 14 years of age or older",
-      "ageHint": "Users under 14 need a legal guardian's consent, so the app can't accept location consent from them. Please tap \"Don't agree\".",
-      "agree": "Agree",
-      "decline": "Don't agree",
       "saveFailed": "We couldn't save your choice. Continuing without location."
     },
     "intro": {
-      "languageLabel": "Language",
       "faq1Q": "Do I need to sign up?",
       "faq1A": "No. You can start right away without signing in. If you sign up, your saved places and preferences carry over to other devices."
     },
     "course": {
-      "emptyBody": "Pick one more type, or widen your walking or trip time, and we'll build a course right away.",
-      "slotLateNight": "Opening hours are hard to confirm this late. Try again during the day for more restaurant and cafe options.",
       "reorderHint": "Press and hold, then drag to reorder",
       "moveEarlier": "Move {type} earlier",
       "moveLater": "Move {type} later"
     },
     "home": {
-      "searchLocalTitle": "Places in NextSpot",
       "locationPrimer": {
         "title": "We'll find less crowded places near you",
         "body": "If you allow location, we'll show quiet places you can walk to from where you are. If you don't, we'll recommend around Hwangnidan-gil.",
         "continue": "Continue"
       },
-      "locationBanner": {
-        "enable": "Turn on nearby recommendations",
-        "coarse": "Turn on precise location to find closer places"
-      },
-      "festivalAreaLabel": "🏮 {title} area",
-      "myLocation": {
-        "recenter": "Go to my location",
-        "blockedTitle": "Location is turned off",
-        "blockedBody": "To get less crowded places near you, open Settings and set NextSpot's location permission to 'Allow only while using the app'.",
-        "blockedBodyIos": "To get less crowded places near you, open Settings and set NextSpot's location access to 'While Using the App'.",
-        "coarseTitle": "Precise location is off",
-        "openSettings": "Open Settings"
-      },
-      "tripCard": {
-        "expand": "Expand trip card",
-        "collapse": "Collapse trip card"
-      }
+      "festivalAreaLabel": "🏮 {title} area"
     },
     "mypage": {
       "openOnWeb": "Open on the web",
-      "privacyWebLink": "View the full notice on the web",
       "deleteDataTitle": "Delete my data",
       "deleteDataDesc": "Permanently deletes your saved places and recommendation and visit history from our server, and clears this device's data.",
       "deleteData": "Permanently delete my data",
@@ -1714,13 +1688,6 @@
       "deleteDataFailed": "Couldn't delete your data. Please try again in a moment."
     },
     "cardSheet": {
-      "handle": "Adjust recommendation card height",
-      "state": {
-        "minimized": "Preview",
-        "normal": "Default",
-        "expanded": "Expanded"
-      },
-      "emptyTitle": "No places to recommend right now",
       "photoMenu": "Photo options",
       "photoReport": "Report photo",
       "photoReportTitle": "Report this photo?",

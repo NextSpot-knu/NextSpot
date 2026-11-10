@@ -4,7 +4,8 @@ import { View } from 'react-native';
 
 import { GoldenHourBadge } from '~/components/GoldenHourBadge';
 import { Icon, Text } from '~/components/ui';
-import { apiClient } from '~/lib/core/apiClient';
+// 예측 모델 학습 여부는 apiClient 의 실행당 한 번 캐시를 같이 쓴다 — 미학습이면 /predict/day 는 늘 503 이라 묻지 않는다.
+import { apiClient, isPredictModelTrained } from '~/lib/core/apiClient';
 import { colors } from '~/lib/theme/tokens';
 
 import { useT } from '~/lib/i18n/I18nProvider';
@@ -16,19 +17,6 @@ import { useT } from '~/lib/i18n/I18nProvider';
 export function GoldenHourLine({ facilityId, enabled = true }: { facilityId: string; enabled?: boolean }) {
   if (!enabled) return null;
   return <GoldenHourBadge facilityId={facilityId} />;
-}
-
-// 예측 모델이 학습돼 있는지 — 세션당 한 번(웹 lib/predictModel.ts). 미학습이면 /predict/day 는 늘 503 이라 묻지 않는다.
-let trainedPromise: Promise<boolean> | null = null;
-function isPredictModelTrained(): Promise<boolean> {
-  trainedPromise ??= apiClient
-    .get('/predict/model-info', { timeoutMs: 4000 })
-    .then((res) => (res as { trained?: unknown } | null)?.trained === true)
-    .catch(() => {
-      trainedPromise = null; // 못 물었으면 다음에 다시 묻는다
-      return false;
-    });
-  return trainedPromise;
 }
 
 interface DayPrediction {

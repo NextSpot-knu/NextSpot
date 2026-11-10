@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 
 import {
   decideLocationAccess,
-  locationBannerTarget,
   mayReadPosition,
   type PermissionLike,
 } from './locationAccess';
@@ -29,10 +28,5 @@ assert.equal(decideLocationAccess(true, null), 'denied');
 
 assert.equal(mayReadPosition('granted'), true);
 for (const a of ['no-consent', 'needs-primer', 'denied'] as const) assert.equal(mayReadPosition(a), false);
-
-// 배너: 동의 없음 → 동의 화면, 그 밖 → 설정 앱.
-assert.equal(locationBannerTarget('no-consent'), 'consent');
-assert.equal(locationBannerTarget('denied'), 'settings');
-assert.equal(locationBannerTarget('granted'), 'settings');
 
 console.log('locationAccess.test OK');

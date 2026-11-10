@@ -4,7 +4,6 @@ import {
   buildExcludeIds,
   cuisineIntentOf,
   homeFilterSeed,
-  homeRequestContext,
   parseRejectedIds,
   relaxWalkLimit,
   serializeRejectedIds,
@@ -20,7 +19,7 @@ assert.deepEqual(
   { category: 'attraction', accessible: false, stroller: true, indoor: true },
 );
 
-// 요청 조건 — 저장값(도보·여행 시간·음식·방문 제외)은 그대로, 조건은 칩 상태로, categories 는 비운다
+// 저장된 조건(도보·여행 시간·음식·방문 제외)
 const stored: TravelContext = {
   categories: ['cafe'],
   cuisine: '양식',
@@ -30,16 +29,9 @@ const stored: TravelContext = {
   excludeVisited: true,
   visitedFacilityIds: [],
 };
-const ctx = homeRequestContext(stored, { accessible: false, stroller: true, indoor: true });
-assert.deepEqual(ctx.categories, []);
-assert.deepEqual(ctx.requiredAttributes, ['stroller', 'indoor'], '칩에서 끈 조건은 보내지 않는다');
-assert.equal(ctx.maxWalkMinutes, 10);
-assert.equal(ctx.availableMinutes, 60);
-assert.equal(ctx.cuisine, '양식');
-assert.equal(ctx.excludeVisited, true);
 
 // 도보 제한 넓히기 — 키를 뺀다(서버에 null 로 가지 않게), 고르지 않았으면 null
-const relaxed = relaxWalkLimit(ctx);
+const relaxed = relaxWalkLimit(stored);
 assert.ok(relaxed);
 assert.equal('maxWalkMinutes' in relaxed, false);
 assert.equal(relaxed.availableMinutes, 60);

@@ -1147,7 +1147,7 @@ export function HomeScreen() {
   // ✨ 테마가 켜져 있으면 테마 기준 명소가 이름을 대신한다(웹 anchorContextFor — 거리는 두 좌표 사이).
   const compareAnchor = useMemo(() => (activeDiscovery
     ? discoveryCompareAnchor(activeDiscovery, selectedCandidate, facilities, { estimateById, timeShifted: strip.timeShifted })
-    : compareAnchorFor(selectedCandidate, facilities, estimateById)),
+    : compareAnchorFor(selectedCandidate, facilities, estimateById, new Date(), strip.timeShifted)),
   [activeDiscovery, selectedCandidate, facilities, estimateById, strip.timeShifted]);
   const comparisons = useMemo(() => spotComparisonsById(visibleRecs), [visibleRecs]);
   const comparison = comparisonFor(comparisons, selectedCandidate, visibleRecs);

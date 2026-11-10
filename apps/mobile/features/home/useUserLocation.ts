@@ -1,18 +1,17 @@
 // 내 위치 — 앱을 쓰는 동안(foreground)만. 계획 §6.2 의 흐름:
 //   ② 홈에 처음 들어오면 안내(버튼 하나 '계속') → 그 버튼이 시스템 창(requestForegroundPermissionsAsync)을 연다.
-//   ③ 거부하면 황리단길 중심 + 닫을 수 있는 배너(누르면 설정 앱).
-//   ④ 대략적 위치(정확도 > 1km)면 황리단길 중심 + 안내. ⑤ 경주 밖이면 중심 + 한 번 안내.
+//   ③ 거부하면 황리단길 중심 + 홈 알약(map.locationFallback). 다시 켜기는 마이>설정(D3 ① — 배너·'내 위치' 버튼 없음).
+//   ④ 대략적 위치(정확도 > 1km)면 황리단길 중심 + 같은 알약. ⑤ 경주 밖이면 중심 + 한 번 안내.
 //   ⑥ 위치는 홈을 열 때 한 번 읽는다(계속 추적하지 않는다). 앱이 다시 앞으로 올 때 다시 볼지는 locationPolicy 가 정한다 —
 //      안드로이드 '위치 정확도' 창이 닫힐 때마다 다시 읽어 창이 끝없이 뜨던 고리를 막는다. 최근 위치가 있으면 그것을 먼저 쓴다.
 //   ① 위치정보 이용 동의(features/auth/consent)가 없으면 OS 권한을 보지도 묻지도 않는다 — 거부와 똑같이 황리단길 중심,
-//      사전 안내 없음. 배너는 설정 앱 대신 동의 화면을 연다. 설정에서 동의를 바꾸면 구독으로 바로 따라간다.
+//      사전 안내 없음. 설정에서 동의를 바꾸면 구독으로 바로 따라간다.
 // 웹 원본(0d145a1): apps/web/app/main/page.tsx 의 navigator.geolocation 블록. 판정은 homeModel.resolveUserLocation.
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter, type Href } from 'expo-router';
-import { AppState, Linking, Platform } from 'react-native';
+import { AppState } from 'react-native';
 
-import { decideLocationAccess, LOCATION_CONSENT_ROUTE, mayReadPosition } from '~/features/auth/locationAccess';
+import { decideLocationAccess, mayReadPosition } from '~/features/auth/locationAccess';
 import { useLocationConsent } from '~/features/auth/useLocationConsent';
 
 import { REGION } from '@/lib/region';
@@ -21,11 +20,10 @@ import { resolveUserLocation, type LocationNotice, type ResolvedLocation } from 
 import {
   LAST_KNOWN_MAX_AGE_MS,
   LAST_KNOWN_REQUIRED_ACCURACY_M,
-  reuseRecentFix,
   shouldRecheckOnForeground,
 } from './locationPolicy';
 
-/** 'no-consent' — 위치정보 이용 동의가 없다. 화면은 'denied' 와 같이 다루고 배너만 동의 화면을 연다. */
+/** 'no-consent' — 위치정보 이용 동의가 없다. 화면은 'denied' 와 같이 다룬다. */
 export type LocationStatus = 'checking' | 'needs-primer' | 'granted' | 'denied' | 'no-consent';
 
 export interface UserLocationState {
@@ -38,20 +36,11 @@ export interface UserLocationState {
   readFailed: boolean;
   /** 안내 화면의 '계속' — 시스템 권한 창을 연다. */
   continueFromPrimer: () => void;
-  /** 설정 앱으로(거부 배너 · 대략적 위치 배너). */
-  openSettings: () => void;
-  /** 동의 화면으로(동의 없음 배너). */
-  openConsent: () => void;
-  /** 거부 상태에서 OS 가 권한 창을 다시 띄울 수 있는가(안드로이드는 한 번 거부해도 true, '다시 묻지 않음'이면 false). */
-  canAskAgain: boolean;
-  /** 허용 상태에서 사용자가 '내 위치로'를 눌렀다 — 위치를 한 번 다시 읽는다(동의·허용이 아니면 아무것도 하지 않는다). */
-  refresh: () => Promise<ResolvedLocation | null>;
 }
 
 const CENTER: { lat: number; lng: number } = { lat: REGION.center.lat, lng: REGION.center.lng };
 
 export function useUserLocation(): UserLocationState {
-  const router = useRouter();
   const consent = useLocationConsent();
   const consentRef = useRef(consent);
   consentRef.current = consent;
@@ -60,11 +49,8 @@ export function useUserLocation(): UserLocationState {
   const [known, setKnown] = useState(false);
   const [notice, setNotice] = useState<LocationNotice>(null);
   const [readFailed, setReadFailed] = useState(false);
-  const [canAskAgain, setCanAskAgain] = useState(true);
   const aliveRef = useRef(true);
   const readingRef = useRef<Promise<ResolvedLocation | null> | null>(null);
-  /** 마지막으로 읽어 반영한 위치와 그 시각 — '내 위치로' 연타 때 다시 읽지 않고 쓴다(locationPolicy.reuseRecentFix). */
-  const lastFixRef = useRef<{ at: number; resolved: ResolvedLocation } | null>(null);
   const lastReadAttemptRef = useRef<number | null>(null);
   // AppState 구독은 한 번만 건다 — 지금 상태는 ref 로 본다.
   const snapshotRef = useRef({ status, notice, readFailed });
@@ -89,7 +75,6 @@ export function useUserLocation(): UserLocationState {
         setKnown(resolved.known);
         setNotice(resolved.notice);
         setReadFailed(false);
-        lastFixRef.current = { at: Date.now(), resolved };
         return resolved;
       } catch {
         if (aliveRef.current) setReadFailed(true);
@@ -103,7 +88,6 @@ export function useUserLocation(): UserLocationState {
   }, []);
 
   const toCenter = useCallback((next: 'denied' | 'no-consent') => {
-    lastFixRef.current = null;
     setStatus(next);
     setLocation(CENTER);
     setKnown(false);
@@ -113,7 +97,6 @@ export function useUserLocation(): UserLocationState {
 
   const applyPermission = useCallback(async (permission: Location.LocationPermissionResponse | null) => {
     if (!aliveRef.current) return;
-    setCanAskAgain(permission?.canAskAgain ?? true);
     // 동의는 권한 창이 떠 있는 동안 바뀔 수도 있으니 결과를 받은 뒤 다시 본다.
     const access = decideLocationAccess(consentRef.current, permission);
     if (mayReadPosition(access)) {
@@ -146,8 +129,6 @@ export function useUserLocation(): UserLocationState {
     // 다시 본다. 허용 상태에서 돌아올 때마다 읽으면 안드로이드 정확도 창이 닫힐 때마다 다시 떠 끝없이 돈다.
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
-      // 설정 앱에서 정확한 위치를 끄고 왔을 수 있다 — '내 위치로'가 예전 정확한 위치를 다시 쓰지 않게 잊는다.
-      lastFixRef.current = null;
       const snap = snapshotRef.current;
       if (shouldRecheckOnForeground({ ...snap, lastReadAttemptAt: lastReadAttemptRef.current, now: Date.now() })) void check();
     });
@@ -182,26 +163,5 @@ export function useUserLocation(): UserLocationState {
     })();
   }, [applyPermission, toCenter]);
 
-  const refresh = useCallback(async () => {
-    if (!consentRef.current || snapshotRef.current.status !== 'granted') return null;
-    const last = lastFixRef.current;
-    if (last && reuseRecentFix(last.at, Date.now())) return last.resolved;
-    return readPosition();
-  }, [readPosition]);
-
-  const openSettings = useCallback(() => {
-    // 웹에는 설정 앱이 없다(react-native-web Linking 에 openSettings 가 없어 누르면 예외) — 브라우저 권한을 다시 묻는다.
-    // 사이트 설정에서 막아 뒀으면 브라우저가 바로 거부를 돌려주고 화면은 그대로다.
-    if (Platform.OS === 'web') {
-      continueFromPrimer();
-      return;
-    }
-    void Linking.openSettings().catch(() => undefined);
-  }, [continueFromPrimer]);
-
-  const openConsent = useCallback(() => {
-    router.push(LOCATION_CONSENT_ROUTE as Href);
-  }, [router]);
-
-  return { location, known, status, notice, readFailed, continueFromPrimer, openSettings, openConsent, canAskAgain, refresh };
+  return { location, known, status, notice, readFailed, continueFromPrimer };
 }

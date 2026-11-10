@@ -2,8 +2,8 @@
 // 계획 §6.2 · M20(위치정보법). 홈·대안 추천·코스가 모두 이 판정을 거친다.
 //
 // 순서가 중요하다: **동의가 없으면 OS 권한을 들여다보지도 않는다**. 동의가 없으면 결과는 'no-consent' 이고 화면은
-// '권한 거부'와 똑같이 움직인다(황리단길 중심 · 시스템 창 없음 · 사전 안내 없음). 다른 점은 홈 배너가 설정 앱이 아니라
-// 동의 화면(LOCATION_CONSENT_ROUTE)을 연다는 것뿐이다.
+// '권한 거부'와 똑같이 움직인다(황리단길 중심 · 시스템 창 없음 · 사전 안내 없음). 동의는 마이 설정의 위치정보 동의 줄이
+// 동의 화면(LOCATION_CONSENT_ROUTE)을 열어 바꾼다.
 
 export type LocationAccess =
   /** 위치정보 이용 동의가 없다 — 위치를 읽지도 묻지도 않는다. */
@@ -37,11 +37,6 @@ export function decideLocationAccess(consent: boolean, permission: PermissionLik
 /** 좌표를 읽어도 되는가 — 'granted' 일 때만. */
 export function mayReadPosition(access: LocationAccess): boolean {
   return access === 'granted';
-}
-
-/** 홈 위치 배너가 무엇을 여는가 — 동의 없음이면 동의 화면, 권한 거부·대략적 위치면 설정 앱. */
-export function locationBannerTarget(access: LocationAccess): 'consent' | 'settings' {
-  return access === 'no-consent' ? 'consent' : 'settings';
 }
 
 /** 동의 화면 경로 — 첫 실행이 끝난 뒤에도 동의 단계만 바로 연다(app/intro.tsx 의 step 파라미터). */

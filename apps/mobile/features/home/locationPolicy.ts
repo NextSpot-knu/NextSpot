@@ -50,22 +50,9 @@ export interface MyLocationInput {
   known: boolean;
   notice: LocationNotice;
   readFailed: boolean;
-  /** OS 가 권한 창을 다시 띄울 수 있는가(expo-location canAskAgain). 거부 상태에서만 본다. */
-  canAskAgain: boolean;
 }
 
 /** 내 위치 점은 동의 + OS 허용 + 실제로 읽은 내 위치일 때만 — 지역 중심으로 바꾼 자리에 '내 위치'를 그리지 않는다(D3 d-③). */
 export function showsUserDot(input: Pick<MyLocationInput, 'status' | 'known'>): boolean {
   return input.status === 'granted' && input.known;
-}
-
-/**
- * '내 위치로'를 연달아 눌러도 이 시간 안에 읽은 위치는 다시 읽지 않는다 — 안드로이드는 읽을 때마다 '위치 정확도' 창을
- * 띄울 수 있다(위 READ_COOLDOWN_MS 와 같은 이유, 사용자가 누른 것이라 더 짧게).
- */
-export const RECENTER_REUSE_MS = 30_000;
-
-/** 마지막으로 읽은 위치를 그대로 쓸까(다시 읽지 않을까). 읽은 적 없으면 false. */
-export function reuseRecentFix(lastFixAt: number | null, now: number, maxAgeMs = RECENTER_REUSE_MS): boolean {
-  return withinCooldown(lastFixAt, now, maxAgeMs);
 }

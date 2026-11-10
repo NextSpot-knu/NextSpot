@@ -4,7 +4,7 @@
 // ~2155-2171(by-type 에 [...rejectedIds, ...savedIds] · 0곳이면 relaxWalkLimit 로 한 번 더), 거절 id 세션 보관
 // (sessionStorage nextspot_rejected_ids). apps/web/lib/travelContext.ts 의 CUISINE_INTENT · chipRankingContext · relaxWalkLimit.
 // 웹 lib/travelContext 는 lib/visits(window)를 끌고 와 check:shared 에 걸린다 — 필요한 부분만 다시 썼다(PORTING.md).
-import type { CuisinePreference, PlaceCategory, RequiredAttribute, TravelContext } from '~/lib/core/travelContextTypes';
+import type { CuisinePreference, PlaceCategory, TravelContext } from '~/lib/core/travelContextTypes';
 
 import { CATEGORIES } from './homeModel';
 
@@ -36,21 +36,6 @@ export function homeFilterSeed(stored: TravelContext): HomeFilterSeed {
     stroller: attrs.has('stroller'),
     indoor: attrs.has('indoor'),
   };
-}
-
-/**
- * 서버에 보낼 조건 — 저장된 도보·여행 시간·음식·방문 제외는 그대로, 꼭 맞아야 하는 조건은 지금 칩 상태로(칩은 첫 설정으로
- * 시작하고 사용자가 끌 수 있다). 칩이 이미 유형을 정했으므로 categories 는 비운다(웹 chipRankingContext).
- */
-export function homeRequestContext(
-  stored: TravelContext,
-  chips: { accessible: boolean; stroller: boolean; indoor: boolean },
-): TravelContext {
-  const requiredAttributes: RequiredAttribute[] = [];
-  if (chips.accessible) requiredAttributes.push('accessible');
-  if (chips.stroller) requiredAttributes.push('stroller');
-  if (chips.indoor) requiredAttributes.push('indoor');
-  return { ...stored, categories: [], requiredAttributes };
 }
 
 /** 도보 제한이 0곳을 만들었을 때 한 번만 넓혀 볼 조건. 도보 제한을 고르지 않았으면 null(웹 relaxWalkLimit). */

@@ -72,19 +72,21 @@ export function buildSelectedCandidate(
  * 비교 헤더의 기준 명소('A 대신 B', G3-13) — 웹 anchorContextFor(page.tsx 2624-2655)의 테마 없는 경우.
  * 이름 = 관광 근거의 referenceName, 등급 = 그 명소 시설 자신의 '지금' 혼잡(anchorNowLevel — 카드가 후보를 칠하는 규칙과 같다,
  * 추정은 피드 최신값 우선), 거리 = 서버가 준 관광 근거 거리. 이름이 없으면 null(카드는 혜택 문장으로).
- * ✨ 경주 테마(F2)가 켜지면 테마 대표 명소가 이름을 대신한다 — 그때 이 함수에 인자를 더한다.
+ * 가정 시각(+N·프리셋, timeShifted)이면 '지금' 등급은 그 시각의 값이 아니라 쓰지 않는다(웹 assumedPreset === 'now' && cardHours === 0).
+ * ✨ 경주 테마(F2)가 켜지면 discovery/discoveryModel 의 discoveryCompareAnchor 가 대신한다.
  */
 export function compareAnchorFor(
   candidate: SheetCandidate | null,
   facilities: readonly HomeFacility[],
   estimateById: EstimateById = {},
   now: Date = new Date(),
+  timeShifted = false,
 ): CompareAnchor | null {
   const tourism = candidate?.breakdown?.areaDemandTourismEvidence;
   const name = tourism?.referenceName ?? null;
   if (!name) return null;
   const anchor = facilities.find((f) => f.name === name);
-  const level = anchor
+  const level = anchor && !timeShifted
     ? anchorNowLevel(
         {
           congestionLevel: anchor.congestionLevel,

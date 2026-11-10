@@ -1648,8 +1648,6 @@
       "emailRequired": "이메일을 입력해 주세요."
     },
     "consent": {
-      "title": "위치정보 이용 동의",
-      "lead": "NextSpot은 지금 있는 곳 근처에서 덜 붐비는 곳을 추천하려고 위치정보를 이용해요. 아래 내용을 읽고 동의 여부를 골라 주세요.",
       "purposeTitle": "이용 목적",
       "purposeBody": "지금 있는 곳 근처의 한산한 장소 추천, 걸어서 가는 시간 계산, 경주 안에 있는지 확인에 써요.",
       "whenTitle": "이용 시점",
@@ -1659,51 +1657,27 @@
       "declineTitle": "동의하지 않으면",
       "declineBody": "위치를 쓰지 않고 황리단길 중심으로 추천해요. 나중에 마이페이지 설정에서 바꿀 수 있어요.",
       "ageConfirm": "만 14세 이상이에요",
-      "ageHint": "만 14세 미만은 법정대리인의 동의가 필요해 앱에서 위치정보 이용 동의를 받을 수 없어요. '동의 안 함'을 눌러 주세요.",
-      "agree": "동의",
-      "decline": "동의 안 함",
       "saveFailed": "선택을 저장하지 못했어요. 위치 없이 계속해요."
     },
     "intro": {
-      "languageLabel": "언어",
       "faq1Q": "가입해야 쓸 수 있나요?",
       "faq1A": "아니요. 로그인 없이 바로 쓸 수 있어요. 가입하면 다른 기기에서도 저장한 곳과 취향이 이어져요."
     },
     "course": {
-      "emptyBody": "종류를 하나 더 고르거나 도보 시간·여행 시간을 넓히면 바로 코스를 만들어 드려요.",
-      "slotLateNight": "늦은 시간이라 영업 확인이 어려워요. 낮 시간대에 다시 찾으면 식당·카페 선택지가 넓어져요.",
       "reorderHint": "길게 눌러 끌면 순서를 바꿀 수 있어요",
       "moveEarlier": "{type} 앞으로 옮기기",
       "moveLater": "{type} 뒤로 옮기기"
     },
     "home": {
-      "searchLocalTitle": "NextSpot 장소 검색 결과",
       "locationPrimer": {
         "title": "내 주변에서 덜 붐비는 곳을 찾을게요",
         "body": "위치를 허용하면 지금 있는 곳에서 걸어갈 수 있는 한산한 장소를 먼저 보여 드려요. 허용하지 않아도 황리단길 중심으로 추천해요.",
         "continue": "계속"
       },
-      "locationBanner": {
-        "enable": "내 주변 추천 켜기",
-        "coarse": "정확한 위치를 켜면 더 가까운 곳을 찾아요"
-      },
-      "festivalAreaLabel": "🏮 {title} 일원",
-      "myLocation": {
-        "recenter": "내 위치로 이동",
-        "blockedTitle": "위치 사용이 꺼져 있어요",
-        "blockedBody": "내 주변의 덜 붐비는 곳을 추천받으려면 설정 앱에서 NextSpot 위치 권한을 '앱 사용 중에만 허용'으로 바꿔 주세요.",
-        "blockedBodyIos": "내 주변의 덜 붐비는 곳을 추천받으려면 설정 앱에서 NextSpot 위치 접근을 '앱을 사용하는 동안'으로 바꿔 주세요.",
-        "coarseTitle": "정확한 위치가 꺼져 있어요",
-        "openSettings": "설정 열기"
-      },
-      "tripCard": {
-        "expand": "여정 카드 펼치기",
-        "collapse": "여정 카드 접기"
-      }
+      "festivalAreaLabel": "🏮 {title} 일원"
     },
     "mypage": {
       "openOnWeb": "웹에서 열기",
-      "privacyWebLink": "웹에서 전체 안내 보기",
       "deleteDataTitle": "내 데이터 삭제",
       "deleteDataDesc": "저장 장소와 추천·방문 기록을 서버에서도 영구 삭제하고, 이 기기의 데이터도 지워요.",
       "deleteData": "내 데이터 영구 삭제",
@@ -1714,13 +1688,6 @@
       "deleteDataFailed": "삭제하지 못했어요. 잠시 후 다시 시도해 주세요"
     },
     "cardSheet": {
-      "handle": "추천 카드 높이 조절",
-      "state": {
-        "minimized": "미리보기",
-        "normal": "기본",
-        "expanded": "펼침"
-      },
-      "emptyTitle": "지금은 추천할 곳이 없어요",
       "photoMenu": "사진 메뉴",
       "photoReport": "사진 신고",
       "photoReportTitle": "이 사진을 신고할까요?",
