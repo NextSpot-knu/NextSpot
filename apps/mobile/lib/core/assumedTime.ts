@@ -75,32 +75,54 @@ function storage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
   }
 }
 
+/** 읽은 값 캐시 — useSyncExternalStore 가 렌더마다 부르는 getSnapshot 이 저장소를 매번 읽지 않게. 쓰기·첫 구독 때 비운다. */
+let cache: string | null = null;
+/** 마지막 저장이 실패했는가 — 그러면 저장소에 남은 옛 값보다 이번 실행의 메모리 값이 맞다. */
+let writeFailed = false;
+
+/** 캐시를 비운다(첫 구독 때·테스트). 다음 읽기가 저장소를 다시 본다. */
+export function invalidateAssumedPresetCache(): void {
+  cache = null;
+}
+
 /** 지금 저장된 프리셋 id. 없거나 모르는 값이면 'now'. */
 export function getStoredAssumedPreset(): string {
-  try {
-    const v = storage()?.getItem(ASSUMED_TIME_STORAGE_KEY);
-    if (isAssumedPresetId(v)) return v;
-    if (v == null && isAssumedPresetId(memoryPreset)) return memoryPreset;
-  } catch {
-    if (isAssumedPresetId(memoryPreset)) return memoryPreset;
+  if (cache !== null) return cache;
+  let result = 'now';
+  if (writeFailed && isAssumedPresetId(memoryPreset)) {
+    result = memoryPreset;
+  } else {
+    try {
+      const v = storage()?.getItem(ASSUMED_TIME_STORAGE_KEY);
+      if (isAssumedPresetId(v)) result = v;
+      else if (v == null && isAssumedPresetId(memoryPreset)) result = memoryPreset;
+    } catch {
+      if (isAssumedPresetId(memoryPreset)) result = memoryPreset;
+    }
   }
-  return 'now';
+  cache = result;
+  return result;
 }
 
 /** 저장하고 같은 앱의 구독자에게 알린다. 모르는 id 는 'now' 로. */
 export function setStoredAssumedPreset(id: string): void {
   const valid = isAssumedPresetId(id) ? id : 'now';
   memoryPreset = valid;
+  cache = valid;
   try {
-    storage()?.setItem(ASSUMED_TIME_STORAGE_KEY, valid);
+    const s = storage();
+    if (s) s.setItem(ASSUMED_TIME_STORAGE_KEY, valid);
+    writeFailed = !s;
   } catch {
     /* 저장소 차단 — 이번 실행 동안만 바뀐다 */
+    writeFailed = true;
   }
   for (const l of Array.from(listeners)) l();
 }
 
 /** 값이 바뀔 때 부른다. 돌려주는 함수로 해제. */
 export function subscribeAssumedPreset(listener: Listener): () => void {
+  if (listeners.size === 0) cache = null; // 구독 사이에 저장소가 바뀌었을 수 있다
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

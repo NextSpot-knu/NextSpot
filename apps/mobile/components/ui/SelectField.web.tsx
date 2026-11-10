@@ -21,14 +21,12 @@ export function SelectField<T extends string = string>({
 }: SelectFieldProps<T>) {
   const [focused, setFocused] = useState(false);
   return (
-    <View style={{ position: 'relative', alignSelf: variant === 'field' ? 'stretch' : 'flex-start' }}>
+    <View className={className} style={[{ position: 'relative', alignSelf: variant === 'field' ? 'stretch' : 'flex-start' }, style]}>
       <SelectBox
         variant={variant}
         leading={leading}
         label={label}
         valueLabel={labelOf(options, value)}
-        className={className}
-        style={style}
         focused={focused}
       />
       <select
@@ -36,7 +34,7 @@ export function SelectField<T extends string = string>({
         aria-label={accessibilityLabel}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        onFocus={() => setFocused(true)}
+        onFocus={(e) => setFocused(e.currentTarget.matches(':focus-visible'))}
         onBlur={() => setFocused(false)}
         style={{
           position: 'absolute',

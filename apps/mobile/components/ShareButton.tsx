@@ -42,7 +42,13 @@ export function ShareButton({ onShare, url, floating = false, className }: Share
     if (busy.current) return;
     busy.current = true;
     try {
-      const reaction = reactionFor(await onShare());
+      let outcome: ShareOutcome;
+      try {
+        outcome = await onShare();
+      } catch {
+        outcome = 'failed'; // 거부된 공유도 말한다(무음 폴백 금지)
+      }
+      const reaction = reactionFor(outcome);
       if (reaction.toast === 'copied') toast.success(t('common.linkCopied'));
       if (reaction.toast === 'failed') toast.error(t('common.shareFailed'), { description: url, duration: SHARE_FAILED_TOAST_MS });
       if (reaction.copied && alive.current) {

@@ -10,6 +10,7 @@ import {
   assumedAtIsoForPreset,
   assumedPresetLabelKey,
   getStoredAssumedPreset,
+  invalidateAssumedPresetCache,
   setStoredAssumedPreset,
   subscribeAssumedPreset,
 } from './assumedTime';
@@ -83,21 +84,34 @@ setStoredAssumedPreset('garbage');
 assert.equal(getStoredAssumedPreset(), 'now');
 assert.equal(calls, 2);
 mem.set(ASSUMED_TIME_STORAGE_KEY, 'garbage');
+assert.equal(getStoredAssumedPreset(), 'now', '캐시 덕에 저장소를 다시 읽지 않는다');
+invalidateAssumedPresetCache();
 assert.equal(getStoredAssumedPreset(), 'now');
 off();
 setStoredAssumedPreset('sun_morning');
 assert.equal(calls, 2, '해제한 구독자는 부르지 않는다');
 
-// 8) 저장소가 던져도 이번 실행 동안은 값이 선다
+// 7-1) 캐시: 같은 값을 거듭 읽어도 저장소는 한 번만 본다
+let reads = 0;
 (globalThis as { localStorage?: unknown }).localStorage = {
-  getItem: () => {
-    throw new Error('blocked');
-  },
+  getItem: () => (reads++, 'fri_evening'),
+  setItem: () => undefined,
+};
+invalidateAssumedPresetCache();
+assert.equal(getStoredAssumedPreset(), 'fri_evening');
+assert.equal(getStoredAssumedPreset(), 'fri_evening');
+assert.equal(reads, 1);
+
+// 8) 저장소가 던져도 이번 실행 동안은 값이 선다(저장소에 옛 값이 남아 있어도 메모리 값이 이긴다)
+(globalThis as { localStorage?: unknown }).localStorage = {
+  getItem: () => 'sat_afternoon',
   setItem: () => {
     throw new Error('blocked');
   },
 };
 setStoredAssumedPreset('fri_evening');
 assert.equal(getStoredAssumedPreset(), 'fri_evening');
+invalidateAssumedPresetCache();
+assert.equal(getStoredAssumedPreset(), 'fri_evening', '캐시를 비워도 쓰기 실패 뒤에는 메모리 값');
 
 console.log('assumedTime ok');

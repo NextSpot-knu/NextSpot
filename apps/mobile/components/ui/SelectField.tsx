@@ -5,9 +5,11 @@ import { useState } from 'react';
 import { Modal, View } from 'react-native';
 import { Check } from 'lucide-react-native';
 
+import { GlassToneContext } from './glassContext';
 import { useT } from '~/lib/i18n/I18nProvider';
 import { colors } from '~/lib/theme/tokens';
 
+import { cn } from './cn';
 import { Icon } from './Icon';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
@@ -46,11 +48,13 @@ export function SelectField<T extends string = string>({
         accessibilityState={{ expanded: open }}
         hitSlop={variant === 'pill' ? { top: 6, bottom: 6, left: 2, right: 2 } : undefined}
         onPress={() => setOpen(true)}
-        className={variant === 'field' ? 'self-stretch' : 'self-start'}
+        className={cn(variant === 'field' ? 'self-stretch' : 'self-start', className)}
+        style={style}
       >
-        <SelectBox variant={variant} leading={leading} label={label} valueLabel={valueLabel} className={className} style={style} />
+        <SelectBox variant={variant} leading={leading} label={label} valueLabel={valueLabel} />
       </Pressable>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)} statusBarTranslucent>
+        <GlassToneContext.Provider value={null}>
         <View className="flex-1 items-center justify-center px-[24px]">
           <Pressable
             noFeedback
@@ -61,6 +65,7 @@ export function SelectField<T extends string = string>({
           />
           <View
             accessibilityViewIsModal
+            onAccessibilityEscape={() => setOpen(false)}
             accessibilityRole="radiogroup"
             accessibilityLabel={accessibilityLabel}
             className="w-full max-w-[320px] overflow-hidden rounded-2xl bg-white py-[8px]"
@@ -88,6 +93,7 @@ export function SelectField<T extends string = string>({
             })}
           </View>
         </View>
+        </GlassToneContext.Provider>
       </Modal>
     </>
   );

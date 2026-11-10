@@ -60,7 +60,10 @@ const BOX_SHADOW: Record<SelectVariant, string | undefined> = {
 
 /** 닫힌 상자 — 눌림·열기는 부르는 쪽이 감싼다. 읽기 화면에는 감싼 쪽의 라벨·값이 말한다. */
 export function SelectBox({ variant, leading, label, valueLabel, className, style, focused, children }: BoxProps) {
-  const boxShadow = focused ? '0px 0px 0px 2px rgba(193, 154, 62, 0.6)' : BOX_SHADOW[variant];
+  const ring = '0px 0px 0px 2px rgba(193, 154, 62, 0.6)';
+  const base = BOX_SHADOW[variant];
+  // 초점 링은 원래 그림자에 더한다(바꿔 끼우면 그림자가 사라진다).
+  const boxShadow = focused ? (base ? `${base}, ${ring}` : ring) : base;
   return (
     <View className={cn(BOX_CLASS[variant], className)} style={[boxShadow ? { boxShadow } : null, style]}>
       {leading != null ? (

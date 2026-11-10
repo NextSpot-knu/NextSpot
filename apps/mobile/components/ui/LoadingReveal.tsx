@@ -149,11 +149,6 @@ function NarrationHeader({ variant, regionName }: { variant: LoadingRevealVarian
   const title = t(`loadingReveal.${variant}.title`);
   return (
     <View
-      role="status"
-      aria-live="polite"
-      accessibilityLiveRegion="polite"
-      accessible
-      accessibilityLabel={`${title}. ${line}`}
       className="overflow-hidden rounded-2xl border border-gold/25 bg-white/90 px-[20px] py-[20px]"
       style={{ boxShadow: '0px 8px 30px rgba(43, 35, 32, 0.08)' }}
     >
@@ -183,10 +178,15 @@ function NarrationHeader({ variant, regionName }: { variant: LoadingRevealVarian
           <Text className="text-[11px] uppercase leading-[16.5px] text-gold-deep" weight="bold" style={{ letterSpacing: 0.275 }}>
             NextSpot
           </Text>
-          <Text className="text-sm leading-[19.25px] text-muk" weight="bold">
-            {title}
-          </Text>
-          <NarrationLine step={step} text={line} />
+          {/* 알림은 제목 하나만 — 바뀌는 단계 문장을 라이브 영역에 두면 TalkBack 이 1.2초마다 다시 읽는다 */}
+          <View role="status" aria-live="polite" accessibilityLiveRegion="polite">
+            <Text className="text-sm leading-[19.25px] text-muk" weight="bold">
+              {title}
+            </Text>
+          </View>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <NarrationLine step={step} text={line} />
+          </View>
         </View>
       </View>
       <ProgressBar />
