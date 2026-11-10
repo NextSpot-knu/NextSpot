@@ -63,8 +63,8 @@ export function PlacePhotoFallback({ visual, style }: PlacePhotoFallbackProps) {
             <Stop offset={0.72} stopColor={tile} stopOpacity={0} />
           </LinearGradient>
         </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#${uid}R)" />
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#${uid}L)" />
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${uid}R)`} />
+        <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${uid}L)`} />
       </Svg>
       {/* ① 문장 — 문양 한 점을 오른쪽 아래로 잘라 넣는다. */}
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 100 112" preserveAspectRatio="xMidYMid slice">
