@@ -68,14 +68,24 @@ assert.deepEqual(menusOf({ first_menu: '국밥, 수육', treatMenu: '국밥/순�
 assert.deepEqual(menusOf(null), []);
 assert.equal(menusOf({ firstMenu: 'a,b,c,d,e,f' }).length, 5);
 
-// 사진: https 로, Wikimedia·경주시 사진은 출처 줄이 없어 뺀다, 중복 제거
+// 사진 후보(G5a-16): 원문 주소 그대로, 대표 → 갤러리 순, 중복 제거. Wikimedia·경주시도 담는다(출처 짝 판정은 creditedPhotoUrls)
 assert.deepEqual(
   photoUrlsOf({
     imageUrl: 'http://tong.visitkorea.or.kr/a.jpg',
-    galleryImages: ['https://tong.visitkorea.or.kr/a.jpg', 'https://upload.wikimedia.org/x.jpg', 'https://www.gyeongju.go.kr/y.jpg', 'https://cdn.example.com/z.jpg'],
+    galleryImages: ['http://tong.visitkorea.or.kr/a.jpg', 'https://upload.wikimedia.org/x.jpg', 'https://www.gyeongju.go.kr/y.jpg', 'https://cdn.example.com/z.jpg'],
   }),
-  ['https://tong.visitkorea.or.kr/a.jpg', 'https://cdn.example.com/z.jpg'],
+  ['http://tong.visitkorea.or.kr/a.jpg', 'https://upload.wikimedia.org/x.jpg', 'https://www.gyeongju.go.kr/y.jpg', 'https://cdn.example.com/z.jpg'],
 );
+// 출처 데이터가 행에 실린다
+{
+  const credited = buildSector(
+    'attraction',
+    [rec({ id: 'w', features: { imageSource: { sourceUrl: 'https://commons.wikimedia.org/x', artist: 'Jane' }, cityPhoto: null } } as never, 3)],
+    'ko',
+  )!.rows[0];
+  assert.equal((credited.imageSource as { artist?: string } | null)?.artist, 'Jane');
+  assert.equal(credited.cityPhoto, null);
+}
 assert.deepEqual(photoUrlsOf({ imageUrl: null, galleryImages: null }), []);
 
 // 휴무 확정만 closedToday (restDateRaw 가 없으면 false)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { forecastArrivalTimes, levelFromForecast, usableCurve } from './areaCurve';
+import { curveForBase, forecastArrivalTimes, levelFromForecast, mergeAreaCurve, usableCurve } from './areaCurve';
 import { BOARD_CACHE_MAX_AGE_MS, parseBoardCache } from './boardCache';
 
 const HOUR = 3600_000;
@@ -49,7 +49,21 @@ assert.deepEqual(parseBoardCache(good, now)?.sectors, sectors);
 assert.equal(parseBoardCache(JSON.stringify({ sectors, savedAt: now - BOARD_CACHE_MAX_AGE_MS - 1 }), now), null);
 assert.equal(parseBoardCache(JSON.stringify({ sectors: [], savedAt: now }), now), null);
 assert.equal(parseBoardCache(JSON.stringify({ sectors, savedAt: now, preset: 'sat-14' }), now), null);
+// 프리셋이 같을 때만 쓴다(웹과 같다)
+assert.deepEqual(parseBoardCache(JSON.stringify({ sectors, savedAt: now, preset: 'sat_afternoon' }), now, 'sat_afternoon')?.sectors, sectors);
+assert.equal(parseBoardCache(good, now, 'sat_afternoon'), null);
 assert.equal(parseBoardCache('{broken', now), null);
+
+// 기준 시각별 곡선
+assert.equal(curveForBase({ now: {} }, 'now'), null);
+assert.deepEqual(curveForBase({ now: { 13: 0.3 } }, 'now'), { 13: 0.3 });
+assert.equal(curveForBase({}, 'now'), null);
+{
+  const prev = { now: { 13: 0.3 } };
+  assert.equal(mergeAreaCurve(prev, 'now', {}), prev); // 빈 재조회는 좋은 곡선을 지우지 않는다
+  assert.deepEqual(mergeAreaCurve(prev, '5', {}), { now: { 13: 0.3 }, '5': {} }); // 처음부터 빈 결과는 기록
+  assert.deepEqual(mergeAreaCurve(prev, 'now', { 14: 0.5 }), { now: { 14: 0.5 } });
+}
 assert.equal(parseBoardCache(null, now), null);
 
 console.log('areaCurve.test.ts ok');

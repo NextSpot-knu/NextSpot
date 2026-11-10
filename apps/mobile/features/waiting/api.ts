@@ -27,9 +27,14 @@ async function fetchPoint(arrival: ForecastArrival, signal?: AbortSignal): Promi
  * 지금부터 앞으로 6시간의 정시 권역 수요. 첫 정시 하나를 먼저 기다려(서버 캐시를 데운다) 전망이 오면 나머지를 최대 3개
  * 동시로, 아니면 하나씩 묻는다(웹과 같은 호출 순서). 실패한 시각은 비워 둔다.
  */
-export async function fetchAreaDemandCurve(signal?: AbortSignal, nowMs: number = Date.now()): Promise<AreaDemandCurve> {
+export async function fetchAreaDemandCurve(
+  signal?: AbortSignal,
+  nowMs: number = Date.now(),
+  /** 가정 시각 프리셋의 절대 시각(D11). 없으면 지금. 서버 창은 늘 실제 지금(nowMs) 기준이라 먼 프리셋은 0점이 정상이다. */
+  baseAt: Date = new Date(nowMs),
+): Promise<AreaDemandCurve> {
   const curve: AreaDemandCurve = {};
-  const points = forecastArrivalTimes(new Date(nowMs), nowMs);
+  const points = forecastArrivalTimes(baseAt, nowMs);
   if (points.length === 0 || signal?.aborted) return curve;
   const one = async (p: ForecastArrival): Promise<boolean> => {
     try {

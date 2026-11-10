@@ -5,7 +5,7 @@
 // lib/photoCredit.ts 의 photoCandidates·merchantPhotoUrl. 웹 모듈은 api-client(window·CustomEvent)·process.env 를
 // 끌고 와 check:shared 에 걸려 다시 썼다(PORTING.md).
 import type { RecommendationResponse } from '~/lib/core/apiClient';
-import { toHttpsImageUrls } from '~/lib/platform/images';
+import { merchantPhotoUrl, photoCandidates, photoCreditFeatures } from '~/features/explore/port/photoCredit';
 import { isClosedToday } from '@/lib/restDate';
 
 export type BoardType = 'restaurant' | 'cafe' | 'attraction' | 'culture';
@@ -51,6 +51,9 @@ export interface BoardRow {
   latitude?: number | null;
   longitude?: number | null;
   imageUrls: string[];
+  /** 출처 판정용 features 조각(옛 캐시 행에는 없다) — Wikimedia 출처 · 경주시 사진 출처. */
+  imageSource?: Record<string, unknown> | null;
+  cityPhoto?: Record<string, unknown> | null;
   summary: string | null;
   /** 실측·예측으로 인정된 혼잡(0~1). 추정은 여기 넣지 않는다. */
   congestionLevel: number | null;
@@ -164,24 +167,19 @@ export function menusOf(features: Record<string, unknown> | null | undefined): s
 }
 
 /**
- * 사진 후보. Wikimedia·경주시 사진은 작가·라이선스 출처 줄을 같이 붙여야 해서(웹 photoCredit) 앱 v1 의 보드 카드에는
- * 올리지 않는다 — TourAPI 사진(+사장님 사진은 앱에 공개 버킷 주소가 없어 제외)만. 모두 https 로 맞춘다.
+ * 사진 후보(G5a-16) — 웹과 같다: 사장님 사진(있으면 맨 앞) → 대표 사진 → 갤러리, 중복·빈 값 제외.
+ * Wikimedia·경주시 사진도 그대로 담는다 — 출처 짝이 맞는 것만 고르는 일은 creditedPhotoUrls 가 한다(출처 줄과 함께 그린다).
+ * 주소는 원문 그대로 둔다(출처 판정이 city_photo.url 과 글자 그대로 짝을 짓는다). https 변환은 그릴 때 한다.
  */
-export function photoUrlsOf(rec: Pick<RecommendationResponse['facility'], 'imageUrl' | 'galleryImages'>): string[] {
-  const gallery = Array.isArray(rec.galleryImages) ? rec.galleryImages : [];
-  return toHttpsImageUrls([rec.imageUrl, ...gallery]).filter((url) => !needsCredit(url));
-}
-
-function needsCredit(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      host === 'wikimedia.org' || host.endsWith('.wikimedia.org') ||
-      host === 'gyeongju.go.kr' || host.endsWith('.gyeongju.go.kr')
-    );
-  } catch {
-    return true;
-  }
+export function photoUrlsOf(
+  facility: Pick<RecommendationResponse['facility'], 'imageUrl' | 'galleryImages'> & { features?: Record<string, unknown> | null },
+): string[] {
+  return Array.from(
+    new Set([
+      ...[merchantPhotoUrl(facility.features)].filter((url): url is string => !!url),
+      ...photoCandidates(facility.imageUrl, facility.galleryImages),
+    ]),
+  );
 }
 
 export function rowFromRecommendation(rec: RecommendationResponse, locale: string): BoardRow {
@@ -198,6 +196,7 @@ export function rowFromRecommendation(rec: RecommendationResponse, locale: strin
     latitude: finiteNumber(rec.facility.latitude),
     longitude: finiteNumber(rec.facility.longitude),
     imageUrls: photoUrlsOf(rec.facility),
+    ...photoCreditFeatures(features),
     summary: overviewOf(rec, locale),
     congestionLevel: boardMeasuredLevel(rec),
     areaDemandLevel: finiteNumber(b.areaDemandLevel),

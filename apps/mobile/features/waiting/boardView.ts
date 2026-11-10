@@ -1,5 +1,6 @@
 // 보드 전체를 보고 정하는 것 — 히어로 최단 대기 · 한 등급 접기(I03) · 섹터 줄 세우기. 웹 waiting/page.tsx 의 본문 계산을
 // React 없이 옮긴 순수 함수(테스트: boardView.test.ts). 앱 v1 은 경주만이라 boardCrowdView 의 isPublic 은 늘 true.
+import { creditedPhotoUrls } from '~/features/explore/port/photoCredit';
 import { boardCrowdView, orderByWaitThenPhoto, waitHeadlineKey, type BoardCrowdView } from '@/lib/boardOrder';
 import { calmAfterClose, heroWaitCandidate, showsCalmLine, type WaitEstimate } from '@/lib/waitEstimate';
 
@@ -7,6 +8,11 @@ import { TOP_CARD_COUNT, type BoardRow, type Sector } from './boardData';
 import { PLAIN_DISPLAY, headlineOf, type CardDisplay } from './presentation';
 
 export type WaitOf = (row: BoardRow) => WaitEstimate;
+
+/** 대기 보드 행의 출처 판정용 features — creditedPhotoUrls 가 camel 두 키(imageSource·cityPhoto)를 읽는다. */
+export function rowPhotoFeatures(row: Pick<BoardRow, 'imageSource' | 'cityPhoto'>): Record<string, unknown> {
+  return { imageSource: row.imageSource ?? null, cityPhoto: row.cityPhoto ?? null };
+}
 
 export interface BoardView {
   bestWait: { minutes: number; estimated: boolean } | null;
@@ -82,7 +88,8 @@ export function splitSector(
       return {
         wait,
         headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId], busyAt)),
-        hasPhoto: row.imageUrls.length > 0,
+        // 출처 짝이 맞는 사진만 센다(웹 creditedPhotoUrls) — 출처 없는 Wikimedia·경주시 사진은 띄우지 않으니 '사진 있음'이 아니다.
+        hasPhoto: creditedPhotoUrls(row.imageUrls, rowPhotoFeatures(row)).length > 0,
       };
     },
   );

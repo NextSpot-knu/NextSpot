@@ -48,6 +48,26 @@ export function levelFromForecast(data: { available?: boolean; forecast?: { leve
     : null;
 }
 
+/** 기준 시각 키('now' 또는 프리셋 시각 ms)로 곡선을 꺼낸다 — 비었거나 없으면 null(내장 곡선). 웹 curveForBase. */
+export function curveForBase(curves: Record<string, AreaDemandCurve>, baseKey: string): AreaDemandCurve | null {
+  const curve = Object.prototype.hasOwnProperty.call(curves, baseKey) ? curves[baseKey] : undefined;
+  return curve && Object.keys(curve).length > 0 ? curve : null;
+}
+
+/**
+ * 새로 받은 곡선을 기준 시각별 맵에 넣는다(웹 mergeAreaCurve). 바뀔 것이 없으면 prev 를 그대로 돌려준다.
+ * 빈 재조회는 같은 기준의 좋은 곡선을 지우지 않고, 그 기준에 아직 아무것도 없으면 빈 곡선도 넣는다('알고 보니 없음').
+ */
+export function mergeAreaCurve(
+  prev: Record<string, AreaDemandCurve>,
+  baseKey: string,
+  curve: AreaDemandCurve,
+): Record<string, AreaDemandCurve> {
+  const known = Object.prototype.hasOwnProperty.call(prev, baseKey);
+  if (Object.keys(curve).length === 0 && known) return prev;
+  return { ...prev, [baseKey]: curve };
+}
+
 /** 곡선이 비었으면 null — 호출부는 내장 시간대 곡선으로 계속 동작한다. */
 export function usableCurve(curve: AreaDemandCurve | null | undefined): AreaDemandCurve | null {
   return curve && Object.keys(curve).length > 0 ? curve : null;

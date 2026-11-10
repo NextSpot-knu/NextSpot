@@ -5,19 +5,23 @@ import { useCallback, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   FlatList,
+  Platform,
   View,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 
+import { GoldenHourBadge } from '~/components/GoldenHourBadge';
 import { Text } from '~/components/ui';
+import { creditedPhotoUrls, mayShowPhotoCredit } from '~/features/explore/port/photoCredit';
 import { useBusyThreshold } from '~/lib/core/publicSettings';
 import { countKey, useT } from '~/lib/i18n/I18nProvider';
+import { shadows } from '~/lib/theme/tokens';
+import { placeVisualsForRow } from '@/lib/placeVisual';
 
 import { TYPE_EMOJI, type BoardRow, type Sector } from './boardData';
-import { splitSector, type WaitOf } from './boardView';
-import { GoldenHourLabel } from './GoldenHourLabel';
+import { rowPhotoFeatures, splitSector, type WaitOf } from './boardView';
 import type { CardDisplay } from './presentation';
 import { activeIndexFromOffset, positionLabel } from './presentation';
 import { WaitingCard, WaitingRow } from './WaitingCards';
@@ -25,6 +29,7 @@ import { WaitingCard, WaitingRow } from './WaitingCards';
 /** 이 폭(pt) 이상이면 대표 카드를 세 칸 격자로(웹 sm:grid-cols-3 에 해당). */
 export const GRID_MIN_WIDTH = 520;
 const GAP = 8;
+const IS_WEB = Platform.OS === 'web';
 
 export interface SectorBoardProps {
   sector: Sector;
@@ -47,16 +52,20 @@ function SwipeDots({
   label: string;
   onStep: (delta: 1 | -1) => void;
 }) {
+  // 웹은 점 줄이 aria-hidden 이다(G5a-25) — 웹 빌드만 숨기고, 네이티브의 adjustable('음식점, 1 / 3' + 위아래 쓸기)은 남긴다.
+  const a11y = IS_WEB
+    ? ({ accessible: false, 'aria-hidden': true } as const)
+    : ({
+        accessible: true,
+        accessibilityRole: 'adjustable',
+        accessibilityLabel: label,
+        accessibilityValue: { min: 1, max: count, now: active + 1, text: positionLabel(active, count) },
+        accessibilityActions: [{ name: 'increment' }, { name: 'decrement' }],
+        onAccessibilityAction: (e: { nativeEvent: { actionName: string } }) =>
+          onStep(e.nativeEvent.actionName === 'increment' ? 1 : -1),
+      } as const);
   return (
-    <View
-      className="mt-[8px] min-h-[24px] flex-row items-center justify-center gap-[6px]"
-      accessible
-      accessibilityRole="adjustable"
-      accessibilityLabel={label}
-      accessibilityValue={{ min: 1, max: count, now: active + 1, text: positionLabel(active, count) }}
-      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-      onAccessibilityAction={(e) => onStep(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
-    >
+    <View className="mt-[8px] h-[6px] flex-row items-center justify-center gap-[6px]" {...a11y}>
       {Array.from({ length: count }, (_, i) => (
         <View key={i} className={`h-[6px] rounded-full ${i === active ? 'w-[16px] bg-gold' : 'w-[6px] bg-line'}`} />
       ))}
@@ -107,6 +116,13 @@ export function SectorBoard({ sector, waitOf, estimateLevels, displayOf, committ
   );
 
   const sectorName = t(`category.${sector.type}`);
+  // 이 줄 카드 중 하나라도 출처가 붙는 사진(Wikimedia·경주시)을 띄울 수 있으면 출처 자리를 처음부터 잡는다.
+  const rowMayCredit = topRows.some((row) => {
+    const features = rowPhotoFeatures(row);
+    return mayShowPhotoCredit(creditedPhotoUrls(row.imageUrls, features), features);
+  });
+  // 사진 없는 카드의 표지 — 장소마다 정해진 문양이되, 한 줄 안에서는 같은 무늬가 겹치지 않게.
+  const rowVisuals = placeVisualsForRow(topRows.map((row) => ({ id: row.facilityId, type: row.type })));
   const card = (row: BoardRow, idx: number, w?: number) => (
     <WaitingCard
       key={row.facilityId}
@@ -118,11 +134,18 @@ export function SectorBoard({ sector, waitOf, estimateLevels, displayOf, committ
       count={topRows.length}
       onPress={() => onOpen(row)}
       width={w}
+      visual={rowVisuals[idx]}
+      rowMayCredit={rowMayCredit}
     />
   );
+  // 제목 단계: 화면 제목 h1, 섹터 h2(웹 빌드만 — aria-level 은 RN 타입에 없다).
+  const h2 = IS_WEB ? ({ 'aria-level': 2 } as object) : null;
 
   return (
-    <View className="rounded-3xl border border-line/70 bg-white/60 p-[12px]">
+    <View
+      className="rounded-3xl border border-line/70 bg-white/55 p-[12px]"
+      style={{ boxShadow: shadows.card }}
+    >
       <View className="mb-[10px] flex-row items-center gap-[8px]">
         <View
           className="h-[32px] w-[32px] items-center justify-center rounded-xl border border-gold/25 bg-gold/10"
@@ -131,7 +154,7 @@ export function SectorBoard({ sector, waitOf, estimateLevels, displayOf, committ
         >
           <Text className="text-[16px]">{TYPE_EMOJI[sector.type] ?? '📍'}</Text>
         </View>
-        <Text className="flex-1 text-[15px]" weight="bold" accessibilityRole="header">
+        <Text className="flex-1 text-[15px] leading-[18.75px]" weight="bold" accessibilityRole="header" {...h2}>
           {sectorName}
         </Text>
         <View className="rounded-full bg-hanji-deep px-[10px] py-[4px]">
@@ -162,7 +185,9 @@ export function SectorBoard({ sector, waitOf, estimateLevels, displayOf, committ
             onMomentumScrollEnd={(e) =>
               settle(activeIndexFromOffset(e.nativeEvent.contentOffset.x, step, topRows.length))
             }
-            // 카드 안 이모지·글자가 늦게 바뀌어도 줄 높이가 같게 — 가장 긴 카드에 맞춘다(웹 items-stretch).
+            // 웹 빌드는 snapToInterval 이 CSS 스냅이 되지 않는다 — 웹과 같게 x mandatory(G5a-20). 네이티브는 snapToInterval 이 붙인다.
+            style={IS_WEB ? ({ scrollSnapType: 'x mandatory' } as object) : undefined}
+            // 카드 안 글자가 늦게 바뀌어도 줄 높이가 같게 — 가장 긴 카드에 맞춘다(웹 items-stretch).
             contentContainerStyle={{ alignItems: 'stretch' }}
           />
         ) : (
@@ -173,7 +198,12 @@ export function SectorBoard({ sector, waitOf, estimateLevels, displayOf, committ
       </View>
       {carousel ? <SwipeDots count={topRows.length} active={active} label={sectorName} onStep={onStep} /> : null}
 
-      {committed && topRows[0] ? <GoldenHourLabel facilityId={topRows[0].facilityId} className="mt-[8px]" /> : null}
+      {/* 섹터 1위 골든타임 — 카드 밖 한 줄. 배지가 숨어도 위 8px 은 남는다(웹 `<div className="mt-2">`). */}
+      {committed && topRows[0] ? (
+        <View className="mt-[8px]">
+          <GoldenHourBadge facilityId={topRows[0].facilityId} />
+        </View>
+      ) : null}
 
       {restRows.length > 0 ? (
         <View className="mt-[10px] gap-[8px]">
