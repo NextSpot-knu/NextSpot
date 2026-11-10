@@ -32,12 +32,14 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
   `admin/*` B2G 관제 + `merchant/*` 사장님 콘솔 + `dev` 개발자 콘솔. 하위 정본 `apps/web/AGENTS.md`.
 - `apps/api` — FastAPI. 라우터 `app/routers/`, 서비스 `app/services/`(SPOT은 `spot/`, TourAPI는 `tourapi/`,
   적재 스크립트 전용은 `batch/`), 인증·권한 `app/core/authz.py`, 설정 `app/core/config.py`.
+- `apps/twa` — Play 스토어용 Bubblewrap TWA(안드로이드 프로젝트, 패키지 `kr.nextspot.app`)가 운영 웹을 감싼다. 원본은
+  `twa-manifest.json`, 웹 코드는 없다. 서명키는 커밋하지 않는다(`.gitignore`). 절차는 `docs/DEPLOY_AND_ENV.md` §6.
 - `packages/shared-types` — SPOT 상수의 단일 정의점(web이 `transpilePackages`로 TS 소스를 직접 소비).
 - `supabase/migrations/` — 스키마 정본. `scripts/build_reset.mjs`가 `RESET_AND_SETUP.sql`을 생성한다.
 - `scripts/` — 저장소 도구(node). `apps/api/scripts/` — 적재·학습처럼 `app`을 import하는 파이썬 스크립트.
 - `.github/workflows/` — `ci`(게이트) · `ingest`(매일 KST 04:00 TourAPI 적재) ·
   `train-recommendation-model`(매주 월 03:00 KST 후보 학습) · `area-demand-alert`(수집 신선도 경보) · `warmup`(API Keep-Warm) · `deploy-verify`(main 의 API 변경이 운영 `/health` 에 떴는지) ·
-  `collect-area-demand`·`uptime`(수동 복구용).
+  `twa-debug-apk`(`apps/twa` 변경 시 디버그 APK 아티팩트) · `collect-area-demand`·`uptime`(수동 복구용).
 - 배포: web = Vercel(main push 자동, 루트 `vercel.json`이 워크스페이스 빌드 — 대시보드 Root Directory 설정 없음),
   api = Render Blueprint(`render.yaml`, `/health`), DB·Auth·Storage = Supabase, 10분 주차 실측 수집 = Supabase pg_cron.
 

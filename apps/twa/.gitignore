@@ -1,0 +1,20 @@
+# 서명키 — 절대 커밋하지 않는다(릴리스 서명은 Play 앱 서명 + 별도 보관)
+*.keystore
+*.jks
+*.p12
+*.pem
+keystore.properties
+# 빌드 산출물
+*.apk
+*.aab
+*.idsig
+build/
+app/build/
+.gradle/
+.kotlin/
+.cxx/
+# 머신별
+local.properties
+.idea/
+*.iml
+.DS_Store

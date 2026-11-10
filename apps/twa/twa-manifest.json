@@ -1,0 +1,48 @@
+{
+  "packageId": "kr.nextspot.app",
+  "host": "nextspot-nu.vercel.app",
+  "name": "NextSpot",
+  "launcherName": "NextSpot",
+  "display": "standalone",
+  "themeColor": "#FAF5EC",
+  "themeColorDark": "#FAF5EC",
+  "navigationColor": "#FAF5EC",
+  "navigationColorDark": "#FAF5EC",
+  "navigationDividerColor": "#FAF5EC",
+  "navigationDividerColorDark": "#FAF5EC",
+  "backgroundColor": "#FAF5EC",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://nextspot-nu.vercel.app/icon-512.png",
+  "maskableIconUrl": "https://nextspot-nu.vercel.app/icon-maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://nextspot-nu.vercel.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://nextspot-nu.vercel.app/",
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}

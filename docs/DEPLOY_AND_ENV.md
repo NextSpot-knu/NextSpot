@@ -15,6 +15,7 @@
 | 게스트 답 네트워크 키 보관 | Supabase pg_cron `nextspot-network-hash-retention` — 30일 지난 키를 NULL(마이그레이션 `20261031130000`) | 매일 03:37 KST — 사람이 마이그레이션 적용 후 |
 | 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → Supabase PostgREST `area_demand_snapshots` 최신 행(Supabase 시크릿이 없으면 예전처럼 `GET /api/v1/admin/area-demand-reliability`) | 매시 28분 예약 (`main`에서만, GitHub 스케줄러 best-effort — 실측 3~6시간 간격) |
 | TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만). 목록 호출이 일시 오류로 끝나면(exit 75, 상세 조회 전) 새 러너로 최대 2회 자동 재실행. 실패는 실패한 실행(스케줄 실패 메일·실행 Summary)으로 확인 — 다시 돌릴 때는 Re-run 대신 Run workflow(`auto_retry` 비움) |
+| Android 앱(TWA) 디버그 APK | GitHub Actions `twa-debug-apk.yml` — `apps/twa` 에서 `./gradlew assembleDebug`, 아티팩트 14일 보관 | `feat/twa` push(`apps/twa/**`) · Run workflow(파일이 main 에 있을 때) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
 ## 1. Supabase
@@ -137,3 +138,14 @@
 
 - `main` = 프로덕션(위 자동 배포 + cron 발화). 각자 브랜치에서 작업하고 게이트 통과 후 `git push origin <내-브랜치>:main`(fast-forward).
 - 로컬 개발은 [`LOCAL_RUN.md`](./LOCAL_RUN.md).
+
+## 6. Android 앱 — Bubblewrap TWA (`apps/twa`)
+
+Play 스토어 앱은 운영 웹(`https://nextspot-nu.vercel.app`)을 Trusted Web Activity 로 감싼다(2026-11-10 결정 — App Store 는 접었다).
+패키지 `kr.nextspot.app` 은 TWA 몫이고, Expo 앱(`apps/mobile`, `yunseong`)은 `kr.nextspot.expo` 를 쓴다.
+
+- 원본은 `apps/twa/twa-manifest.json`(호스트 · 시작 경로 · 색 `#faf5ec` · 아이콘 URL · 위치 위임 켬 · 알림 위임 끔 · 버전).
+  값을 바꾸면 그 폴더에서 `npx @bubblewrap/cli update` 로 안드로이드 프로젝트를 다시 생성해 함께 커밋한다(버전 올림은 `--appVersionName`).
+- 디버그 APK = Actions `twa-debug-apk` 아티팩트(디버그 키 서명 — Secrets 없음). 로컬은 JDK 17 + Android SDK 로 `./gradlew assembleDebug`.
+- 서명키(`*.keystore` `*.jks`)는 저장소에 넣지 않는다. 릴리스 서명 · AAB · Play 업로드 · `apps/web/public/.well-known/assetlinks.json`
+  (Play 앱 서명 키 SHA-256 지문)은 다음 단계 — assetlinks 가 없으면 앱 위에 주소창이 보이는 게 정상이다.
