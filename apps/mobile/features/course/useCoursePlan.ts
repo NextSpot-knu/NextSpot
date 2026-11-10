@@ -106,6 +106,9 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   const renderedPresetRef = useRef<string | null>(null);
   // 세션 없음 유예를 이미 썼는가 — 한 번 기다린 뒤에도 없으면 안내를 그린다. 성공하면 다시 켠다.
   const graceUsedRef = useRef(false);
+  const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 코스 탭이 보이는가 — 가려진 동안에는 입력·가정 시각이 바뀌어도 백그라운드 재조회를 보내지 않는다(돌아올 때 포커스 재조회 한 번이 맡는다).
+  const focusedRef = useRef(true);
   const inFlightRef = useRef(false);
   const needsAuthRef = useRef(false);
   // 요청이 날아가는 동안 SIGNED_IN 이 왔는가 — 그 요청이 옛 토큰으로 401 을 받으면 needsAuth 에 멈추지 않고 한 번 다시 짠다.
@@ -211,7 +214,9 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
         // 세션이 없다 — 웹처럼 2.5초 기다린 뒤 한 번 더 본다(그 사이 익명 세션이 생기면 그대로 계획이 나온다). 그동안은 로더를 유지한다.
         graceUsedRef.current = true;
         deferred = true;
-        setTimeout(() => {
+        if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = setTimeout(() => {
+          graceTimerRef.current = null;
           if (gen === fetchGenRef.current) void fetchCourseRef.current();
         }, NO_SESSION_GRACE_MS);
         return;
@@ -237,6 +242,14 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   const fetchCourseRef = useRef(fetchCourse);
   fetchCourseRef.current = fetchCourse;
 
+  // 화면이 닫힐 때 유예 타이머를 치운다.
+  useEffect(
+    () => () => {
+      if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+    },
+    [],
+  );
+
   // 로그인이 필요해 멈췄던 화면 — 로그인(SIGNED_IN)되면 스스로 다시 짠다(대기 보드의 자가 회복과 같다).
   useEffect(() => {
     if (!enabled) return;
@@ -252,18 +265,26 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
   // 탭에 돌아올 때마다 — 웹이 탭 이동마다 새로 마운트되며 계획을 다시 받는 것과 같다(D16 b). 같은 조건이면 로더 없이 조용히.
   useFocusEffect(
     useCallback(() => {
-      if (!enabled) return;
+      focusedRef.current = true;
+      if (!enabled) return () => {
+        focusedRef.current = false;
+      };
       const decision = decideCourseFocusRefresh({
         contextKey: JSON.stringify(loadTravelContext()),
         requestedContextKey: requestedContextKeyRef.current,
         inFlight: inFlightRef.current,
       });
       if (decision === 'replan') void fetchCourseRef.current();
+      return () => {
+        focusedRef.current = false;
+      };
     }, [enabled]),
   );
 
   // 재조회 디바운스 — 칩 연타·순서 이동마다 즉시 보내지 않고 마지막 변경 500ms 뒤 한 번. 첫 요청은 지연 없이.
   useEffect(() => {
+    // 가려진 탭은 보내지 않는다 — 대기 탭에서 가정 시각을 바꾸거나 떠날 때 입력을 비워도 POST 가 나가지 않는다(웹은 언마운트라 없다).
+    if (!focusedRef.current && dispatchedRef.current) return undefined;
     const timer = setTimeout(() => {
       void fetchCourse();
     }, dispatchedRef.current ? 500 : 0);
@@ -344,6 +365,7 @@ export function useCoursePlan(coords: CourseCoords, enabled: boolean): CoursePla
     },
     // 비었으면 같은 참조를 돌려줘 상태가 안 바뀐다 → fetchCourse 의 deps 도 그대로 → 탭 전환만으로 POST 가 나가지 않는다.
     resetInputs: () => {
+      userReplanRef.current = false; // 떠나기 직전에 눌렀다면 '코스가 바뀌었어요' 토스트가 다른 탭에서 뜨지 않게
       setSelectedTypes((prev) => (prev.length > 0 ? [] : prev));
       setSequence((prev) => (prev.length > 0 ? [] : prev));
       setPins((prev) => (Object.keys(prev).length > 0 ? {} : prev));

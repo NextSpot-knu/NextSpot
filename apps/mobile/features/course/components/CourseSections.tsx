@@ -176,6 +176,7 @@ export function CourseGantt({ stops, baseMs }: { stops: CourseStop[]; baseMs: nu
               key={i}
               className="absolute top-0 text-[10px] leading-[15px] text-muk-soft/80"
               weight="medium"
+              maxFontSizeMultiplier={1.2}
               style={
                 left !== undefined
                   ? { left, width: TICK_BOX, textAlign: align }
@@ -212,7 +213,7 @@ export function CourseGantt({ stops, baseMs }: { stops: CourseStop[]; baseMs: nu
                 <Text className="min-w-0 flex-1 text-[11px]" weight="bold" numberOfLines={1}>
                   {stop.order}. {typeEmoji(stop.facility.type)} {stop.facility.name}
                 </Text>
-                <Text className="text-[10px] text-muk-soft">{`🕒 ${arrivalText(stop.arrivalOffsetMin, t, baseMs)}`}</Text>
+                <Text className="text-[10px] text-muk-soft" maxFontSizeMultiplier={1.2}>{`🕒 ${arrivalText(stop.arrivalOffsetMin, t, baseMs)}`}</Text>
               </View>
               <View className="h-[28px] overflow-hidden rounded-lg bg-hanji-deep/50">
                 {/* 눈금 세로선(연하게) — 웹 absolute top-0 bottom-0 w-px bg-line/60 */}
