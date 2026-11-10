@@ -54,19 +54,26 @@ export { IconButton, type IconButtonProps } from './IconButton';
 export { Pressable, type PressableProps } from './Pressable';
 export { Screen, type ScreenProps } from './Screen';
 export {
+  MODAL_SHEET_CLOSE_BOX,
   ModalSheet,
+  ModalSheetHost,
   Sheet,
   SheetScrollView,
   useSheetScrollTopLock,
   SHEET_HANDLE_HEIGHT,
   SheetView,
+  type ModalSheetBackdrop,
+  type ModalSheetBackground,
+  type ModalSheetCloseVariant,
+  type ModalSheetPadding,
   type ModalSheetProps,
   type SheetProps,
   type SheetState,
 } from './Sheet';
 export { Skeleton, type SkeletonProps } from './Skeleton';
 export { DEFAULT_MAX_FONT_SCALE, Text, weightFromClassName, type TextProps } from './Text';
-export { AppToaster, toast } from './Toast';
+export { AppToaster, REPORT_TOASTER_ID, reportToast, toast, type AppToasterProps } from './Toast';
+export { confirmDestructive, type ConfirmDestructiveInput } from './confirmToast';
 export { useReduceMotion } from './useReduceMotion';
 export { CreditLine, type CreditLineProps } from './CreditLine';
 export { Glow, GlowPair, type GlowPosition, type GlowProps } from './Glow';
