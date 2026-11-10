@@ -141,4 +141,14 @@ assert.equal(
   'https://place.map.kakao.com/123',
 );
 
+// 가정 시각(+N시간 · 요일 프리셋) — 출발→도착을 그리지 않고, 음식 문장은 foodAtTime, 혼잡 칩은 예측 등급(추정 점선)
+const shifted = buildCardModel(base, ctx({ assumedTimeLabel: '+2시간 후', forecastLevel: 0.9 }));
+assert.equal(shifted.showArrivalLine, false);
+assert.equal(shifted.assumedTimeLabel, '+2시간 후');
+assert.ok(shifted.foodHeadline?.startsWith('compare.foodAtTime'), String(shifted.foodHeadline));
+assert.notEqual(shifted.compareKicker, 'compare.foodKicker');
+assert.equal(shifted.crowdChip?.grade, 'busy');
+assert.equal(shifted.crowdChip?.dashed, true);
+assert.equal(m.assumedTimeLabel, null);
+
 console.log('cardModel.test OK');

@@ -76,6 +76,13 @@ export interface CardContext {
   showCompare?: boolean;
   /** 순위 배지를 목록 순위로 말할지 — 웹 showListRank. 홈 true(기본), 저장 상세 false('AI 추천'). */
   showListRank?: boolean;
+  /**
+   * 가정 시각 라벨(웹 assumedTimeLabel — '+2시간 후' · 요일 프리셋). 있으면 출발→도착을 그리지 않고(지금 시각 기준이라),
+   * 음식 문장은 compare.foodAtTime, 꼬리표는 '이 시간대 추천'.
+   */
+  assumedTimeLabel?: string | null;
+  /** 가정 시각에서 이 장소의 예측 혼잡도(0~1, 웹 forecastLevel) — 있으면 등급·혼잡 칩이 이 값으로 말한다(추정 점선). */
+  forecastLevel?: number | null;
 }
 
 export interface FaceChip {
@@ -108,6 +115,8 @@ export interface CardModel {
   benefitParts: string[];
   /** 미리보기 가치 문장(이름 뺀 것). */
   peekValueText: string;
+  /** 가정 시각 라벨(없으면 null) — 미리보기 '🕒' 표 · 가치 상자 기준 칩. */
+  assumedTimeLabel: string | null;
   /** 미리보기에 가치 문장을 그리는가 — showCompare 일 때만(웹 peekValueShown). */
   peekValueShown: boolean;
   /** 화살표 비교 문장('A 혼잡 → B 여유'). 없으면 null. */
@@ -205,6 +214,8 @@ function relText(rel: ReturnType<typeof relativeParts>, t: TFn): string | null {
 
 export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
   const { t, now } = ctx;
+  const assumedTimeLabel = ctx.assumedTimeLabel || null;
+  const forecastLevel = typeof ctx.forecastLevel === 'number' && Number.isFinite(ctx.forecastLevel) ? ctx.forecastLevel : null;
   const showCompare = ctx.showCompare ?? true;
   const showListRank = ctx.showListRank ?? true;
   const busyAt = ctx.busyAt ?? DEFAULT_BUSY_THRESHOLD;
@@ -303,7 +314,7 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
     busyAt,
   });
   const candidateCrowdGrade = resolveCandidateCrowd({
-    congestionLevel: observedLevel,
+    congestionLevel: forecastLevel ?? observedLevel,
     estimateLevel: estimate?.level,
     areaDemandLevel: candidateAreaCrowdLevel({
       areaDemandLevel: b?.areaDemandLevel ?? undefined,
@@ -337,14 +348,18 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
   const foodName = facilityType === 'restaurant' && !cuisineInForeignLocale ? faceMenu?.items[0] : null;
   const foodHeadline = showCompare && foodName
     ? isOpenNow
-      ? waitMins !== null && waitMins > 0
+      ? assumedTimeLabel
+        ? t('compare.foodAtTime', { food: foodName, walk })
+        : waitMins !== null && waitMins > 0
         ? t('compare.foodWithWait', { food: foodName, total: times.totalMin })
         : t('compare.foodNow', { food: foodName, walk })
       : t(faceMenu?.kind === 'menu' ? 'compare.menuWalk' : 'compare.cuisineWalk', { food: foodName, walk })
     : null;
-  const compareKicker = foodHeadline && isOpenNow
+  const compareKicker = foodHeadline && isOpenNow && !assumedTimeLabel
     ? t('compare.foodKicker')
-    : t(headline.kind === 'benefit' && headline.candidateIsAnchor ? 'compare.nearbyKicker' : 'compare.headerKicker');
+    : t(headline.kind === 'benefit' && headline.candidateIsAnchor
+      ? (assumedTimeLabel ? 'compare.atTimeKicker' : 'compare.nearbyKicker')
+      : 'compare.headerKicker');
   const benefitParts = [
     t('compare.benefitWalk', { walk }),
     ...(displayedOpenStatus === 'open_expected' ? [t('compare.benefitOpen')] : []),
@@ -383,7 +398,11 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
         dashed: false,
       }
     : null;
-  const crowdChip: CrowdChip | null = ownerSeat
+  // 가정 시각의 예측이 있으면 그 등급(추정 점선)이 먼저다 — 핀이 같은 시각에 칠한 값과 같게(웹 forecastLevel).
+  const forecastChip: CrowdChip | null = forecastLevel !== null
+    ? { grade: gradeKey(forecastLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastLevel, busyAt)}`) }), dashed: true }
+    : null;
+  const crowdChip: CrowdChip | null = forecastChip ?? ownerSeat
     ?? (observedLevel !== null
       ? {
           grade: fixedKey(observedLevel),
@@ -499,7 +518,9 @@ export function buildCardModel(c: SheetCandidate, ctx: CardContext): CardModel {
     hasSpot,
     spotScore,
     preferencePercent,
-    showArrivalLine: !!now && !!arrivalTime,
+    // 출발 → 도착은 지금 시각으로 센다 — 가정 시각 카드에서는 그리지 않는다(웹 showArrivalLine).
+    showArrivalLine: !assumedTimeLabel && !!now && !!arrivalTime,
+    assumedTimeLabel,
     compareKicker,
     valueSentence,
     benefitParts,

@@ -32,13 +32,11 @@ import {
   REPLAN_RESPONSE_BUDGET_MS,
   REPLAN_WALKS,
   buildReplanContext,
-  firstSighting,
   hasCondition,
   loadTravelContext,
   replanFacilityTypes,
   sortReplanCandidates,
   toggled,
-  tripKey,
   visibleTrip,
 } from './journeyCore';
 import {
@@ -73,8 +71,6 @@ export interface ActiveJourneyCardProps {
   onInputBlur?: () => void;
 }
 
-/** 이번 앱 실행에서 'trip_resumed' 를 이미 보낸 여정(tripKey). 카드를 다시 붙여도 여정마다 한 번만 보낸다. */
-const resumedTrips = new Set<string>();
 
 /** 웹 text-[11px] 은 줄 높이를 정하지 않아 본문 1.5 배를 물려받는다(16.5px). */
 const LEADING_11 = 'leading-[16.5px]';
@@ -126,25 +122,29 @@ export function ActiveJourneyCard({
   // 다시 읽는 때: 앱이 앞으로 올 때 · 화면에 돌아올 때 · 길안내 시작 · 도착 · 방문 확인으로 여정이 끝남(trip-cleared).
   // 방문 확인을 끝까지 마치면 저장소의 여정이 지워지는데, 이 카드가 옛 여정을 들고 있으면 홈에 다시 뜨고 '도착했어요'가
   // 결과 보고를 두 번 보냈다. '아직 가는 중'으로 비운 여정도 여기서 다시 읽혀 돌아온다(웹 규칙).
-  const sync = useCallback(() => {
+  // 웹 ActiveJourneyCard 처럼 다시 읽을 때마다(첫 표시 · 앱이 앞으로 · 화면 복귀 · 길안내 시작) 진행 중이면 trip_resumed 를 보낸다
+  // (웹은 visibilitychange 마다). 도착·여정 끝으로 다시 읽을 때는 세지 않는다(웹에 없는 계기).
+  const sync = useCallback((countResume = true) => {
     const active = visibleTrip(getActiveTrip());
     setTrip(active);
-    if (active && firstSighting(resumedTrips, tripKey(active))) track('trip_resumed', { facility_type: active.type });
+    if (active && countResume) track('trip_resumed', { facility_type: active.type });
   }, []);
   useEffect(() => {
-    sync();
+    // 첫 표시의 trip_resumed 는 바로 뒤 useFocusEffect 가 한 번 보낸다(두 번 세지 않게).
+    sync(false);
     const sub = AppState.addEventListener('change', (s) => s === 'active' && sync());
+    const quiet = () => sync(false);
     const offs = [
-      tripEvents.on('trip-navigating', sync),
-      tripEvents.on('trip-arrived', sync),
-      tripEvents.on('trip-cleared', sync),
+      tripEvents.on('trip-navigating', () => sync()),
+      tripEvents.on('trip-arrived', quiet),
+      tripEvents.on('trip-cleared', quiet),
     ];
     return () => {
       sub.remove();
       offs.forEach((off) => off());
     };
   }, [sync]);
-  useFocusEffect(sync);
+  useFocusEffect(useCallback(() => sync(), [sync]));
 
   const onActiveChangeRef = useRef(onActiveChange);
   onActiveChangeRef.current = onActiveChange;
@@ -219,7 +219,7 @@ export function ActiveJourneyCard({
     if (!trip) return;
     // 저장소의 여정이 이 카드의 여정일 때만 — 이미 끝났거나 바뀌었으면 결과 보고 없이 다시 읽는다.
     if (!markTripArrivedIf(trip)) {
-      sync();
+      sync(false);
       return;
     }
     haptic('success');

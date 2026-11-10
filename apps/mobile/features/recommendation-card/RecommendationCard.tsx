@@ -64,7 +64,7 @@ import { useBusyThreshold } from '~/lib/core/publicSettings';
 import { useI18n, useT } from '~/lib/i18n/I18nProvider';
 import { trackEvent, usageCardProps } from '~/lib/platform/analytics';
 import { haptic } from '~/lib/platform/haptics';
-import { openExternalUrl, openPhone } from '~/lib/platform/links';
+import { openExternalUrl, openPhone, openWalkingDirections } from '~/lib/platform/links';
 import { colors, shadows, springs } from '~/lib/theme/tokens';
 import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveField } from '@/lib/liveDetailDiff';
 import { nextSheetState, sheetElastic, type SheetState } from '@/lib/sheetSnap';
@@ -125,9 +125,23 @@ export interface RecommendationCardProps {
   compareAnchor?: CompareAnchor | null;
   /** ✨ 경주 테마 맥락 배지(G3-05 보완 — F2 가 넘긴다). */
   contextBadge?: string | null;
+  /**
+   * 가정 시각 라벨(웹 assumedTimeLabel) — 혼잡 예측 +N시간이면 t('forecast.ahead', { h }), 요일 프리셋이면 그 라벨, 지금이면 없음.
+   * 있으면 미리보기 문장 앞 '🕒 라벨', 가치 상자 셋째 줄 기준 칩, 출발→도착 숨김, 음식 문장 compare.foodAtTime.
+   */
+  assumedTimeLabel?: string | null;
+  /** 가치 상자 '🕒 …' 칩 글 전체(웹 assumedTimeBadge — +N시간이면 t('forecast.basis', { h })). 없으면 assume.basisBadge(라벨 + 기준). */
+  assumedTimeBadge?: string | null;
+  /** 가정 시각에서 이 장소의 예측 혼잡도 0~1(웹 forecastLevel — forecastStripModel.forecastLevelFor). 지금이면 넘기지 않는다. */
+  forecastLevel?: number | null;
   travelContext?: TravelContext;
   /** '다시 안볼래요' 를 서버 거절·취향 학습 없이 — 저장 목록의 '목록에서 뺀다'. */
   rejectIsRemoval?: boolean;
+  /**
+   * 바로 갈래요 = 카카오맵 도보 길안내만(웹 /saved 의 onAccept) — 수락 POST · 여정 기록 · 안내 토스트 · rec_accept/rec_next/rec_drive 를
+   * 보내지 않는다. 없으면 rejectIsRemoval 을 따른다(저장 상세 변형). 홈은 false.
+   */
+  directionsOnly?: boolean;
   /** 카드 최대 높이(pt). 없으면 홈 기준(창 − 탭 막대 − NAV_GAP − 위 안전 영역 − 160, 웹 100dvh − clearance − 10rem). */
   maxHeight?: number;
   /** 미리보기 ↔ 펼친 카드가 바뀔 때(홈 예측 띠, G2-24). */
@@ -153,6 +167,14 @@ const SHORT_SCREEN = 720;
 /** 끌기 시작(웹 SWIPE_GUARD_PX) · 옆으로 밀면 포기. */
 const PAN_ACTIVE_Y = 12;
 const PAN_FAIL_X = 24;
+
+/**
+ * 숫자 카운트업만 다시 그리는 잎 컴포넌트 — 프레임마다 setState 가 카드 전체(CardBody·FullBody)를 다시 그리지 않게.
+ * Text 안에 겹친 Text 로 들어가 부모의 크기·굵기를 물려받는다.
+ */
+function CountUpText({ target, rollKey }: { target: number; rollKey: string }) {
+  return <Text>{useCountUp(target, rollKey)}</Text>;
+}
 
 function useCountUp(target: number, key: string): number {
   // 웹 useCountUp(rollOnChange:false) — 새 장소일 때만 0 에서 굴러 올라가고, 같은 장소의 숫자 고침은 바로 반영한다.
@@ -333,11 +355,11 @@ function CardBody(props: CardBodyProps) {
         locale,
         showCompare,
         showListRank,
+        assumedTimeLabel: props.assumedTimeLabel,
+        forecastLevel: props.forecastLevel,
       }),
-    [c, t, now, busyAt, rank, tastePeers, props.compareAnchor, localReport, localAvailability, localHours, liveDetail, hidden, locale, showCompare, showListRank],
+    [c, t, now, busyAt, rank, tastePeers, props.compareAnchor, localReport, localAvailability, localHours, liveDetail, hidden, locale, showCompare, showListRank, props.assumedTimeLabel, props.forecastLevel],
   );
-  const spotCount = useCountUp(model.hasSpot ? model.spotScore : Number.NaN, id);
-  const prefCount = useCountUp(model.preferencePercent ?? Number.NaN, id);
 
   // ── 스크롤 영역 재기(가장자리 흐림 · 펼친 상세로 스크롤 · 반짝인 줄로 스크롤) ─────────────────
   const scrollY = useRef(0);
@@ -391,7 +413,8 @@ function CardBody(props: CardBodyProps) {
     later(() => {
       const body = layoutY.current.details;
       const why = layoutY.current.whyBox;
-      if (body && why) scrollToY(body.y + why.y - 8);
+      // 붙어 있는 이름 막대(sticky)에 가리지 않게 그 높이만큼 더 띄운다.
+      if (body && why) scrollToY(body.y + why.y - (layoutY.current.nameBar?.h ?? 0) - 8);
     }, 60);
   // 실시간 새로고침이 상세를 열면 새로 받은 첫 줄을 이름 막대 아래로 끌어온다(웹 revealRefreshedRow — 120·450ms 두 번).
   const revealRefreshedRow = (fields: LiveField[]) => {
@@ -457,6 +480,7 @@ function CardBody(props: CardBodyProps) {
     else setIsExpanded(true);
     haptic('selection');
   }, []);
+  // 감지기마다 Pan 하나(제스처 하나는 감지기 하나에만 붙는다) — 렌더마다 새로 만들지 않게 한 번만 만든다.
   const makePan = () =>
     Gesture.Pan()
       .activeOffsetY([-PAN_ACTIVE_Y, PAN_ACTIVE_Y])
@@ -471,6 +495,12 @@ function CardBody(props: CardBodyProps) {
       .onFinalize(() => {
         if (dragY.value !== 0) dragY.value = withSpring(0, SPRING);
       });
+  const pans = useMemo(
+    () => ({ handle: makePan(), peek: makePan(), mini: makePan(), bottom: makePan() }),
+    // makePan 은 shared value 와 안정된 settle 만 쓴다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // 등장 — opacity 0 · y 18 · scale 0.985 → 시트 스프링(웹 initial). 새 장소마다.
   const enter = useSharedValue(reduceMotion ? 1 : 0);
@@ -489,16 +519,25 @@ function CardBody(props: CardBodyProps) {
 
   // ── 행동 ─────────────────────────────────────────────────────────────────────────────
   const notify = props.onToast;
+  const directionsOnly = props.directionsOnly ?? props.rejectIsRemoval === true;
   const excludedNow = () => new Set<string>([...(props.excludedIds ?? []), ...handled.current]);
   const doAccept = (mode: NavigationMode) => {
     setConfirmed('accepted');
+    if (directionsOnly) {
+      // 저장 상세(웹 /saved onAccept) — 카카오맵 길안내만 연다.
+      void openWalkingDirections({ name: f.name, latitude: f.latitude, longitude: f.longitude });
+      props.onAccept?.(c, 'walk');
+      return;
+    }
+    // 웹 page.tsx onAccept · onDrive 감싸개 — 실제로 수락할 때만 센다(영업 확인에서 '닫혀 있어요'·'잘 모르겠어요'면 안 센다).
+    trackEvent(mode === 'car' ? 'rec_drive' : 'rec_accept', usageCardProps(f, rank));
     acceptCandidate(c, { mode, travelContext: props.travelContext, t, onViewProfile: props.onViewProfile, notify });
     if (mode === 'car') props.onDrive?.(c);
     else props.onAccept?.(c, mode);
   };
   const doReject = () => {
     haptic('selection');
-    trackEvent('rec_next', usageCardProps(f, rank));
+    if (!directionsOnly) trackEvent('rec_next', usageCardProps(f, rank));
     handled.current.add(id);
     // 거절은 오늘 휴무 확정 곳을 건너뛴다(웹 handleReject openToday, G3-24).
     const next = nextCandidateAfter(candidates, f.id, excludedNow(), { skipClosedToday: true });
@@ -516,7 +555,6 @@ function CardBody(props: CardBodyProps) {
   // '바로 갈래요' — 미리보기와 전체 카드가 같은 함수. 영업시간을 모르는 음식점·카페면 카카오맵 영업시간을 먼저 열고 묻는다.
   const onAcceptPress = () => {
     haptic('success');
-    trackEvent('rec_accept', usageCardProps(f, rank));
     if (model.needsHoursConfirmation && model.kakaoPlaceUrl) {
       setHoursPrompt(true);
       setHoursError(false);
@@ -527,7 +565,6 @@ function CardBody(props: CardBodyProps) {
     doAccept('walk');
   };
   const onDrivePress = () => {
-    trackEvent('rec_drive', usageCardProps(f, rank));
     haptic('success');
     doAccept('car');
   };
@@ -670,7 +707,7 @@ function CardBody(props: CardBodyProps) {
   let body: ReactNode;
   if (isMinimized && compactPeek) {
     body = (
-      <GestureDetector gesture={makePan()}>
+      <GestureDetector gesture={pans.peek}>
         <View className="gap-[6px] px-[4px] pb-[2px]" collapsable={false}>
           {model.peekValueShown && (
             <Pressable accessibilityRole="button" accessibilityLabel={model.peekValueText} onPress={openFromPeek} noFeedback>
@@ -679,6 +716,11 @@ function CardBody(props: CardBodyProps) {
                 weight="extrabold"
                 numberOfLines={model.foodHeadline ? undefined : windowHeight < SHORT_SCREEN ? 1 : 2}
               >
+                {model.assumedTimeLabel ? (
+                  // 가정 시각 카드는 미리보기에서도 어느 시각 기준인지 먼저(웹 peek-time — 글 안 표라 둥근 테두리는 없다).
+                  <Text className="bg-gold/15 text-[11px] text-gold-deep" weight="bold">{` 🕒 ${model.assumedTimeLabel} `}</Text>
+                ) : null}
+                {model.assumedTimeLabel ? ' ' : null}
                 {model.peekValueText}
               </Text>
             </Pressable>
@@ -753,7 +795,7 @@ function CardBody(props: CardBodyProps) {
   } else if (isMinimized) {
     // 저장 상세를 끌어 내린 한 줄 판 — 이름 + '열기 ▲'(웹 :1432-1441).
     body = (
-      <GestureDetector gesture={makePan()}>
+      <GestureDetector gesture={pans.mini}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${model.title}. ${t('card.open')}`}
@@ -779,11 +821,11 @@ function CardBody(props: CardBodyProps) {
         arrivalText={arrivalText}
         conditionChips={conditionChips}
         contextBadge={props.contextBadge ?? null}
+        assumedTimeBadge={props.assumedTimeBadge ?? null}
         isExpanded={isExpanded}
         whyOpen={whyOpen}
         spotOpen={spotOpen}
-        spotCount={spotCount}
-        prefCount={prefCount}
+        countKey={id}
         rank={rank}
         comparisonReason={props.comparisonReason}
         now={now}
@@ -828,7 +870,7 @@ function CardBody(props: CardBodyProps) {
           setHoursError(false);
         }}
         bottom={
-          <GestureDetector gesture={makePan()}>
+          <GestureDetector gesture={pans.bottom}>
             <View collapsable={false} className="shrink-0 gap-[8px]">
               <View className="flex-row gap-[8px] pt-[4px]">
                 <SoftButton label={t('card.reject')} aria={t('card.rejectAria')} onPress={doReject} />
@@ -900,7 +942,7 @@ function CardBody(props: CardBodyProps) {
             ...(isMinimized ? { padding: 12 } : { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }),
           }}
         >
-          <GestureDetector gesture={makePan()}>
+          <GestureDetector gesture={pans.handle}>
             <View collapsable={false} className="self-stretch">{handle}</View>
           </GestureDetector>
           {body}
@@ -961,11 +1003,12 @@ type FullBodyProps = {
   arrivalText: string | null;
   conditionChips: ReactNode;
   contextBadge: string | null;
+  assumedTimeBadge: string | null;
   isExpanded: boolean;
   whyOpen: boolean;
   spotOpen: boolean;
-  spotCount: number;
-  prefCount: number;
+  /** 카운트업을 새로 굴릴 열쇠(장소 id). */
+  countKey: string;
   rank: number | null;
   comparisonReason?: string;
   now: Date | null;
@@ -1040,8 +1083,15 @@ function FullBody(p: FullBodyProps) {
             )}
           </View>
         )}
-        {(p.contextBadge || p.conditionChips) && (
+        {(model.assumedTimeLabel || p.contextBadge || p.conditionChips) && (
           <View className="mt-[6px] flex-row flex-wrap items-center gap-[4px]">
+            {model.assumedTimeLabel && (
+              <View className="rounded-full border border-gold/40 bg-gold/15 px-[8px] py-[2px]">
+                <Text className="text-[11px] leading-[16.5px] text-gold-deep" weight="bold">
+                  {`🕒 ${p.assumedTimeBadge ?? t('assume.basisBadge', { label: model.assumedTimeLabel })}`}
+                </Text>
+              </View>
+            )}
             {p.contextBadge && (
               <View className="rounded-full border border-jade/40 bg-jade/10 px-[8px] py-[2px]">
                 <Text className="text-[11px] leading-[16.5px] text-jade" weight="bold">{`✨ ${p.contextBadge}`}</Text>
@@ -1171,7 +1221,7 @@ function FullBody(p: FullBodyProps) {
           )}
           <Text className="text-[12px] leading-[12px] text-gold-deep" weight="bold" numberOfLines={1}>{`${t('card.spotScoreLabel')} ⓘ`}</Text>
           <Text className="text-[22px] leading-[22px]" weight="black">
-            {p.spotCount}
+            <CountUpText target={p.model.spotScore} rollKey={p.countKey} />
             <Text className="text-[11px] text-muk-soft" weight="regular">{` ${t('card.pointSuffix')}`}</Text>
           </Text>
         </Pressable>
@@ -1565,7 +1615,7 @@ function WhyPanel(p: FullBodyProps) {
         <View className="w-[110px] items-center justify-center rounded-2xl border border-line bg-hanji-deep p-[12px]">
           <Text className="mb-[4px] text-center text-[10px] leading-[15px] text-muk-soft" weight="semibold">{t('card.prefMatch')}</Text>
           <View className="mb-[4px] flex-row items-baseline gap-[2px]">
-            <Text className="text-[20px] leading-[28px] text-jade" weight="black">{model.preferencePercent !== null ? p.prefCount : '–'}</Text>
+            <Text className="text-[20px] leading-[28px] text-jade" weight="black">{model.preferencePercent !== null ? <CountUpText target={model.preferencePercent} rollKey={p.countKey} /> : '–'}</Text>
             <Text className="text-[12px] leading-[16px] text-jade/80" weight="bold">%</Text>
           </View>
           <Text className="mt-[2px] text-center text-[10px] leading-[15px] text-muk-soft" numberOfLines={2}>{t('card.prefBasis')}</Text>

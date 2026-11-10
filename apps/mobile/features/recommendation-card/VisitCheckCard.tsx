@@ -1,7 +1,7 @@
 import { Check, MapPin, ThumbsDown, ThumbsUp, X } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AppState, View, type StyleProp, type ViewStyle, Platform } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { Gradient, Icon, IconButton, Pressable, Text, cn, toast, useReduceMotion } from '~/components/ui';
@@ -57,6 +57,8 @@ const CONGESTION: readonly [ObservedCongestion, string, string][] = [
 // 토큰 요청 중(lib/theme/tokens shadows) — 웹 VisitCheckCard 의 임의 그림자 두 개.
 /** 판 — shadow-[0_8px_30px_rgba(43,35,32,0.16)]. */
 const CARD_SHADOW = '0px 8px 30px rgba(43, 35, 32, 0.16)';
+/** 웹 backdrop-blur-2xl(40px) — 웹 빌드만(뒤의 카드 버튼이 비치지 않게). 네이티브는 흰 95% 그대로. */
+const WEB_BLUR = Platform.OS === 'web' ? ({ backdropFilter: 'blur(40px)' } as object) : null;
 /** '네, 다녀왔어요' — shadow-[0_4px_14px_rgba(193,85,59,0.25)]. */
 const YES_SHADOW = '0px 4px 14px rgba(193, 85, 59, 0.25)';
 /** 위 2px 장식선 — 웹 from-transparent via-jade/50 to-transparent(투명 끝도 jade 로 둬 회색이 끼지 않게). */
@@ -232,7 +234,7 @@ export function VisitCheckCard({ className, style, onOpenCoupons, onActiveChange
         <View
           accessibilityLabel={t('visit.askDesc')}
           className="rounded-3xl border border-line bg-white/95"
-          style={{ boxShadow: CARD_SHADOW }}
+          style={[{ boxShadow: CARD_SHADOW }, WEB_BLUR]}
         >
           <View className="overflow-hidden rounded-[23px] p-[16px]">
             <Gradient
