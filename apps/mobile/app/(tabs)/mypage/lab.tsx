@@ -3,11 +3,11 @@
 // '직접 설명하기'는 서버가 문장을 외부 AI(Upstage)로 보낸다 — 외부 AI 전송을 허용했을 때만 입력 칸을 켠다
 // (App Store 5.1.2(i), features/aiConsent). 허용하지 않아도 이유 칩·'기타' 메모(AI 없음)는 그대로 쓴다.
 import { useRouter } from 'expo-router';
-import { FlaskConical, X } from 'lucide-react-native';
+import { AlertCircle, Compass, FlaskConical, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
-import { Button, Card, Chip, EmptyState, ErrorState, IconButton, Pressable, Screen, Text, toast } from '~/components/ui';
+import { Button, Card, Chip, Icon, Pressable, Text, toast } from '~/components/ui';
 import { AiConsentNotice, canSendToAi, useAiConsent } from '~/features/aiConsent';
 import { useLocale, useT } from '~/lib/i18n/I18nProvider';
 
@@ -19,7 +19,8 @@ import {
   skipLabItem,
   type LabPendingItem,
 } from '~/features/mypage/api';
-import { CardSkeletons, TextField } from '~/features/mypage/components/parts';
+import { LabSkeletons, SubScreen, TextField } from '~/features/mypage/components/parts';
+import { StateCard } from '~/features/mypage/components/StateCard';
 import { COUPON_TYPE_IDS } from '~/features/mypage/couponCore';
 import { NOTE_MAX, REASON_CODES, answeredKey, formatRecommendedAt, withoutItem, type LabReasonCode } from '~/features/mypage/labCore';
 import { useRemote } from '~/features/mypage/useRemote';
@@ -103,22 +104,23 @@ export default function LabScreen() {
   };
 
   return (
-    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
+    <SubScreen keyboardDismiss>
       {state === 'loading' ? (
-        <CardSkeletons count={3} label={t('common.loading')} />
+        <LabSkeletons label={t('common.loading')} />
       ) : state === 'unauthenticated' ? (
-        <EmptyState
-          icon={FlaskConical}
-          title={t('lab.loadError')}
-          action={{ label: t('nav.home'), onPress: () => router.navigate('/') }}
+        <StateCard
+          tone="error"
+          icon={AlertCircle}
+          body={t('lab.loadError')}
+          action={{ label: t('nav.home'), onPress: () => router.navigate('/'), icon: Compass }}
         />
       ) : state === 'failed' ? (
-        <ErrorState message={t('lab.loadError')} retryLabel={t('common.retry')} onRetry={reload} />
+        <StateCard tone="error" icon={AlertCircle} body={t('lab.loadError')} action={{ label: t('common.retry'), onPress: reload }} />
       ) : items.length === 0 ? (
-        <EmptyState icon={FlaskConical} title={t('lab.empty')} description={t('lab.emptyDesc')} />
+        <StateCard icon={FlaskConical} title={t('lab.empty')} body={t('lab.emptyDesc')} />
       ) : (
         <>
-          <Text className="px-[4px] text-sm leading-[21px] text-muk-soft">{t('lab.cardDesc')}</Text>
+          <Text className="px-[4px] text-sm leading-[22.75px] text-muk-soft">{t('lab.cardDesc')}</Text>
           {items.map((item) => {
             const typeLabel = item.facilityType && COUPON_TYPE_IDS.includes(item.facilityType)
               ? t(`category.${item.facilityType}`)
@@ -128,37 +130,41 @@ export default function LabScreen() {
             const freeOpen = freeTextFor === item.id;
             const busy = busyId === item.id;
             return (
-              <Card key={item.id} className={busy ? 'opacity-60' : undefined}>
+              <Card key={item.id} padded={false} className={busy ? 'rounded-3xl opacity-60' : 'rounded-3xl'} style={{ padding: 20 }}>
                 <View className="flex-row items-start justify-between gap-[12px]">
                   <View className="min-w-0 flex-1 gap-[4px]">
                     <View className="flex-row flex-wrap items-center gap-[8px]">
                       <Text className="text-lg" weight="bold" accessibilityRole="header">{item.facilityName}</Text>
                       {typeLabel ? (
-                        <View className="rounded-md border border-jade/25 bg-jade/10 px-[8px] py-[2px]">
+                        <View className="rounded-md border border-jade/25 bg-jade/[0.12] px-[8px] py-[2px]">
                           <Text className="text-[11px] text-jade" weight="semibold">{typeLabel}</Text>
                         </View>
                       ) : null}
                     </View>
                     {when ? <Text className="text-xs text-muk-soft">{t('lab.recommendedAt')} · {when}</Text> : null}
                   </View>
-                  <IconButton
-                    icon={X}
+                  <Pressable
+                    accessibilityRole="button"
                     accessibilityLabel={t('lab.hide')}
-                    color="muk-soft"
+                    accessibilityState={{ disabled: busy }}
                     disabled={busy}
+                    hitSlop={13}
+                    className={busy ? 'opacity-50' : undefined}
                     onPress={() => { void mutate(item.id, () => hideLabItem(item.id), 'lab.hidden'); }}
-                  />
+                  >
+                    <Icon icon={X} size={18} color="muk-soft" />
+                  </Pressable>
                 </View>
 
                 <View className="mt-[16px] flex-row flex-wrap gap-[8px]">
                   {REASON_CODES.map((code) => (
                     <Chip
                       key={code}
+                      variant="labReason"
                       label={t(`lab.reason.${code}`)}
                       selected={code === 'other' && noteOpen}
                       disabled={busy}
                       onPress={() => onReason(item, code)}
-                      className="min-h-[40px] justify-center"
                     />
                   ))}
                 </View>
@@ -173,10 +179,13 @@ export default function LabScreen() {
                       maxLength={NOTE_MAX}
                       accessibilityLabel={t('lab.noteLabel')}
                       multiline
+                      tone="hanji"
+                      size="sm"
+                      rows={3}
                     />
                     <View className="flex-row items-center justify-between gap-[12px]">
-                      <Text className="text-[11px] text-muk-soft">{noteText.length}/{NOTE_MAX}</Text>
-                      <Button label={t('lab.noteSubmit')} disabled={busy} onPress={() => onNoteSubmit(item)} />
+                      <Text className="text-[11px] text-muk-soft" style={{ fontVariant: ['tabular-nums'] }} >{noteText.length}/{NOTE_MAX}</Text>
+                      <Button variant="gold" size={36} shape="xl" label={t('lab.noteSubmit')} disabled={busy} onPress={() => onNoteSubmit(item)} />
                     </View>
                   </View>
                 ) : null}
@@ -194,23 +203,26 @@ export default function LabScreen() {
                       maxLength={NOTE_MAX}
                       accessibilityLabel={t('lab.freeTextLabel')}
                       multiline
-                      minHeight={72}
+                      tone="hanji"
+                      size="sm"
+                      rows={2}
                     />
                     <View className="flex-row items-center justify-between gap-[12px]">
-                      <Text className="text-[11px] text-muk-soft">{freeText.length}/{NOTE_MAX}</Text>
-                      <Button label={t('lab.freeTextSubmit')} loading={busy} disabled={busy || !aiAllowed || !freeText.trim()} onPress={() => { void onClassify(item); }} />
+                      <Text className="text-[11px] text-muk-soft" style={{ fontVariant: ['tabular-nums'] }} >{freeText.length}/{NOTE_MAX}</Text>
+                      <Button variant="gold" size={36} shape="xl" label={t('lab.freeTextSubmit')} loading={busy} disabled={busy || !aiAllowed || !freeText.trim()} onPress={() => { void onClassify(item); }} />
                     </View>
                   </View>
                 ) : null}
 
-                <View className="mt-[16px] flex-row items-center justify-between border-t border-line pt-[8px]">
+                <View className="mt-[16px] flex-row items-center justify-between border-t border-line pt-[12px]">
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={t('lab.freeText')}
                     accessibilityState={{ selected: freeOpen, disabled: busy }}
                     disabled={busy}
                     onPress={() => toggleFreeText(item.id)}
-                    className="min-h-[44px] justify-center px-[8px]"
+                    hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+                    className="justify-center px-[8px] py-[4px]"
                   >
                     <Text className="text-xs text-gold-deep" weight="semibold">{t('lab.freeText')}</Text>
                   </Pressable>
@@ -220,7 +232,8 @@ export default function LabScreen() {
                     accessibilityState={{ disabled: busy }}
                     disabled={busy}
                     onPress={() => { void mutate(item.id, () => skipLabItem(item.id), 'lab.skipped'); }}
-                    className="min-h-[44px] justify-center px-[8px]"
+                    hitSlop={{ top: 10, bottom: 10, left: 0, right: 0 }}
+                    className="justify-center px-[8px] py-[4px]"
                   >
                     <Text className="text-xs text-muk-soft" weight="semibold">{t('lab.skip')}</Text>
                   </Pressable>
@@ -230,6 +243,6 @@ export default function LabScreen() {
           })}
         </>
       )}
-    </Screen>
+    </SubScreen>
   );
 }

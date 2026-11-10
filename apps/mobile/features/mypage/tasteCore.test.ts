@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   UNIFORM_VECTOR,
+  radarNiceMax,
   categoriesFromStored,
   onboardingVector,
   polygonPoints,
@@ -46,3 +47,15 @@ assert.ok(Math.abs(right.x - 150) < 1e-9 && Math.abs(right.y - 100) < 1e-9, '셋
 assert.equal(radarPolygon(new Array(8).fill(100), 0, 0, 10).length, 8);
 assert.equal(polygonPoints([{ x: 1, y: 2 }, { x: 3, y: 4.123 }]), '1.00,2.00 3.00,4.12');
 console.log('tasteCore ok');
+
+// 레이더 눈금(G5b-14) — recharts 암묵 축과 같은 값(R3 가 1~100 대조): 균등 35 → 36, 학습 최댓값 90 → 100.
+{
+  assert.equal(radarNiceMax(35), 36);
+  assert.equal(radarNiceMax(90), 100);
+  assert.equal(radarNiceMax(100), 100);
+  assert.equal(radarNiceMax(0), 1);
+  for (let v = 1; v <= 100; v++) {
+    const m = radarNiceMax(v);
+    assert.ok(m >= v && m % 4 === 0 || m === 1, `v=${v} → ${m}`);
+  }
+}

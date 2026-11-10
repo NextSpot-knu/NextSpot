@@ -8,24 +8,23 @@
 // 아니면 같은 안내 창(promptAiConsent)을 다시 띄워 고르게 한다.
 import Constants from 'expo-constants';
 import { useRouter, type Href } from 'expo-router';
-import { Database, ExternalLink, Globe, Info, MapPin, Sparkles, Store, Trash2, UserX } from 'lucide-react-native';
+import { Database, Globe, Info, MapPin, Sparkles, Trash2, UserX } from 'lucide-react-native';
 import { useState } from 'react';
 import { View } from 'react-native';
 
-import { Button, Text, Screen, toast } from '~/components/ui';
+import { Button, Text, confirmDestructive, toast } from '~/components/ui';
+import { LanguageSwitcher } from '~/components/LanguageSwitcher';
 import { promptAiConsent, setAiConsent, useAiConsent } from '~/features/aiConsent';
 import { getLocationConsent, setLocationConsent } from '~/features/auth/consent';
 import { LOCATION_CONSENT_ROUTE } from '~/features/auth/locationAccess';
 import { useLocationConsent } from '~/features/auth/useLocationConsent';
 import { canEnterMerchantConsole, useAccount } from '~/lib/core/account';
 import { useT } from '~/lib/i18n/I18nProvider';
-import { openExternalUrl } from '~/lib/platform/links';
 import { WEB_ORIGIN } from '~/lib/platform/shareUrls';
 
 import { deleteAccountOrGuestData, resetSavedAndPrefs } from '~/features/mypage/actions';
-import { confirmDestructive } from '~/features/mypage/confirm';
-import { LanguageSwitcher } from '~/features/mypage/components/LanguageSwitcher';
-import { SectionCard } from '~/features/mypage/components/parts';
+import { MerchantLinkCard } from '~/features/mypage/components/ConsoleCards';
+import { SectionCard, SubScreen } from '~/features/mypage/components/parts';
 
 export default function SettingsScreen() {
   const t = useT();
@@ -107,8 +106,8 @@ export default function SettingsScreen() {
     if (deleting) return;
     const ok = await confirmDestructive(
       isMember
-        ? { title: t('settings.deleteAccountConfirm'), message: t('settings.deleteAccountConfirmDesc'), confirmLabel: t('settings.deleteAccountAction'), cancelLabel: t('common.cancel') }
-        : { title: t('app.mypage.deleteDataConfirm'), message: t('app.mypage.deleteDataConfirmDesc'), confirmLabel: t('app.mypage.deleteDataAction'), cancelLabel: t('common.cancel') },
+        ? { title: t('settings.deleteAccountConfirm'), message: t('settings.deleteAccountConfirmDesc'), confirmLabel: t('settings.deleteAccountAction'), cancelLabel: t('common.cancel'), duration: 10000 }
+        : { title: t('app.mypage.deleteDataConfirm'), message: t('app.mypage.deleteDataConfirmDesc'), confirmLabel: t('app.mypage.deleteDataAction'), cancelLabel: t('common.cancel'), duration: 10000 },
     );
     if (!ok) return;
     setDeleting(true);
@@ -123,22 +122,12 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <SubScreen glow="right" topGap={0}>
       <SectionCard icon={Globe} tone="jade" title={t('settings.langTitle')} desc={t('settings.langDesc')}>
         <LanguageSwitcher />
       </SectionCard>
 
-      {canEnterMerchantConsole(account) ? (
-        <SectionCard icon={Store} tone="gold-deep" title={t('console.openMerchant')} desc={t('console.openMerchantDesc')}>
-          <Button
-            variant="secondary"
-            icon={ExternalLink}
-            label={t('app.mypage.openOnWeb')}
-            block
-            onPress={() => { void openExternalUrl(`${WEB_ORIGIN}/merchant`); }}
-          />
-        </SectionCard>
-      ) : null}
+      {canEnterMerchantConsole(account) ? <MerchantLinkCard compact url={`${WEB_ORIGIN}/merchant`} /> : null}
 
       <SectionCard
         icon={MapPin}
@@ -197,7 +186,7 @@ export default function SettingsScreen() {
       </SectionCard>
 
       <SectionCard icon={Database} tone="terracotta" title={t('settings.dataTitle')} desc={t('settings.resetDataDesc')}>
-        <Button variant="secondary" icon={Trash2} label={t('settings.resetData')} loading={resetting} disabled={resetting} block onPress={() => { void onReset(); }} />
+        <Button variant="dangerSoft" labelWeight="semibold" icon={Trash2} label={t('settings.resetData')} loading={resetting} disabled={resetting} block onPress={() => { void onReset(); }} />
       </SectionCard>
 
       {accountKnown ? (
@@ -209,7 +198,8 @@ export default function SettingsScreen() {
           desc={isMember ? t('settings.deleteAccountDesc') : t('app.mypage.deleteDataDesc')}
         >
           <Button
-            variant="secondary"
+            variant="dangerOutline"
+            labelWeight="semibold"
             icon={Trash2}
             label={deleting ? t('common.loading') : isMember ? t('settings.deleteAccount') : t('app.mypage.deleteData')}
             loading={deleting}
@@ -229,6 +219,6 @@ export default function SettingsScreen() {
           {version ? <Text className="text-xs text-muk-soft" weight="medium">{t('settings.version', { version })}</Text> : null}
         </View>
       </SectionCard>
-    </Screen>
+    </SubScreen>
   );
 }

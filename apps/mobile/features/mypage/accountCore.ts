@@ -1,16 +1,16 @@
 // 마이페이지 계정 영역의 순수 규칙 — 소셜 연결 범위(계획 §7.2 M3) · 프로필 표시 이름 · 삭제 흐름의 순서.
 // 웹 원본: apps/web/app/mypage/page.tsx(프로필 파생) · components/AccountSection.tsx(프로바이더 목록) · app/mypage/settings/page.tsx(삭제 순서). 기준 커밋 0d145a1.
 
-export type OAuthProvider = 'kakao' | 'google';
+import { socialProvidersFor, type OAuthProvider } from '../auth/socialPolicy';
+
+export type { OAuthProvider };
 
 /**
- * 이 기기에서 보일 소셜 로그인 버튼. 웹은 [kakao, google].
- *  · iOS — 없음(App Store 4.8: 제3자 로그인을 쓰면 Apple 로그인도 필요 — v1.1 에 함께. 버튼·연결 경로를 하나도 두지 않는다).
- *  · 안드로이드 — 구글만(카카오는 비즈 앱 전환 전까지 숨김).
- *  · 그 밖(웹 미리보기 등) — 없음.
+ * 이 기기에서 보일 소셜 로그인 버튼. 노출 규칙은 로그인 화면과 같은 한 곳(`socialPolicy.socialProvidersFor` — 카카오 스위치 하나로 두 곳, G5b-09 · D5).
+ * 웹은 [kakao, google]. iOS·웹 미리보기는 없음, 안드로이드는 구글(카카오는 스위치가 켜지면).
  */
 export function visibleProviders(os: string): OAuthProvider[] {
-  return os === 'android' ? ['google'] : [];
+  return socialProvidersFor(os);
 }
 
 /** 표시 이름 우선순위: 서버 닉네임 > (기기 한정) 직접 정한 이름 > 이메일 앞부분 > null(게스트 — 문구는 렌더 때). */

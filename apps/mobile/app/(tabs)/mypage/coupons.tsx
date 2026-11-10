@@ -2,13 +2,14 @@
 import { useRouter } from 'expo-router';
 import { AlertCircle, CheckCircle2, Compass, Ticket } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { Button, Card, EmptyState, ErrorState, Icon, Screen, Text, toast } from '~/components/ui';
+import { Button, Card, Gradient, Icon, Text, toast } from '~/components/ui';
 import { useLocale, useT } from '~/lib/i18n/I18nProvider';
 
 import { fetchMyCoupons, markCouponUsed } from '~/features/mypage/api';
-import { CardSkeletons } from '~/features/mypage/components/parts';
+import { CouponSkeletons, SubScreen } from '~/features/mypage/components/parts';
+import { StateCard } from '~/features/mypage/components/StateCard';
 import {
   COUPON_TYPE_IDS,
   couponPercent,
@@ -46,25 +47,32 @@ export default function CouponsScreen() {
   const dateLocale = locale === 'ko' ? 'ko-KR' : locale === 'ja' ? 'ja-JP' : locale === 'zh' ? 'zh-CN' : 'en-US';
   const coupons = data ?? [];
 
+  // 웹 coupons: main px-6 · 목록 mt-2 gap-4 · 노을 광원 top-1/4 right-1/4.
   return (
-    <Screen scroll edges={['left', 'right']} contentClassName="px-[16px] py-[16px] gap-[16px]">
+    <SubScreen glow="right">
       {state === 'loading' ? (
-        <CardSkeletons label={t('common.loading')} />
+        <CouponSkeletons label={t('common.loading')} />
       ) : state === 'unauthenticated' ? (
-        <EmptyState
+        <StateCard
           icon={Ticket}
           title={t('coupons.authTitle')}
-          description={t('coupons.authBody')}
-          action={{ label: t('coupons.authCta'), onPress: goHome }}
+          body={t('coupons.authBody')}
+          action={{ label: t('coupons.authCta'), onPress: goHome, icon: Compass }}
         />
       ) : state === 'failed' ? (
-        <ErrorState message={t('coupons.errorBody')} retryLabel={t('common.retry')} onRetry={reload} />
+        <StateCard
+          tone="error"
+          icon={AlertCircle}
+          title={t('coupons.errorTitle')}
+          body={t('coupons.errorBody')}
+          action={{ label: t('common.retry'), onPress: reload }}
+        />
       ) : coupons.length === 0 ? (
-        <EmptyState
+        <StateCard
           icon={Ticket}
           title={t('coupons.emptyTitle')}
-          description={t('coupons.emptyBody')}
-          action={{ label: t('coupons.browse'), onPress: goHome }}
+          body={t('coupons.emptyBody')}
+          action={{ label: t('coupons.browse'), onPress: goHome, icon: Compass }}
         />
       ) : (
         <>
@@ -80,7 +88,7 @@ export default function CouponsScreen() {
           ))}
         </>
       )}
-    </Screen>
+    </SubScreen>
   );
 }
 
@@ -119,16 +127,17 @@ function CouponCard({
       <View
         accessible
         accessibilityLabel={[`${pct}% ${t('coupons.discount')}`, name, typeLabel, statusLabel, ddayLabel, issued].filter(Boolean).join(', ')}
-        className={`min-w-[84px] items-center justify-center px-[16px] py-[16px] ${dimmed ? 'bg-muk-soft/15' : 'bg-gold-deep'}`}
+        className={`items-center justify-center overflow-hidden px-[20px] py-[16px] ${dimmed ? 'bg-muk-soft/15' : ''}`}
       >
-        <Text className={`text-2xl ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="bold">{pct}%</Text>
-        <Text className={`mt-[4px] text-[10px] ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="semibold">{t('coupons.discount')}</Text>
+        {dimmed ? null : <Gradient name="goldTerracotta" start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} pointerEvents="none" />}
+        <Text className={`text-2xl leading-[24px] ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="bold">{pct}%</Text>
+        <Text className={`mt-[4px] text-[10px] leading-[15px] tracking-[0.25px] ${dimmed ? 'text-muk-soft' : 'text-white'}`} weight="semibold">{t('coupons.discount')}</Text>
       </View>
       <View className="min-w-0 flex-1 justify-center gap-[4px] px-[16px] py-[12px]">
         <View className="gap-[4px]" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <View className="flex-row flex-wrap items-center gap-[8px]">
             {typeLabel ? (
-              <View className="rounded-md border border-jade/25 bg-jade/10 px-[8px] py-[2px]">
+              <View className="rounded-md border border-jade/25 bg-jade/[0.12] px-[8px] py-[2px]">
                 <Text className="text-[11px] text-jade" weight="semibold">{typeLabel}</Text>
               </View>
             ) : null}
@@ -137,21 +146,24 @@ function CouponCard({
               <Text className={`text-[11px] ${dimmed ? 'text-muk-soft' : 'text-gold-deep'}`} weight="semibold">{statusLabel}</Text>
             </View>
             {dday ? (
-              <View className={`rounded-md border px-[8px] py-[2px] ${dday.urgent ? 'border-terracotta/30 bg-terracotta/10' : 'border-muk-soft/20 bg-muk-soft/10'}`}>
+              <View className={`rounded-md border px-[8px] py-[2px] ${dday.urgent ? 'border-terracotta/30 bg-terracotta/[0.12]' : 'border-muk-soft/20 bg-muk-soft/10'}`}>
                 <Text className={`text-[11px] ${dday.urgent ? 'text-terracotta' : 'text-muk-soft'}`} weight="bold">{ddayLabel}</Text>
               </View>
             ) : null}
           </View>
-          <Text className={`text-base ${dimmed ? 'text-muk-soft' : 'text-muk'}`} weight="bold" numberOfLines={2}>{name}</Text>
+          <Text className={`text-base ${dimmed ? 'text-muk-soft' : 'text-muk'}`} weight="bold" numberOfLines={1}>{name}</Text>
           {issued ? <Text className="text-[11px] text-muk-soft">{issued}</Text> : null}
         </View>
         {!dimmed ? (
           <Button
             className="mt-[8px] self-start"
-            label={t('coupons.use')}
-            icon={Compass}
+            variant="gold"
+            size={30}
+            labelSize={12}
+            shape="lg"
+            label={busy ? t('common.loading') : t('coupons.use')}
+            showSpinner={false}
             loading={busy}
-            disabled={busy}
             onPress={onUse}
           />
         ) : null}

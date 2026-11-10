@@ -2,9 +2,9 @@
 // 숫자 규칙은 웹 순수 모듈 @/lib/impactSummary(readImpactSummary)를 그대로 쓴다.
 import { useRouter } from 'expo-router';
 import { ChevronRight, Sparkles } from 'lucide-react-native';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { Card, Icon, Text } from '~/components/ui';
+import { Card, Gradient, Icon, Text } from '~/components/ui';
 import type { ImpactSummary } from '@/lib/impactSummary';
 import { useT } from '~/lib/i18n/I18nProvider';
 
@@ -26,25 +26,25 @@ export function ImpactSummaryCard({ summary }: { summary: ImpactSummary | null }
     <Card
       onPress={() => router.push('/mypage/impact' as never)}
       accessibilityLabel={`${t('impact.summaryAria')}. ${metrics.join(', ')}`}
-      className="mb-[16px] border-gold/35 bg-gold/10"
+      className="mb-[16px] overflow-hidden rounded-3xl border-gold/35 bg-hanji"
       padded={false}
       style={{ padding: 20 }}
     >
+      <Gradient name="impactCard" style={StyleSheet.absoluteFill} pointerEvents="none" />
       <View className="flex-row items-start justify-between gap-[12px]">
         <View className="min-w-0 flex-1">
           <View className="flex-row items-center gap-[6px]">
             <Icon icon={Sparkles} size="md" color="gold-deep" />
             <Text className="text-[13px]" weight="bold">{t('impact.summaryTitle')}</Text>
           </View>
+          {/* 웹: 구분점과 지표가 각각 줄바꿈 단위라 점이 윗줄 끝에 남는다 — [지표, ·, 지표, ·, 지표] 평평하게 */}
           <View className="mt-[8px] flex-row flex-wrap items-baseline gap-x-[8px] gap-y-[4px]">
-            {metrics.map((text, index) => (
-              <View key={text} className="flex-row items-baseline gap-[8px]">
-                {index > 0 ? <Text className="text-muk-soft" accessibilityElementsHidden importantForAccessibility="no">·</Text> : null}
-                <Text className="text-[15px]" weight="black">{text}</Text>
-              </View>
-            ))}
+            {metrics.flatMap((text, index) => [
+              ...(index > 0 ? [<Text key={`dot${index}`} className="text-muk-soft/60" accessibilityElementsHidden importantForAccessibility="no">·</Text>] : []),
+              <Text key={text} className="text-[15px] leading-[22.5px]" weight="black" style={{ fontVariant: ['tabular-nums'] }}>{text}</Text>,
+            ])}
           </View>
-          <Text className="mt-[6px] text-[11px] leading-[17px] text-muk-soft">{t('impact.summaryRealNote')}</Text>
+          <Text className="mt-[6px] text-[11px] leading-[17.9px] text-muk-soft">{t('impact.summaryRealNote')}</Text>
         </View>
         <View className="mt-[2px]"><Icon icon={ChevronRight} size="lg" color="gold-deep" /></View>
       </View>

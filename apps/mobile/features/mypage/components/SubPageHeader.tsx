@@ -24,6 +24,9 @@ export type SubPageHeaderProps = {
   insetTop?: boolean;
 };
 
+/** 고정 머리 높이(20 + 28 + 20) — 광원 자리 계산이 쓴다. */
+export const SUB_HEADER_HEIGHT = 68;
+
 /** 마이 첫 화면 경로(웹 lib/navigation.ts MYPAGE_BACK). */
 const MYPAGE_HOME = '/mypage';
 

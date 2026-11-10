@@ -4,9 +4,9 @@
 //                  보일 버튼이 없으면 섹션 전체를 그리지 않는다(iOS 게스트에게 빈 유도 문구가 남지 않게).
 import { Check, Link2 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 
-import { Card, Icon, Pressable, Text, toast } from '~/components/ui';
+import { Card, Gradient, Icon, Pressable, Text, toast } from '~/components/ui';
 import { useT } from '~/lib/i18n/I18nProvider';
 
 import { visibleProviders, type OAuthProvider } from '../accountCore';
@@ -23,7 +23,7 @@ export function AccountSection({ profile }: { profile: Profile }) {
   if (profile.isMember) {
     const badge = 'self-start rounded-full border border-jade/30 bg-jade/10 px-[12px] py-[6px]';
     return (
-      <Card className="mb-[16px] gap-[12px]">
+      <Card padded={false} className="mb-[16px] rounded-3xl" style={{ padding: 20, gap: 12 }}>
         <View className="flex-row items-center gap-[8px]">
           <Icon icon={Check} size="lg" color="jade" />
           <Text className="text-base" weight="bold" accessibilityRole="header">{t('auth.linkedTitle')}</Text>
@@ -57,15 +57,17 @@ export function AccountSection({ profile }: { profile: Profile }) {
   };
 
   return (
-    <Card className="mb-[16px] gap-[12px] border-gold/35 bg-gold/10">
+    <Card padded={false} className="mb-[16px] overflow-hidden rounded-3xl border-gold/35 bg-hanji" style={{ padding: 20, gap: 12 }}>
+      <Gradient name="merchantCard" style={StyleSheet.absoluteFill} pointerEvents="none" />
       <View className="gap-[4px]">
         <View className="flex-row items-center gap-[8px]">
-          <Icon icon={Link2} size="lg" color="gold-deep" />
+          <Icon icon={Link2} size={18} color="gold-deep" />
           <Text className="text-base" weight="bold" accessibilityRole="header">{t('auth.guestTitle')}</Text>
         </View>
-        <Text className="text-xs leading-[18px] text-muk-soft">{t('auth.guestDesc')}</Text>
+        <Text className="text-xs text-muk-soft">{t('auth.guestDesc')}</Text>
       </View>
-      <View className="gap-[8px]">
+      {/* 웹 grid-cols-2 gap-2 — 두 칸 줄(한 칸뿐이면 그 칸이 전체 폭) */}
+      <View className="flex-row gap-[8px]">
         {providers.map((p) => (
           <Pressable
             key={p}
@@ -74,9 +76,9 @@ export function AccountSection({ profile }: { profile: Profile }) {
             accessibilityState={{ disabled: busy, busy }}
             disabled={busy}
             onPress={() => { void onContinue(p); }}
-            className={`min-h-[48px] items-center justify-center rounded-xl border px-[12px] py-[12px] ${p === 'kakao' ? 'border-transparent bg-[#FEE500]' : 'border-line bg-white'} ${busy ? 'opacity-50' : ''}`}
+            className={`min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-xl border px-[8px] py-[12px] ${p === 'kakao' ? 'border-transparent bg-[#FEE500]' : 'border-line bg-white'} ${busy ? 'opacity-50' : ''}`}
           >
-            <Text className={`text-sm ${p === 'kakao' ? 'text-[#191600]' : 'text-muk'}`} weight="bold" numberOfLines={2}>
+            <Text className={`text-sm ${p === 'kakao' ? 'text-[#191600]' : 'text-muk'}`} weight="bold" numberOfLines={1}>
               {t(CONTINUE_LABEL[p])}
             </Text>
           </Pressable>

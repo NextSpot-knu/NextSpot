@@ -3,10 +3,11 @@
 // id·user_id·user_name·type·title·content·status·created_at·updated_at·reply_body·replied_at·replied_by). 열이 생기면 더한다.
 import { useRouter } from 'expo-router';
 import { CheckCircle, Send } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { TextInput, View } from 'react-native';
 
-import { Button, Chip, Icon, Screen, Text, toast } from '~/components/ui';
+import { useNavInsets } from '~/components/navigation/navMetrics';
+import { Button, Icon, Screen, SelectField, Text, toast } from '~/components/ui';
 import { createPublicClient } from '~/lib/core/supabase';
 import { useT } from '~/lib/i18n/I18nProvider';
 
@@ -31,6 +32,11 @@ export default function SupportScreen() {
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  // 웹 required 말풍선 대신: 빈 채로 누르면 첫 빈 칸에 초점 + 칸 아래 안내(app.support.required, G5b-37).
+  const [missing, setMissing] = useState<'title' | 'content' | null>(null);
+  const titleRef = useRef<TextInput>(null);
+  const contentRef = useRef<TextInput>(null);
+  const { gap } = useNavInsets();
   // 기본은 익명 문의(user_id NULL) — RLS 가 user_id 를 'NULL 이거나 본인 auth.uid()' 로만 받는다.
   // 세션이 있을 때만 본인 id 를 싣고(웹과 같다), 세션이 없으면 답이 닿지 않는다는 알림을 쓰기 전에 보인다.
   const [userId, setUserId] = useState<string | null>(null);
@@ -53,10 +59,11 @@ export default function SupportScreen() {
     return () => { alive = false; };
   }, []);
 
-  const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
-
   const submit = async () => {
-    if (!canSubmit) return;
+    if (submitting) return;
+    if (!title.trim()) { setMissing('title'); titleRef.current?.focus(); return; }
+    if (!content.trim()) { setMissing('content'); contentRef.current?.focus(); return; }
+    setMissing(null);
     setSubmitting(true);
     try {
       const { error } = await createPublicClient().from('inquiries').insert([
@@ -80,76 +87,86 @@ export default function SupportScreen() {
     return (
       <Screen edges={['top', 'left', 'right']} contentClassName="">
         {header}
-        <View className="flex-1 items-center justify-center gap-[12px] px-[24px] py-[32px]">
-          <View className="h-[80px] w-[80px] items-center justify-center rounded-full bg-jade/15">
+        <View className="flex-1 items-center justify-center px-[24px] pt-[24px]" style={{ paddingBottom: 24 + gap }}>
+          <View className="mb-[24px] h-[80px] w-[80px] items-center justify-center rounded-full bg-jade/15">
             <Icon icon={CheckCircle} size={40} color="jade" />
           </View>
-          <Text className="text-center text-2xl" weight="bold" accessibilityRole="header">{t('support.doneTitle')}</Text>
-          <Text className="mb-[16px] text-center text-muk-soft">{t('support.doneDesc')}</Text>
-          <Button label={t('support.backToMypage')} onPress={() => router.dismissTo('/mypage')} />
+          <Text className="mb-[8px] text-center text-2xl" weight="bold" accessibilityRole="header">{t('support.doneTitle')}</Text>
+          <Text className="mb-[32px] max-w-[80%] text-center text-muk-soft">{t('support.doneDesc')}</Text>
+          <Button variant="gold" size={48} labelSize={16} shape="xl" paddingX={32} label={t('support.backToMypage')} onPress={() => router.dismissTo('/mypage')} />
         </View>
       </Screen>
     );
   }
 
   return (
-    <Screen scroll edges={['top', 'left', 'right']} contentClassName="pb-[16px]" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
+    <Screen scroll edges={['top', 'left', 'right']} contentClassName="" scrollProps={{ keyboardDismissMode: 'on-drag' }}>
       {header}
-      <View className="gap-[20px] px-[16px] pt-[16px]">
-        <Text className="text-sm leading-[21px] text-muk-soft">{t('support.intro')}</Text>
+      {/* 웹: main p-6 + 막대 여백 · form max-w-md gap-5 */}
+      <View className="w-full max-w-[448px] gap-[20px] self-center" style={{ padding: 24, paddingBottom: 24 + gap }}>
+        <Text className="mb-[8px] text-sm text-muk-soft">{t('support.intro')}</Text>
 
         <View className="gap-[8px]">
           <Text className="text-sm text-muk-soft" weight="semibold">{t('support.typeLabel')}</Text>
-          <View className="flex-row flex-wrap gap-[8px]">
-            {TYPES.map((opt) => (
-              <Chip
-                key={opt.value}
-                label={t(opt.labelKey)}
-                selected={type === opt.value}
-                onPress={() => setType(opt.value)}
-                className="min-h-[44px] justify-center px-[16px]"
-              />
-            ))}
-          </View>
+          <SelectField
+            variant="field"
+            value={type}
+            options={TYPES.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            onChange={setType}
+            accessibilityLabel={t('support.typeLabel')}
+          />
         </View>
 
         <View className="gap-[8px]">
           <Text className="text-sm text-muk-soft" weight="semibold">{t('support.titleLabel')}</Text>
           <TextField
+            inputRef={titleRef}
+            size="field"
             value={title}
-            onChangeText={setTitle}
+            onChangeText={(v) => { setTitle(v); if (missing === 'title') setMissing(null); }}
             placeholder={t('support.titlePlaceholder')}
             maxLength={TITLE_MAX}
             accessibilityLabel={t('support.titleLabel')}
             returnKeyType="next"
           />
+          {missing === 'title' ? <Text className="text-xs text-terracotta" accessibilityRole="alert">{t('app.support.required')}</Text> : null}
         </View>
 
         <View className="gap-[8px]">
           <Text className="text-sm text-muk-soft" weight="semibold">{t('support.contentLabel')}</Text>
           <TextField
+            inputRef={contentRef}
+            size="field"
             value={content}
-            onChangeText={setContent}
+            onChangeText={(v) => { setContent(v); if (missing === 'content') setMissing(null); }}
             placeholder={t('support.contentPlaceholder')}
             accessibilityLabel={t('support.contentLabel')}
             multiline
-            minHeight={200}
+            height={200}
           />
+          {missing === 'content' ? <Text className="text-xs text-terracotta" accessibilityRole="alert">{t('app.support.required')}</Text> : null}
         </View>
 
         {userId === null ? (
-          <View className="gap-[2px] rounded-xl border border-gold/40 bg-gold/10 px-[16px] py-[12px]" accessibilityRole="summary">
-            <Text className="text-[13px]" weight="bold">{t('support.anonymousReplyNoticeTitle')}</Text>
-            <Text className="text-[13px] leading-[19px] text-muk-soft">{t('support.anonymousReplyNotice')}</Text>
+          <View className="rounded-xl border border-gold/40 bg-gold/10 px-[16px] py-[12px]" accessibilityRole="summary">
+            <Text className="text-[13px] leading-[21px]" weight="bold">{t('support.anonymousReplyNoticeTitle')}</Text>
+            <Text className="mt-[2px] text-[13px] leading-[21px] text-muk-soft">{t('support.anonymousReplyNotice')}</Text>
           </View>
         ) : null}
 
         <Button
+          className="mt-[16px]"
+          variant="gold"
+          size={56}
+          labelSize={16}
+          shape="xl"
+          iconSize={20}
+          shadow="none"
           label={submitting ? t('support.submitting') : t('support.submit')}
           icon={Send}
           block
           loading={submitting}
-          disabled={!canSubmit}
+          showSpinner={false}
           onPress={() => { void submit(); }}
         />
       </View>

@@ -117,3 +117,22 @@ export function polygonPoints(points: readonly Point[]): string {
 export function radarPolygon(values: readonly number[], cx: number, cy: number, radius: number): Point[] {
   return values.map((v, i) => radarPoint(i, values.length, v / 100, cx, cy, radius));
 }
+
+/**
+ * 레이더 바깥 고리가 뜻하는 값 — 웹 recharts 의 암묵 반지름 축은 [0, 최댓값] 을 눈금 5개(고리 4겹)·정수로 둥글린다
+ * (getNiceTickValues). 균등 벡터(35)면 36 이라 꼭짓점이 바깥 고리를 거의 채우고, 학습 최댓값 90 이면 100 이다.
+ * R3 가 1~100 전 구간에서 recharts 와 대조한 식(G5b-14). 비율 = 값 / radarNiceMax(최댓값).
+ */
+export function radarNiceMax(max: number): number {
+  if (!(max > 0)) return 1;
+  const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+  for (let c = 0; c < 20; c++) {
+    const rough = max / 4;
+    const d = Math.floor(Math.log10(rough)) + 1;
+    const unit = 10 ** d;
+    const s = d !== 1 ? 0.05 : 0.1;
+    const step = Math.ceil(r6((Math.ceil(r6(rough / unit / s)) + c) * s * unit));
+    if (Math.ceil(r6(max / step)) <= 4) return step * 4;
+  }
+  return max;
+}
