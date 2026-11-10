@@ -78,6 +78,23 @@ async function main() {
   assert.equal(keptSpot.score, 55);
   assert.ok(Math.abs(keptSpot.timeToService - 7.3) < 0.01);
 
+  // 규칙 모드(모델 아님)여도 저장 spot 의 대기는 breakdown.waitTime 그대로(웹 recToSpot) — 표시용 waitTime 문자열만 모델 게이트
+  const rule = bookmarkFrom(cand('r', {
+    spotScore: 0.5, scoringMode: 'measured_rules',
+    breakdown: { preference: 0.5, travelTime: 3, waitTime: 6.24, incentive: 0 },
+  }));
+  const ruleSpot = rule.spot as { expectedWait: number; expectedTravel: number; timeToService: number };
+  assert.equal(rule.waitTime, null);
+  assert.equal(ruleSpot.expectedWait, 6.2);
+  assert.equal(ruleSpot.expectedTravel, 3);
+  assert.equal(ruleSpot.timeToService, 9.2);
+
+  // 직접 고른 곳(travelTime 없음) — 850m → 15.04 → 0.1 분 반올림 15, 합 15 (카드는 올림해 16분으로 보인다)
+  const picked = bookmarkFrom(cand('p', { distanceM: 850 }));
+  const pickedSpot = picked.spot as { expectedTravel: number; timeToService: number };
+  assert.equal(pickedSpot.expectedTravel, 15);
+  assert.equal(pickedSpot.timeToService, 15);
+
   // 실험실 힌트 — 상한 · 저장소 불가면 안 띄운다
   assert.equal(nextLabHintCount(null, true), 1);
   assert.equal(nextLabHintCount(String(LAB_HINT_MAX_SHOWS - 1), true), LAB_HINT_MAX_SHOWS);

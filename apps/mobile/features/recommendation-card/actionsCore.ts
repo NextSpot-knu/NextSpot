@@ -2,6 +2,7 @@
 // 부수효과(전송·저장·알림·길안내)는 actions.ts. 웹 원본: apps/web/app/main/page.tsx 의 handleAccept · handlePutOff · handleReject(기준 커밋 0d145a1).
 import { httpStatus } from '~/lib/core/httpCore';
 import { spotPoints } from '~/lib/core/spotPoints';
+import { estimateWalkingMinutes } from '~/features/explore/port/walking';
 import type { SavedRecord } from '~/lib/core/savedFacilities';
 
 import type { SheetCandidate } from './types';
@@ -78,6 +79,8 @@ export function bookmarkFrom(c: SheetCandidate, busyAt = 0.75): SavedRecord {
     : level >= busyAt ? 'orange' : level >= 0.5 ? 'yellow' : level >= 0.25 ? 'green' : 'blue';
   const modelWait = c.scoringMode === 'model' && c.congestionSource !== 'none' && typeof c.breakdown?.waitTime === 'number'
     ? Math.ceil(c.breakdown.waitTime) : null;
+  const wait = typeof c.breakdown?.waitTime === 'number' ? c.breakdown.waitTime : 0;
+  const travel = typeof c.breakdown?.travelTime === 'number' ? c.breakdown.travelTime : estimateWalkingMinutes(c.distanceM);
   return {
     id: f.id,
     recommendationId: c.recommendationId,
@@ -92,11 +95,13 @@ export function bookmarkFrom(c: SheetCandidate, busyAt = 0.75): SavedRecord {
     congestionLevel: level,
     waitTime: modelWait !== null ? `${modelWait}분` : null,
     waitEvidence: modelWait !== null ? 'verified_model' : undefined,
+    // 저장 spot 은 웹 recToSpot 과 같다 — 대기는 모드와 상관없이 breakdown.waitTime(숫자일 때), 도보는 travelTime 이 없으면
+    // 거리로 추정, 둘 다 0.1 분 반올림. 모델 게이트는 위 표시용 waitTime 문자열에만 있다.
     spot: {
       score: spotPoints(c.spotScore),
-      expectedTravel: c.breakdown?.travelTime ?? 0,
-      timeToService: Math.round(((c.breakdown?.travelTime ?? 0) + (modelWait !== null ? c.breakdown?.waitTime ?? 0 : 0)) * 10) / 10,
-      expectedWait: modelWait ?? 0,
+      expectedTravel: Math.round(travel * 10) / 10,
+      timeToService: Math.round((wait + travel) * 10) / 10,
+      expectedWait: Math.round(wait * 10) / 10,
       preferencePercent: Math.round((c.breakdown?.preference ?? 0) * 100),
       scoringMode: c.scoringMode,
     },
