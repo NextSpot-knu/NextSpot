@@ -17,6 +17,7 @@ import Animated from 'react-native-reanimated';
 import { Button, Pressable, Screen, Text } from '~/components/ui';
 import { RingSpinner } from '~/components/ui/RingSpinner';
 import { processAuthCallback, type CallbackFailure } from '~/features/auth/callbackFlow';
+import { leaveAuthTo } from '~/features/onboarding/firstRunExit';
 import { useFadeInUp } from '~/features/onboarding/useFadeInUp';
 import { useT } from '~/lib/i18n/I18nProvider';
 
@@ -29,7 +30,8 @@ export default function AuthCallbackScreen() {
     mounted.current = true;
     void processAuthCallback().then((result) => {
       if (!mounted.current) return;
-      if (result.kind === 'done') router.replace(result.dest as Href);
+      // 첫 실행 중(소개 랜딩 → 로그인 → OAuth)이면 소개를 지난 것으로 적고 스택을 비운 뒤 남은 단계로 — 소개 두 겹 방지(검토 M1).
+      if (result.kind === 'done') leaveAuthTo(result.dest);
       else setFailed(result.reason);
     });
     return () => {

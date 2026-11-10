@@ -4,8 +4,9 @@
 //   바탕 bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 → 토큰 gradients.landing(끝색 landing-sunset-end)
 //   광원 가운데 300×300 gold/15 blur 100 · 아래 가운데 420×280 sunset-1/20 blur 120(타원 — 원 광원을 세로로 2/3 눌러 근사)
 //   능선 viewBox 0 0 1440 240 · xMidYMax slice · 높이 max(26vh, 140) · jade 0.08/0.08/0.13/0.13
-//   반딧불이 10개(위치·주기 고정 배열) — '동작 줄이기'면 그리지 않는다.
+//   반딧불이 10개(위치·주기 고정 배열) — '동작 줄이기'면, 그리고 화면이 가려져 있으면 그리지 않는다.
 // 화면 루트(Screen 바깥)의 절대 배치 첫 자식으로 둔다 — Screen 은 bg-transparent(검토 R1 G1-02).
+import { useIsFocused } from 'expo-router';
 import { useEffect } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
@@ -106,6 +107,8 @@ function Firefly({ fly, width, height }: { fly: (typeof FIREFLIES)[number]; widt
 export function LandingBackdrop() {
   const { width, height } = useWindowDimensions();
   const reduce = useReduceMotion();
+  // 랜딩이 가려져 있으면(로그인·설정을 위에 얹음) 반딧불이를 내린다 — 보이지 않는 반복 애니메이션을 돌리지 않는다(검토 L8).
+  const focused = useIsFocused();
   const ridgeHeight = Math.max(0.26 * height, 140);
   return (
     <View
@@ -120,7 +123,7 @@ export function LandingBackdrop() {
         <Glow color="gold" opacity={0.15} size={300} blur={100} position={{ top: 0, left: 0 }} />
       </View>
       {/* 반딧불이 */}
-      {!reduce && FIREFLIES.map((fly, i) => <Firefly key={i} fly={fly} width={width} height={height} />)}
+      {!reduce && focused && FIREFLIES.map((fly, i) => <Firefly key={i} fly={fly} width={width} height={height} />)}
       {/* 아래 노을 광원 — 420×280 상자, 아래 가운데. 원(420) 광원을 세로 280/420 로 눌러 타원으로. */}
       <View style={{ position: 'absolute', bottom: 0, left: '50%', width: 420, height: 280, marginLeft: -210 }}>
         <View style={{ position: 'absolute', top: -70, left: 0, width: 420, height: 420, transform: [{ scaleY: 280 / 420 }] }}>

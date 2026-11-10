@@ -17,7 +17,7 @@
 //     replace — 소개가 밑에 남지 않는다(검토 R1 G1-01 (b)).
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Lock, Mail, User } from 'lucide-react-native';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, View, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,7 +30,8 @@ import { runOAuthSession } from '~/features/auth/oauthSession';
 import { decidePostLoginDest, DEFAULT_LOGIN_DEST, SIGNUP_DEST, safeAppNext } from '~/features/auth/postLoginDest';
 import { AUTH_CALLBACK_ROUTE } from '~/features/auth/redirect';
 import { socialProvidersFor, type OAuthProvider } from '~/features/auth/socialPolicy';
-import { getFirstRunStep, markIntroSeen, nextFirstRunRoute, noteFirstRunNavigation } from '~/features/onboarding/firstRun';
+import { getFirstRunStep, nextFirstRunRoute } from '~/features/onboarding/firstRun';
+import { leaveAuthTo } from '~/features/onboarding/firstRunExit';
 import { createPublicClient } from '~/lib/core/supabase';
 import { syncSaved } from '~/lib/core/savedFacilities';
 import { reconcileUserData } from '~/lib/core/userData';
@@ -53,12 +54,6 @@ const PROVIDER_LABEL_KEY: Record<OAuthProvider, string> = {
   kakao: 'auth.continueKakao',
 };
 
-/** 첫 실행 중 로그인으로 들어왔으면 그 아래 스택(소개 랜딩)을 비운다 — 소개가 밑에 남아 다시 얹히지 않게(R1 G1-01). */
-function leaveFirstRunStack(router: ReturnType<typeof useRouter>): void {
-  if (getFirstRunStep() === 'intro') markIntroSeen();
-  if (router.canDismiss()) router.dismissAll();
-}
-
 export default function LoginScreen() {
   const router = useRouter();
   const t = useT();
@@ -75,9 +70,19 @@ export default function LoginScreen() {
   const passwordRef = useRef<TextInput>(null);
   const nicknameRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
+  // 이 화면을 떠났는가(게스트로 진행했거나 화면이 사라졌다) — 게스트 버튼은 로그인 대기 중에도 눌리므로(웹과 같다),
+  // 늦게 끝난 로그인·OAuth 결과가 사용자가 고른 게스트 흐름을 덮어 이동하지 않게 막는다(검토 M2).
+  const leftRef = useRef(false);
+  useEffect(
+    () => () => {
+      leftRef.current = true;
+    },
+    [],
+  );
 
   // 인증 성공 후: 세션 uid 로 이전(게스트) 로컬 데이터를 격리하고 이 계정의 저장 목록을 받은 뒤 이동.
-  // replace — 뒤로 가기가 빈 로그인 폼으로 돌아오지 않게(웹과 같다).
+  // 데이터 맞추기는 떠난 뒤에도 한다(세션은 이미 바뀌었다) — 이동만 하지 않는다.
+  // replace — 뒤로 가기가 빈 로그인 폼으로 돌아오지 않게(웹과 같다). 첫 실행 중이면 스택을 비우고 남은 단계로(firstRunExit).
   const afterAuth = async (fallback: string) => {
     try {
       const {
@@ -88,14 +93,15 @@ export default function LoginScreen() {
     } catch {
       /* 무시 — 이동은 계속 */
     }
-    leaveFirstRunStack(router);
-    router.replace(decidePostLoginDest(rawNext, fallback) as Href);
+    if (leftRef.current) return;
+    leaveAuthTo(decidePostLoginDest(rawNext, fallback));
   };
 
   const handleOAuth = async (provider: OAuthProvider) => {
     if (busy) return;
     setBusy(true);
     const result = await runOAuthSession(provider, safeAppNext(rawNext, DEFAULT_LOGIN_DEST));
+    if (leftRef.current) return;
     if (result.status === 'delivered') {
       // 교환·합치기·이동은 콜백 라우트 한 곳이 한다.
       router.replace(AUTH_CALLBACK_ROUTE as Href);
@@ -120,6 +126,7 @@ export default function LoginScreen() {
       if (mode === 'login') {
         const { error, reason } = await signInWithEmail(trimmed, password);
         if (error) {
+          if (leftRef.current) return; // 이미 게스트로 떠났다 — 다른 화면에 로그인 오류를 띄우지 않는다
           toast.error(t(SIGN_IN_ERROR_KEY[reason ?? 'unknown']));
           setBusy(false);
           return;
@@ -127,6 +134,7 @@ export default function LoginScreen() {
         await afterAuth(DEFAULT_LOGIN_DEST);
       } else {
         const { error, reason, needsConfirmation } = await signUpWithEmail(trimmed, password, nickname);
+        if (leftRef.current && (error || needsConfirmation)) return;
         if (error) {
           if (reason === 'email_exists') {
             toast.error(t('login.signupEmailExists'));
@@ -150,6 +158,7 @@ export default function LoginScreen() {
         await afterAuth(SIGNUP_DEST);
       }
     } catch {
+      if (leftRef.current) return;
       toast.error(t(mode === 'login' ? 'common.error' : 'login.signupError'));
       setBusy(false);
     }
@@ -158,14 +167,11 @@ export default function LoginScreen() {
   // 게스트로 둘러보기 — 익명 세션 그대로. 첫 실행 단계(소개·동의·설정)가 남았으면 그 화면으로, 아니면 온 곳(홈).
   // 바쁠 때도 누를 수 있다(웹 — 로그인 대기 중에도 게스트로 빠질 수 있다).
   const continueAsGuest = () => {
+    // 떠났다고 먼저 적는다 — 대기 중인 로그인이 늦게 끝나도 이동하지 않는다(M2).
+    leftRef.current = true;
     if (getFirstRunStep() !== null) {
-      const dismissed = router.canDismiss();
-      leaveFirstRunStack(router);
-      const route = nextFirstRunRoute();
-      // 소개 화면이 밑에 있었으면 그 화면이 구독으로 다음 단계(동의)를 이미 그린다 — 같은 경로로 또 바꾸지 않는다.
-      if (dismissed && route === '/intro') return;
-      noteFirstRunNavigation(route);
-      router.replace(route as Href);
+      // 첫 실행 중: 소개를 지나 스택을 비우고 남은 단계로(소개가 밑에 있으면 소개가 다음 단계를 그린다).
+      leaveAuthTo(nextFirstRunRoute());
       return;
     }
     if (router.canGoBack()) {

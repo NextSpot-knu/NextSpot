@@ -107,3 +107,22 @@ export function decideTabsFirstRunRedirect(
 export function shouldTrackPageView(redirectTo: string | null): boolean {
   return redirectTo === null;
 }
+
+/**
+ * 로그인·OAuth 복귀·게스트 진행으로 로그인 화면을 떠날 때 어디로 가나(첫 실행 중이면 남은 단계, 끝났으면 목적지).
+ * stepBefore = 떠나기 직전 단계, stepAfter = 소개 단계였으면 소개를 지난 것으로 적은 뒤 다시 읽은 단계.
+ *   · dismiss: 첫 실행 중이었고 쌓인 화면이 있으면 스택을 비운다(소개 랜딩 위의 로그인·콜백). 첫 실행이 아니면 비우지 않는다.
+ *   · replaceTo: 비운 뒤 다음도 소개 화면(동의 단계)이면 null — 맨 아래 소개가 구독으로 다음 단계를 그린다
+ *     (같은 경로로 또 바꾸면 소개가 두 겹이 된다 — 검토 M1).
+ */
+export function decideFirstRunExit(
+  stepBefore: FirstRunStep | null,
+  stepAfter: FirstRunStep | null,
+  dest: string,
+  canDismiss: boolean,
+): { dismiss: boolean; replaceTo: string | null } {
+  if (stepBefore === null) return { dismiss: false, replaceTo: dest };
+  const route = stepAfter ? FIRST_RUN_ROUTES[stepAfter] : dest;
+  if (canDismiss && route === '/intro') return { dismiss: true, replaceTo: null };
+  return { dismiss: canDismiss, replaceTo: route };
+}

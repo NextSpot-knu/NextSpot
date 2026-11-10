@@ -8,6 +8,7 @@ import {
   INTRO_SEEN_KEY,
   markFlag,
   SETUP_SEEN_KEY,
+  decideFirstRunExit,
   shouldTrackPageView,
 } from './firstRunCore';
 
@@ -78,5 +79,18 @@ assert.equal(decideTabsFirstRunRedirect('intro', true), null, 'OAuth 왕복 중�
 // 첫 실행 화면으로 보낼 참이면 page_view 를 남기지 않는다
 assert.equal(shouldTrackPageView('/intro'), false);
 assert.equal(shouldTrackPageView(null), true);
+
+// 로그인·OAuth 복귀·게스트로 로그인 화면을 떠날 때(검토 M1·L3)
+// 첫 실행이 아니면 스택을 비우지 않고 목적지로
+assert.deepEqual(decideFirstRunExit(null, null, '/', true), { dismiss: false, replaceTo: '/' });
+assert.deepEqual(decideFirstRunExit(null, null, '/setup', false), { dismiss: false, replaceTo: '/setup' });
+// 소개 랜딩 위(쌓인 화면 있음) → 소개를 지나 동의 단계: 비우기만(맨 아래 소개가 동의를 그린다 — 소개 두 겹 방지)
+assert.deepEqual(decideFirstRunExit('intro', 'consent', '/', true), { dismiss: true, replaceTo: null });
+// 쌓인 화면이 없으면(콜드 스타트 OAuth 복귀) 동의 화면으로 바꾼다
+assert.deepEqual(decideFirstRunExit('intro', 'consent', '/', false), { dismiss: false, replaceTo: '/intro' });
+// 설정 단계(설정 '뒤로' 랜딩에서 로그인) → 비우고 설정으로
+assert.deepEqual(decideFirstRunExit('setup', 'setup', '/', true), { dismiss: true, replaceTo: '/setup' });
+// 소개만 남았다가 지나서 첫 실행이 끝났으면 목적지로
+assert.deepEqual(decideFirstRunExit('intro', null, '/mypage', true), { dismiss: true, replaceTo: '/mypage' });
 
 console.log('firstRun.test OK');

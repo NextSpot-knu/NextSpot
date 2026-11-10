@@ -191,6 +191,8 @@ export function GuideContent({ onNavigate, dataOpen = false, onDataLayout }: Gui
             className="text-muk"
             weight="extrabold"
             accessibilityRole="header"
+            // 큰 글자 설정에서 48px 표시 제목이 넘치지 않게 배율 상한 1.2(검토 L6).
+            maxFontSizeMultiplier={1.2}
             style={{ fontSize: heroSize, lineHeight: heroSize * 1.08, letterSpacing: -heroSize * 0.065 }}
           >
             {t('guide.heroTitle')}

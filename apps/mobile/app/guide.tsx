@@ -24,7 +24,8 @@ export default function GuidePage() {
         </Text>
         <Pressable
           accessibilityRole="link"
-          onPress={() => router.replace('/' as Href)}
+          // 홈 탭으로 — 탭이 스택 밑에 있으면 거기까지 닫고, 없으면 이 화면을 바꾼다(탭을 하나 더 쌓지 않는다, 검토 L5).
+          onPress={() => router.dismissTo('/' as Href)}
           className="min-h-[44px] shrink-0 flex-row items-center gap-[8px] rounded-full px-[12px]"
         >
           <Icon icon={ArrowLeft} size={16} color="muk" />

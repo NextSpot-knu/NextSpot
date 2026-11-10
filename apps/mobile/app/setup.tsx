@@ -9,11 +9,11 @@
 //     (뒤로 = 설정으로 돌아가지 않는다 — 웹 push 와 다른 점, G1-19).
 //   · 뒤로 버튼은 늘 있다(웹). 돌아갈 화면이 있으면 back, 첫 실행 중이라 없으면 랜딩(/intro?view=landing — 게이트 예외,
 //     안드로이드 뒤로 키도 같다 — G1-15, 검토 R1). 위 여백 32(웹 py-8).
-//   · 질문 제목의 \n 은 공백으로(웹 h2 는 white-space normal — G1-16). 칩·토글 상태는 웹 aria-pressed 와 같은 selected.
+//   · 질문 제목의 \n 은 공백으로(웹 h2 는 white-space normal — G1-16). 칩 상태는 selected(웹 aria-pressed), 토글은 네이티브 togglebutton+checked · 웹 빌드 button+selected.
 import { useRouter, type Href } from 'expo-router';
 import { ArrowLeft, Check, MapPin } from 'lucide-react-native';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { BackHandler, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, IconButton, Pressable, Screen, Text, cn } from '~/components/ui';
@@ -53,6 +53,11 @@ export default function SetupScreen() {
   const goBack = () => {
     if (router.canGoBack()) {
       router.back();
+      return;
+    }
+    // 첫 실행이 끝났는데 돌아갈 곳이 없으면(주소로 직접 연 설정) 홈 — 랜딩은 첫 실행 중에만(검토 L4).
+    if (getFirstRunStep() === null) {
+      router.replace('/' as Href);
       return;
     }
     noteFirstRunNavigation(LANDING_VIEW_ROUTE);
@@ -323,8 +328,10 @@ function ChoiceChip({ active, onPress, label }: { active: boolean; onPress: () =
 function Toggle({ active, onPress, label }: { active: boolean; onPress: () => void; label: string }) {
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
+      // 켬·끔 버튼(웹 button aria-pressed). 네이티브는 togglebutton + checked(TalkBack '켜짐/꺼짐').
+      // 웹 빌드는 react-native-web 이 togglebutton 을 모르는 role 로 그대로 내보내므로 button + selected(→ aria-pressed, Pressable).
+      accessibilityRole={Platform.OS === 'web' ? 'button' : 'togglebutton'}
+      accessibilityState={Platform.OS === 'web' ? { selected: active } : { checked: active }}
       accessibilityLabel={label}
       onPress={onPress}
       className={cn(
