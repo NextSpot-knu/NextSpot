@@ -4,9 +4,10 @@ import { colors, shadows } from '~/lib/theme/tokens';
 
 /**
  * D14(2026-11-11 '① 시험 후 ③'): 안드로이드 SDK 31 이상 + 흐릴 대상(GlassBlurTarget)이 있으면 흐림 + 35%(①).
- * 폰 시험에서 흐림이 지도(SurfaceView)를 잡지 못하거나 FPS 가 떨어지면 이 값을 false 로 — 모든 안드로이드가 70%(③).
+ * **Z Fold7 시험 전이라 기본은 꺼 둔다(③ — 모든 안드로이드 70%).** 폰에서 흐림이 구글 지도(SurfaceView)를 잡고 FPS·대비가
+ * 괜찮으면 true 로 바꾼다(웨이브 B 플랫폼 검토 M3).
  */
-export const ANDROID_GLASS_BLUR = true;
+export const ANDROID_GLASS_BLUR = false;
 
 /** D14 ③ 흐림 없는 안드로이드 유리 바탕(hanji 70%). */
 export const GLASS_BG_NO_BLUR = colors['glass-bg-android'];
@@ -36,6 +37,8 @@ export type GlassEnv = {
   reduceTransparency: boolean;
   /** 흐릴 대상(GlassBlurTarget)이 화면에 있는가 — 안드로이드 expo-blur 57 은 blurTarget 이 없으면 흐리지 않는다. */
   hasBlurTarget: boolean;
+  /** 안드로이드 흐림 켜기(기본 ANDROID_GLASS_BLUR) — 테스트·폰 시험용. */
+  androidBlur?: boolean;
 };
 
 export type GlassSurface = {
@@ -73,8 +76,9 @@ export function glassSurface(variant: GlassVariant, env: GlassEnv): GlassSurface
       backdropFilter: light ? GLASS_BACKDROP_LIGHT : GLASS_BACKDROP_RAIL,
     };
   }
+  const androidBlur = env.androidBlur ?? ANDROID_GLASS_BLUR;
   const nativeBlur =
-    env.os === 'ios' || (env.os === 'android' && ANDROID_GLASS_BLUR && env.androidApi >= 31 && env.hasBlurTarget);
+    env.os === 'ios' || (env.os === 'android' && androidBlur && env.androidApi >= 31 && env.hasBlurTarget);
   if (nativeBlur) return { ...base, tint: light ? colors['glass-bg'] : colors['rail-bg'], blur: 'native' };
   return { ...base, tint: light ? GLASS_BG_NO_BLUR : colors['rail-bg-solid'], blur: 'none' };
 }

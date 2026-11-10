@@ -21,7 +21,9 @@ assert.ok(web.boxShadow.startsWith('inset 0px 1px 0px rgba(255, 255, 255, 0.95)'
 // iOS: 흐림 + 35%
 assert.deepEqual(glassSurface('light', { ...env, os: 'ios' }).blur, 'native');
 // 안드로이드 D14: SDK 31+ 이고 흐릴 대상이 있을 때만 흐림 + 35%(①), 아니면 70%(③)
-const a31 = glassSurface('light', { ...env, os: 'android', androidApi: 34, hasBlurTarget: true });
+const a31 = glassSurface('light', { ...env, os: 'android', androidApi: 34, hasBlurTarget: true, androidBlur: true });
+// 기본(시험 전)은 흐림 꺼짐 — D14 ③
+assert.equal(glassSurface('light', { ...env, os: 'android', androidApi: 34, hasBlurTarget: true }).blur, 'none');
 assert.equal(a31.blur, 'native');
 assert.equal(a31.tint, colors['glass-bg']);
 const aNoTarget = glassSurface('light', { ...env, os: 'android', androidApi: 34 });
