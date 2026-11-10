@@ -45,6 +45,42 @@ export interface GoldenNotifyDeps {
 
 export const GOLDEN_CHANNEL_ID = 'golden-hour';
 
+/**
+ * `require('expo-notifications')` 가 가져오는 순간 requireNativeModule(없으면 throw)로 부르는 네이티브 모듈 전부
+ * (expo-notifications 57.0.25 build/*.native.js · *.android.js 와 의존 expo-application 의 ExpoApplication).
+ * 하나라도 없으면(재빌드 전 개발 빌드) 가져오지 않는다. 버전을 올리면 build 의 requireNativeModule 목록과 다시 맞춘다.
+ * iOS 에는 채널 모듈이 없고 가져오지도 않는다(*.android.js 만 부른다).
+ */
+const NOTIFICATION_NATIVE_MODULES = [
+  'ExpoBackgroundNotificationTasksModule',
+  'ExpoBadgeModule',
+  'ExpoNotificationCategoriesModule',
+  'ExpoNotificationPermissionsModule',
+  'ExpoNotificationPresenter',
+  'ExpoNotificationScheduler',
+  'ExpoNotificationsEmitter',
+  'ExpoNotificationsHandlerModule',
+  'ExpoPushTokenManager',
+  'NotificationsServerRegistrationModule',
+  'ExpoApplication',
+] as const;
+const ANDROID_ONLY_NATIVE_MODULES = ['ExpoNotificationChannelManager', 'ExpoNotificationChannelGroupManager'] as const;
+
+export function requiredNotificationModules(os: string): string[] {
+  return os === 'android' ? [...NOTIFICATION_NATIVE_MODULES, ...ANDROID_ONLY_NATIVE_MODULES] : [...NOTIFICATION_NATIVE_MODULES];
+}
+
+/** probe = expo 의 requireOptionalNativeModule(없으면 null, throw 하지 않음). 던지면 없는 것으로 본다. */
+export function nativeModulesPresent(names: readonly string[], probe: (name: string) => unknown): boolean {
+  return names.every((n) => {
+    try {
+      return probe(n) != null;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function goldenNotificationId(facilityId: string): string {
   return `nextspot-golden-${facilityId}`;
 }

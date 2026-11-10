@@ -19,6 +19,7 @@ import { shouldTrackPageView } from '~/features/onboarding/firstRun';
 import { ShellBridge } from '~/lib/appShell';
 import { AppProviders } from '~/lib/core/AppProviders';
 import { I18nProvider, useLocale, useT } from '~/lib/i18n/I18nProvider';
+import { primeGoldenNotifyHandler } from '~/lib/platform/notify';
 import { colors, fontFamilies, type FontWeightName } from '~/lib/theme/tokens';
 import type { Locale } from '@/lib/i18n/config';
 
@@ -31,6 +32,10 @@ export const unstable_settings = {
 
 // 글꼴이 실릴 때까지 스플래시를 둔다 — 모듈 범위에서 불러야 늦지 않는다(Expo SDK 57 splash-screen 문서).
 SplashScreen.preventAutoHideAsync();
+
+// 골든타임 알림이 앱이 앞에 있을 때(어느 화면이든) 와도 보이게 — 핸들러만 건다. 권한을 묻지 않고 토큰을 만들지 않는다(F1).
+// 네이티브 모듈이 없는 빌드·웹에서는 아무것도 하지 않는다.
+primeGoldenNotifyHandler();
 
 // Freesentation(OFL, 공식 배포본 2.001 TTF — assets/fonts/OFL.txt). 굵기마다 family 이름이 하나다(안드로이드).
 // 키 = tokens.fontFamilies 의 값 = 파일 이름. 이름을 바꾸면 tokens.test.ts 가 파일이 없다고 깨진다.

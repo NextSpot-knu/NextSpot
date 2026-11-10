@@ -4,7 +4,7 @@
 // 옆의 '알림 받기'(F1, D10 ①)는 그 시각에 기기 안 로컬 알림을 한 번 예약한다 — lib/platform/notify(네이티브 expo-notifications ·
 // 웹 빌드 브라우저 Notification). 권한은 누를 때만 묻고, 서버로 보내는 것이 없다. 예약 뒤에는 '예약됨'(비활성).
 import { useEffect, useRef, useState } from 'react';
-import { Platform, View } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { Bell, BellRing } from 'lucide-react-native';
 
 import { fetchGoldenHour, type GoldenHour } from '~/features/waiting/api';
@@ -31,6 +31,7 @@ export function GoldenHourBadge({ facilityId, className = '' }: { facilityId?: s
   const [golden, setGolden] = useState<GoldenHour | null>(null);
   const [notify, setNotify] = useState<GoldenNotifyState>(initialGoldenNotifyState);
   const busyRef = useRef(false);
+  const tapSeqRef = useRef(0);
 
   useEffect(() => {
     setGolden(null);
@@ -47,16 +48,26 @@ export function GoldenHourBadge({ facilityId, className = '' }: { facilityId?: s
   }, [facilityId]);
 
   // 배지가 보일 때만 — 이미 예약했는지(다시 열어도 '예약됨'), 설정에서 막혔는지 본다. 권한은 묻지 않는다.
+  // 앱이 다시 앞으로 오면(설정에서 알림을 켜고 돌아옴 등) 다시 본다 — 막혀 숨긴 버튼이 마운트를 다시 하지 않아도 돌아오게.
+  // 누름이 진행 중이거나 그 뒤에 시작된 누름이 있으면 낡은 결과로 덮지 않는다(권한 창이 닫힐 때도 'active' 가 온다).
   const hasGolden = golden != null;
   useEffect(() => {
     setNotify(initialGoldenNotifyState());
     if (!facilityId || !hasGolden) return;
     let alive = true;
-    void getGoldenNotifyState(facilityId).then((s) => {
-      if (alive) setNotify(s);
+    const refresh = () => {
+      const seq = tapSeqRef.current;
+      void getGoldenNotifyState(facilityId).then((s) => {
+        if (alive && !busyRef.current && seq === tapSeqRef.current) setNotify(s);
+      });
+    };
+    refresh();
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') refresh();
     });
     return () => {
       alive = false;
+      sub.remove();
     };
   }, [facilityId, hasGolden]);
 
@@ -68,6 +79,7 @@ export function GoldenHourBadge({ facilityId, className = '' }: { facilityId?: s
   const onNotify = async () => {
     if (scheduled || busyRef.current) return;
     busyRef.current = true;
+    tapSeqRef.current += 1;
     try {
       const outcome = await scheduleGolden({
         facilityId,

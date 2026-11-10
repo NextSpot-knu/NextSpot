@@ -32,6 +32,9 @@ function snapshot(p: BrowserPermission): PermissionSnapshot {
   return { granted: p === 'granted', canAskAgain: p === 'default' };
 }
 
+/** 네이티브 전용(앞 화면 알림 핸들러) — 브라우저는 할 일이 없다. */
+export function primeGoldenNotifyHandler(): void {}
+
 export function initialGoldenNotifyState(): GoldenNotifyState {
   return browserNotification() ? 'available' : 'hidden';
 }
