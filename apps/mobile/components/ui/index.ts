@@ -67,3 +67,7 @@ export { Skeleton, type SkeletonProps } from './Skeleton';
 export { DEFAULT_MAX_FONT_SCALE, Text, weightFromClassName, type TextProps } from './Text';
 export { AppToaster, toast } from './Toast';
 export { useReduceMotion } from './useReduceMotion';
+export { CreditLine, type CreditLineProps } from './CreditLine';
+export { Glow, GlowPair, type GlowPosition, type GlowProps } from './Glow';
+export { RankBadge, type RankBadgeProps } from './RankBadge';
+export { RingSpinner, type RingSpinnerProps } from './RingSpinner';
