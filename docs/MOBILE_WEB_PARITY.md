@@ -260,14 +260,14 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 
 | 묶음 | 내용 | 크기 | 모델 | 선행 | 재빌드 | 상태 |
 |---|---|---|---|---|---|---|
-| A1 | 모달 시트 원인·Provider 순서·Card 기본값 | S | Opus | §3 답 | 아니오 | 진행 |
-| A2 | SPOT ×100 · 직접 고른 곳 도보 분 · 킵 북마크 모양 | S–M | Sonnet | §3 답 | 아니오 | 진행 |
-| A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 끝(일부 토큰은 요청 때) |
-| B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 대기 |
-| B2 | Button·Chip·Pressable·ErrorState | M | Sonnet | A1·A3 | 아니오 | 대기 |
+| A1 | 모달 시트 원인·Provider 순서·Card 기본값 | S | Opus | §3 답 | 아니오 | 끝(e89305a) |
+| A2 | SPOT ×100 · 직접 고른 곳 도보 분 · 킵 북마크 모양 | S–M | Sonnet | §3 답 | 아니오 | 끝(d897e37) |
+| A3 | 토큰·새 문구 키·`navMetrics` | M | 메인 | §3 답 | 아니오 | 끝(60f0042, 일부 토큰은 요청 때) |
+| B1 | 글자 기본값·글꼴·keep-all·유리·Icon | L | Opus | A3 | 아니오 | 진행 |
+| B2 | Button·Chip·Pressable·ErrorState | M | Sonnet | A1·A3 | 아니오 | 진행 |
 | B3 | ModalSheet 선택 prop·AppToaster·confirmToast | M | Opus | A1·A3 | 아니오 | 대기 |
-| B4a | Glow·RingSpinner·마스코트·표지·CreditLine·RankBadge·GoldenHourBadge·자산 | M | Sonnet | A3 | 아니오 | 대기 |
-| B4b | SelectField·LanguageSwitcher·NowChip·LoadingReveal·BackCircleButton·ShareButton·가정 시간 | M | Sonnet | A3 | 아니오 | 대기 |
+| B4a | Glow·RingSpinner·마스코트·표지·CreditLine·RankBadge·GoldenHourBadge·자산 | M | Sonnet | A3 | 아니오 | 진행 |
+| B4b | SelectField·LanguageSwitcher·NowChip·LoadingReveal·BackCircleButton·ShareButton·가정 시간 | M | Sonnet | A3 | 아니오 | 진행 |
 | B5 | 지도 래퍼 | L | Opus | A3 | 아니오 | 대기 |
 | B6 | 탭 막대·탭 안 이동·하위 머리·공지·점검 | L | Opus | A1·A3 | 아니오 | 대기 |
 | D1 | 게이트·인증·랜딩·서비스 소개·404·오류 화면 | L–XL | Opus | B1·B2·B3·B4a·B4b·B6 | 아니오 | 대기 |
@@ -357,6 +357,7 @@ F  마무리:  F1 골든타임 알림(재빌드) ∥ F2 ✨ ∥ F3 작은 후속
 - 확인: G4b `cap-states.mjs err`(다시 시도 모양), G5b `05-inquiries-lab.mjs`(칩 `pressed`), G1 `cns_set.mjs s`(선택 a11y), G1 `auth.mjs l`(버튼 높이 52·46). 폰: TalkBack 상태 읽기.
 
 **B3 시트 prop·토스트·확인** — Opus, M
+- **주의(A 검토 L3)**: `isTabRoute` 는 `/explore/*`·`/mypage/*` 도 막대 있는 경로로 본다(B6 뒤의 모양). B6 가 이 화면들을 `(tabs)` 안으로 옮기기 전에 `AppToaster` 가 `useNavInsets()` 를 쓰면 그 화면 토스트가 없는 막대 위로 뜬다 — B3 는 B6 병합 뒤에 자리 연결을 켜거나, B6 와 같은 웨이브 끝에 함께 확인한다. `fromScreenBottom` 은 안전 영역을 빼지 않는다(웹 실측이 안전 영역 없는 390×844 기준).
 - ID: G3-21(혼잡 제보 모달 모양 prop), G2-13(`stackBehavior`)·17·18·27(시트 prop), G3-34·G2-G09(AppToaster·아이콘), G2-G01(토스트 자리), G3-22(`report` 채널), G5b-17(⑥ `id`), G4a-12·G5b-35(`confirmDestructive`), G4b-26.
 - 소유: `components/ui/{Sheet,Toast}.tsx`, `components/ui/confirmToast.ts`(새).
 - 확인: G2 `04b-panels.mjs`·`04c-panels.mjs`, G3 `12-toasts.mjs`. 폰: 시트 모양 회귀 없음, 확인 토스트 버튼 TalkBack.
