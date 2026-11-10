@@ -131,8 +131,8 @@ export const gradients = {
   landing: { colors: [colors.hanji, colors['hanji-deep'], colors['landing-sunset-end']], start: { x: 0.5, y: 0 }, end: { x: 0.5, y: 1 } },
   /** 로그인·가입 바탕 — 위에서 아래로 hanji → hanji-deep → 노을 끝. */
   auth: { colors: [colors.hanji, colors['hanji-deep'], colors['auth-sunset-end']], start: { x: 0.5, y: 0 }, end: { x: 0.5, y: 1 } },
-  /** 1위 순위 배지 — 135deg 금 → 금 진. */
-  goldRank: { colors: [colors.gold, colors['gold-deep']], start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+  /** 1위 순위 배지 — 135deg cta-from → 금 진(흰 숫자 5.05:1 이상, D2. 웹 금 시작은 2.64:1). */
+  goldRank: { colors: [colors['cta-from'], colors['gold-deep']], start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
   /** 마이 임팩트 카드 — 90deg 금 15% → hanji → 옥 10%. */
   impactCard: { colors: ['rgba(193, 154, 62, 0.15)', colors.hanji, 'rgba(62, 124, 106, 0.10)'], start: { x: 0, y: 0.5 }, end: { x: 1, y: 0.5 } },
   /** 마이 절약 띠 — 90deg 금 15% → hanji-deep 60% → 옥 10%. */
