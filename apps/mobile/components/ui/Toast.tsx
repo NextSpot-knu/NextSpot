@@ -1,5 +1,13 @@
-import { useMemo, type ReactNode } from 'react';
-import { Pressable as RNPressable, Text as RNText, useWindowDimensions, View } from 'react-native';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import {
+  AccessibilityInfo,
+  Platform,
+  Pressable as RNPressable,
+  Text as RNText,
+  findNodeHandle,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { Toaster, toast as sonnerToast, type ToastAction } from 'sonner-native';
@@ -16,6 +24,7 @@ import {
   TOAST_ICON,
   TOAST_STACK,
   TOAST_TEXT,
+  announcementText,
   isActionButton,
   reportToastBottom,
   toastSideMargin,
@@ -129,7 +138,8 @@ function InlineButton({ kind, label, onPress }: { kind: 'action' | 'cancel'; lab
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      hitSlop={{ top: slop, bottom: slop, left: 4, right: 4 }}
+      // 좌우는 늘리지 않는다 — 취소 가장자리를 누른 손가락이 옆의 되돌릴 수 없는 행동 버튼에 닿지 않게(위아래만 44pt 로).
+      hitSlop={{ top: slop, bottom: slop, left: 0, right: 0 }}
       style={({ pressed }) => ({
         marginLeft: 'auto',
         flexShrink: 0,
@@ -158,6 +168,33 @@ function InlineButton({ kind, label, onPress }: { kind: 'action' | 'cancel'; lab
   );
 }
 
+/**
+ * 읽기 화면에 알린다(TalkBack · VoiceOver). 안드로이드 16 은 announceForAccessibility 를 '권장하지 않음'으로 돌렸지만 아직
+ * 동작한다 — 실시간 영역(accessibilityLiveRegion)과 함께 둔다. 기본 sonner-native 토스트에는 실시간 영역이 없어 이것이 유일한 알림이다.
+ */
+function announce(title: string, description?: string) {
+  const text = announcementText(title, description);
+  if (!text) return;
+  try {
+    if (typeof AccessibilityInfo.announceForAccessibility === 'function') AccessibilityInfo.announceForAccessibility(text);
+  } catch {
+    // 알림 실패는 토스트 표시를 막지 않는다.
+  }
+}
+
+/** 행동·취소 토스트의 생애 알림(confirmDestructive 가 쓴다). */
+export type InlineToastHooks = {
+  /** 채널에 실제로 그려졌을 때(채널이 살아 있음 — 이제 sonner-native 의 시간 초과가 돈다). */
+  onShown?: () => void;
+  /** 그려졌던 토스트가 사라졌을 때(닫힘 · 시간 초과 · 채널 Toaster 해제로 콜백 없이 버려짐 모두). */
+  onGone?: () => void;
+  /** 그려지면 읽기 화면 초점을 글자 칸으로 옮긴다(화면 읽기 사용자 — 시간 안에 버튼에 닿게). */
+  focusOnShow?: boolean;
+};
+
+/** 들어오는 애니메이션(sonner-native ENTERING_ANIMATION_DURATION 300) 뒤에 초점을 옮긴다. */
+const FOCUS_DELAY_MS = 350;
+
 function InlineToast({
   id,
   variant,
@@ -165,6 +202,7 @@ function InlineToast({
   description,
   action,
   cancel,
+  hooks,
 }: {
   id: string | number;
   variant: CardVariant;
@@ -172,8 +210,37 @@ function InlineToast({
   description?: string;
   action?: ToastAction | ReactNode;
   cancel?: ToastAction | ReactNode;
+  hooks?: InlineToastHooks;
 }) {
   const { width } = useWindowDimensions();
+  const textRef = useRef<View>(null);
+  // 같은 id 로 내용이 바뀌면(새 확인) 컴포넌트는 그대로이고 hooks 만 바뀐다 — 늘 마지막 hooks 를 부른다.
+  const hooksRef = useRef(hooks);
+  hooksRef.current = hooks;
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    hooksRef.current?.onShown?.();
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
+    if (hooksRef.current?.focusOnShow && Platform.OS !== 'web') {
+      focusTimer = setTimeout(() => {
+        const tag = textRef.current ? findNodeHandle(textRef.current) : null;
+        if (tag != null) AccessibilityInfo.setAccessibilityFocus(tag);
+      }, FOCUS_DELAY_MS);
+    }
+    return () => {
+      if (focusTimer) clearTimeout(focusTimer);
+      mountedRef.current = false;
+      // 개발 StrictMode 는 효과를 '정리 → 다시 실행' 한다. 한 박자 뒤에도 다시 붙지 않았을 때만 사라진 것으로 본다.
+      setTimeout(() => {
+        if (!mountedRef.current) hooksRef.current?.onGone?.();
+      }, 0);
+    };
+  }, []);
+  // 같은 id 로 새 확인이 들어와 이미 그려진 토스트가 바뀌면, 새 hooks 에도 '그려졌음'을 알린다(다시 마운트되지 않으므로).
+  useEffect(() => {
+    if (mountedRef.current) hooks?.onShown?.();
+  }, [hooks]);
   // 웹 sonner: 버튼을 누르면(행동도) 토스트가 닫힌다. 닫기는 늘 onClick 다음 — confirmDestructive 가 답을 먼저 정한다.
   const press = (button: ToastAction) => () => {
     button.onClick();
@@ -188,7 +255,13 @@ function InlineToast({
       accessibilityLiveRegion="polite"
     >
       {variant === 'default' ? null : <ToastGlyph variant={variant} />}
-      <View style={{ flexShrink: 1 }}>
+      {/* 제목·설명을 한 칸으로 읽는다 — 그다음 칸이 [취소][행동]. */}
+      <View
+        ref={textRef}
+        style={{ flexShrink: 1 }}
+        accessible
+        accessibilityLabel={announcementText(title, description)}
+      >
         <RNText maxFontSizeMultiplier={DEFAULT_MAX_FONT_SCALE} style={TITLE_STYLE}>
           {title}
         </RNText>
@@ -207,18 +280,33 @@ function InlineToast({
 // ── toast — 웹 sonner 와 같은 호출 모양 ────────────────────────────────────────────────────────────────
 
 type SonnerToast = typeof sonnerToast;
-type ToastOptions = NonNullable<Parameters<SonnerToast>[1]>;
+export type ToastOptions = NonNullable<Parameters<SonnerToast>[1]>;
 
 let inlineSeq = 0;
 
-function show(variant: CardVariant, title: string, data: ToastOptions | undefined, plain: () => string | number) {
+function show(
+  variant: CardVariant,
+  title: string,
+  data: ToastOptions | undefined,
+  plain: () => string | number,
+  hooks?: InlineToastHooks,
+) {
+  announce(title, data?.description);
   if (!data || !(isActionButton(data.action) || isActionButton(data.cancel))) return plain();
   const { action, cancel, description, icon: _icon, ...rest } = data;
   const id = rest.id ?? `app-toast-${++inlineSeq}`;
   return sonnerToast.custom(
-    <InlineToast id={id} variant={variant} title={title} description={description} action={action} cancel={cancel} />,
+    <InlineToast id={id} variant={variant} title={title} description={description} action={action} cancel={cancel} hooks={hooks} />,
     { ...rest, id },
   );
+}
+
+/**
+ * 행동·취소 버튼 토스트를 생애 알림과 함께 띄운다 — confirmDestructive 전용(화면은 toast() 를 쓴다).
+ * data.action 이나 data.cancel 이 { label, onClick } 이어야 hooks 가 불린다.
+ */
+export function showInlineToast(title: string, data: ToastOptions, hooks: InlineToastHooks) {
+  return show('default', title, data, () => sonnerToast(title, data), hooks);
 }
 
 /**
@@ -292,6 +380,7 @@ function ReportToastBody({ message, kind }: { message: string; kind: 'success' |
  * AppToaster(채널 'report')가 그린다.
  */
 export function reportToast(message: string, kind: 'success' | 'error') {
+  announce(message);
   return sonnerToast.custom(<ReportToastBody message={message} kind={kind} />, {
     id: REPORT_TOAST.id,
     toasterId: REPORT_TOASTER_ID,

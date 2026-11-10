@@ -31,7 +31,17 @@ export const MODAL_SHEET_CLOSE_BOX: Record<ModalSheetCloseVariant, number> = {
   bordered: MODAL_SHEET_CLOSE_ICON + 8 * 2 + 2,
 };
 
-export type ModalSheetPadding = { x?: number; top?: number; bottom?: number };
+/**
+ * 머리 X 의 hitSlop — 탭 영역을 44pt 까지 넓히되 부모(내용 판) 밖으로는 넘기지 않는다. 안드로이드는 부모 밖의 hitSlop 을
+ * 받지 않아, 위 여백이 0(기본)일 때 위로 넘긴 영역은 눌리지 않고 TalkBack 의 탭 영역 판정만 어긋난다.
+ * top·right = X 가 놓인 자리(내용 여백)만큼까지.
+ */
+export function closeHitSlop(variant: ModalSheetCloseVariant, top: number, right: number, minTap = 44) {
+  const slop = Math.max(0, Math.ceil((minTap - MODAL_SHEET_CLOSE_BOX[variant]) / 2));
+  return { top: Math.min(slop, Math.max(0, top)), right: Math.min(slop, Math.max(0, right)), bottom: slop, left: slop };
+}
+
+export type ModalSheetPadding ={ x?: number; top?: number; bottom?: number };
 export type ModalSheetBackdrop = { color?: string; opacity?: number };
 
 /** 지금 모양(B3 전과 같다) — 선택 prop 을 주지 않으면 이 값. */

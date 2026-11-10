@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { navInsetsFor } from '../navigation/navMetricsCore';
 import { NAV_BAR_HEIGHT } from '../../lib/theme/tokens';
-import { REPORT_TOAST, TOAST_BUTTON, isActionButton, reportToastBottom, toastSideMargin } from './toastSpec';
+import { REPORT_TOAST, TOAST_BUTTON, announcementText, isActionButton, reportToastBottom, toastSideMargin } from './toastSpec';
 
 // 폭: 폰(≤600)은 좌우 16 → 390 폭에서 358(웹 측정 16,770,358,58).
 assert.equal(toastSideMargin(390), 16);
@@ -32,5 +32,12 @@ assert.equal(isActionButton({ label: '보기', onClick: () => undefined }), true
 assert.equal(isActionButton(undefined), false);
 assert.equal(isActionButton({ label: '보기' }), false);
 assert.equal(isActionButton('보기'), false);
+
+// 읽기 화면 알림 문구.
+assert.equal(announcementText('취향 프로필에 반영했어요'), '취향 프로필에 반영했어요');
+assert.equal(announcementText('모든 저장된 스팟을 초기화할까요?', '삭제된 목록은 되돌릴 수 없습니다.'), '모든 저장된 스팟을 초기화할까요? 삭제된 목록은 되돌릴 수 없습니다.');
+assert.equal(announcementText('설정 초기화', '되돌릴 수 없어요'), '설정 초기화. 되돌릴 수 없어요');
+assert.equal(announcementText('  ', '설명만'), '설명만');
+assert.equal(announcementText('', ''), '');
 
 console.log('toastSpec ok');

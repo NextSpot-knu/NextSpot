@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { colors } from '../../lib/theme/tokens';
 import {
   MODAL_SHEET_CLOSE_BOX,
+  closeHitSlop,
   resolveBackdrop,
   resolveContentPadding,
   sheetSideMargin,
@@ -45,5 +46,11 @@ assert.deepEqual(sheetSurface('hanji', false, 'android'), {
 assert.equal(sheetSurface('hanji', true, 'web').borderWidth, 1);
 // 머리 X 상자: p-1.5 → 30, p-2 → 34, 흰 원 테두리 → 36.
 assert.deepEqual(MODAL_SHEET_CLOSE_BOX, { muted: 30, plain: 34, bordered: 36 });
+
+// 머리 X hitSlop: 44 까지 넓히되 위·오른쪽은 내용 여백 안에서만(안드로이드는 부모 밖 hitSlop 을 받지 않는다).
+assert.deepEqual(closeHitSlop('muted', 24, 24), { top: 7, right: 7, bottom: 7, left: 7 });
+assert.deepEqual(closeHitSlop('muted', 0, 16), { top: 0, right: 7, bottom: 7, left: 7 });
+assert.deepEqual(closeHitSlop('bordered', 12, 16), { top: 4, right: 4, bottom: 4, left: 4 });
+assert.deepEqual(closeHitSlop('plain', 3, 0), { top: 3, right: 0, bottom: 5, left: 5 });
 
 console.log('modalSheetSpec ok');

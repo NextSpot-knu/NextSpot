@@ -28,6 +28,7 @@ import { MODAL_SHEET_INITIAL, modalSheetReduce, type ModalSheetEvent, type Modal
 import {
   MODAL_SHEET_CLOSE_BOX,
   MODAL_SHEET_CLOSE_ICON,
+  closeHitSlop,
   resolveBackdrop,
   resolveContentPadding,
   sheetSideMargin,
@@ -500,7 +501,8 @@ export function ModalSheet({
       {...CONTAINER_A11Y}
     >
       <BottomSheetView style={padding}>
-        {children}
+        {/* 머리 X 는 트리 맨 앞 — 읽기 화면이 시트에 들어오자마자 닫기를 만난다(맨 뒤면 옵션을 다 지나야 닿는다).
+            그림·터치 순서는 zIndex 로 내용 위에 둔다. */}
         {closeButton ? (
           <SheetCloseButton
             variant={closeButton}
@@ -511,12 +513,16 @@ export function ModalSheet({
             right={padding.paddingHorizontal}
           />
         ) : null}
+        {children}
       </BottomSheetView>
     </BottomSheetModal>
   );
 }
 
-/** 머리 X — 내용 여백 안 오른쪽 위에 겹친다. 보이는 상자는 웹 값(MODAL_SHEET_CLOSE_BOX), 탭 영역은 hitSlop 으로 44pt. */
+/**
+ * 머리 X — 내용 여백 안 오른쪽 위에 겹친다. 보이는 상자는 웹 값(MODAL_SHEET_CLOSE_BOX), 탭 영역은 hitSlop 으로 44pt 까지 —
+ * 단 내용 판 밖으로는 넘기지 않는다(closeHitSlop: 안드로이드는 부모 밖 hitSlop 을 받지 않는다).
+ */
 function SheetCloseButton({
   variant,
   label,
@@ -533,7 +539,6 @@ function SheetCloseButton({
   right: number;
 }) {
   const box = MODAL_SHEET_CLOSE_BOX[variant];
-  const slop = Math.max(0, Math.ceil((MIN_TAP - box) / 2));
   return (
     <Pressable
       accessibilityRole="button"
@@ -541,9 +546,19 @@ function SheetCloseButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      hitSlop={{ top: slop, bottom: slop, left: slop, right: slop }}
+      hitSlop={closeHitSlop(variant, top, right, MIN_TAP)}
       style={[
-        { position: 'absolute', top, right, width: box, height: box, borderRadius: box / 2, alignItems: 'center', justifyContent: 'center' },
+        {
+          position: 'absolute',
+          zIndex: 1,
+          top,
+          right,
+          width: box,
+          height: box,
+          borderRadius: box / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
         variant === 'bordered' ? { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.line } : null,
       ]}
     >

@@ -76,6 +76,18 @@ export function reportToastBottom(bottomInset: number): number {
   return REPORT_TOAST.bottom + bottomInset;
 }
 
+/**
+ * 읽기 화면 알림 문구 — 제목과 설명을 한 번에 읽는다. 제목이 문장 부호로 끝나지 않으면 마침표로 쉬게 한다.
+ * 빈 값은 빈 문자열(알리지 않는다).
+ */
+export function announcementText(title: string, description?: string): string {
+  const head = title.trim();
+  const tail = description?.trim() ?? '';
+  if (!tail) return head;
+  if (!head) return tail;
+  return /[.!?。！？…]$/.test(head) ? `${head} ${tail}` : `${head}. ${tail}`;
+}
+
 /** sonner-native ToastAction 판별(isToastAction 과 같은 규칙 — 라이브러리 함수는 공개되지 않았다). */
 export function isActionButton(value: unknown): value is { label: string; onClick: () => void } {
   return (
