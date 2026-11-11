@@ -124,6 +124,7 @@ DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
 -- 사용자 행동 기록(20261112090000) — 서버 도장 · 추가만 가드 트리거 함수와 개발자 전용 읽기 RPC 둘.
 DROP FUNCTION IF EXISTS public.action_logs_stamp() CASCADE;
 DROP FUNCTION IF EXISTS public.action_logs_guard() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_batch_cap() CASCADE;
 DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
