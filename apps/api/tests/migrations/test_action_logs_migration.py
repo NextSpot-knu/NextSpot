@@ -214,7 +214,22 @@ def test_indexes_cover_time_device_account_and_event_lookups():
     assert "on public.action_logs (device_id, received_at);" in sql
     assert "on public.action_logs (user_id, received_at) where user_id is not null;" in sql
     assert "on public.action_logs (event, received_at desc);" in sql
-    assert sql.count("create index if not exists idx_action_logs_") == 4
+    assert "on public.action_logs (ip, received_at) where ip is not null;" in sql
+    assert sql.count("create index if not exists idx_action_logs_") == 5
+    # 브라우저 재전송으로 같은 줄이 두 번 들어가지 않게(웹은 409 를 '이미 저장됨'으로 본다).
+    assert "create unique index if not exists uq_action_logs_session_seq on public.action_logs (session_id, seq) where seq is not null;" in sql
+
+
+def test_public_insert_is_bounded_per_request_and_per_ip():
+    sql = _norm(_CODE)
+    # 요청 하나에 50줄 — 웹 묶음 상한(ACTION_LOG_LIMITS.batchRows)과 같다.
+    assert "referencing new table as new_rows for each statement execute function public.action_logs_batch_cap();" in sql
+    assert "(select count(*) from new_rows) > 50" in sql
+    assert "revoke all on function public.action_logs_batch_cap() from public, anon, authenticated;" in sql
+    # 같은 IP 1분 600줄을 넘으면 조용히 버린다(RETURN NULL) — 1년 동안 지울 수 없는 표라서.
+    stamp = sql[sql.index("function public.action_logs_stamp()"):sql.index("create trigger action_logs_stamp")]
+    assert "l.ip = new.ip and l.received_at > now() - interval '1 minute'" in stamp
+    assert ">= 600 then return null;" in stamp
 
 
 def test_one_year_retention_is_scheduled_once():

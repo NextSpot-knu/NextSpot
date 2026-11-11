@@ -63,6 +63,7 @@ DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
 -- 사용자 행동 기록(20261112090000) — 서버 도장 · 추가만 가드 트리거 함수와 개발자 전용 읽기 RPC 둘.
 DROP FUNCTION IF EXISTS public.action_logs_stamp() CASCADE;
 DROP FUNCTION IF EXISTS public.action_logs_guard() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_batch_cap() CASCADE;
 DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
@@ -5614,6 +5615,16 @@ BEGIN
     ), 64);
     NEW.ip_chain := left(v_xff, 300);
     NEW.user_agent := left(NULLIF(btrim(v_headers ->> 'user-agent'), ''), 400);
+
+    -- 남용 방지: anon 키는 번들에 공개돼 있고, 이 표는 1년 동안 지울 수 없다. 같은 IP 에서 1분에 600줄을 넘으면
+    -- 조용히 버린다(탭 하나는 1분에 많아야 수십 줄 — 심사장처럼 IP 를 함께 써도 닿기 어렵다). 묶음 크기 상한은
+    -- 아래 action_logs_batch_cap. IP 를 꾸밀 수 있는 헤더라면 이 문턱도 우회된다 — 배포 뒤 헤더 확인(파일 끝).
+    IF NEW.ip IS NOT NULL AND (
+        SELECT count(*) FROM public.action_logs AS l
+         WHERE l.ip = NEW.ip AND l.received_at > now() - interval '1 minute'
+    ) >= 600 THEN
+        RETURN NULL;
+    END IF;
     RETURN NEW;
 END;
 $$;
@@ -5624,6 +5635,28 @@ DROP TRIGGER IF EXISTS action_logs_stamp ON public.action_logs;
 CREATE TRIGGER action_logs_stamp
     BEFORE INSERT ON public.action_logs
     FOR EACH ROW EXECUTE FUNCTION public.action_logs_stamp();
+
+-- 요청 하나에 50줄까지(웹 묶음 상한과 같다 — lib/actionLog.ts ACTION_LOG_LIMITS.batchRows). 넘으면 묶음 전체 거절.
+CREATE OR REPLACE FUNCTION public.action_logs_batch_cap()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- 브라우저 경유 두 역할에만 건다(SQL Editor·service_role 의 정리·이관은 막지 않는다).
+    IF current_user IN ('anon', 'authenticated') AND (SELECT count(*) FROM new_rows) > 50 THEN
+        RAISE EXCEPTION 'action_logs_batch_too_large' USING ERRCODE = '22023';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.action_logs_batch_cap() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS action_logs_batch_cap ON public.action_logs;
+CREATE TRIGGER action_logs_batch_cap
+    AFTER INSERT ON public.action_logs
+    REFERENCING NEW TABLE AS new_rows
+    FOR EACH STATEMENT EXECUTE FUNCTION public.action_logs_batch_cap();
 
 -- ── 3. 추가만 — UPDATE 언제나 · 365일 안 DELETE · TRUNCATE 거절 ─────────────────────────────────────────
 -- SECURITY INVOKER(기본값): OLD 와 now() 만 본다.
@@ -5703,6 +5736,9 @@ CREATE INDEX IF NOT EXISTS idx_action_logs_event_received_at
     ON public.action_logs (event, received_at DESC);
 -- 브라우저 전송은 '적어도 한 번'이다(재시도·탭 복제). 같은 (session_id, seq) 가 두 번 오면 409 — 웹은 그 줄만 버린다
 -- (lib/actionLog.ts 의 묶음 반 나누기). 기록이 두 번 세지지 않게 한다.
+CREATE INDEX IF NOT EXISTS idx_action_logs_ip_received_at
+    ON public.action_logs (ip, received_at)
+    WHERE ip IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_action_logs_session_seq
     ON public.action_logs (session_id, seq)
     WHERE seq IS NOT NULL;
@@ -5969,4 +6005,10 @@ GRANT EXECUTE ON FUNCTION public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT,
 --    -- 1년 보관 예약이 하나 있는가:
 --    select jobid, jobname, schedule, command from cron.job where jobname = 'nextspot-action-logs-retention';
 --    -- 가드 트리거 넷(action_logs_stamp · action_logs_no_update · action_logs_no_recent_delete · action_logs_no_truncate):
---    select tgname from pg_trigger where tgrelid = 'public.action_logs'::regclass and not tgisinternal order by 1;
+--    select tgname from pg_trigger where tgrelid = 'public.action_logs'::regclass and not tgisinternal order by 1;  -- 5개
+--
+-- 스팸이 쌓였을 때(사람 판단 뒤, 표 소유자 postgres 로 SQL Editor 에서):
+--    ALTER TABLE public.action_logs DISABLE TRIGGER action_logs_no_recent_delete;
+--    DELETE FROM public.action_logs WHERE <범위 — ip·device_id·received_at>;
+--    ALTER TABLE public.action_logs ENABLE TRIGGER action_logs_no_recent_delete;
+--    지운 범위·이유는 HANDOVER 에 남긴다(증빙 표라 지운 사실 자체가 기록이어야 한다).
