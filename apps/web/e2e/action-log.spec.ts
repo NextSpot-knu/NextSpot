@@ -7,7 +7,9 @@ import { stubFakeKakaoMap } from './support/fakeKakaoMap';
 //
 // 이 기록은 운영 주소의 사람 브라우저에서만 켜진다. Playwright 는 navigator.webdriver=true 라 원래 꺼지므로
 // window.__NEXTSPOT_ACTION_LOG__='force' 로 켠다(addInitScript — 앱 스크립트보다 먼저). POST /rest/v1/action_logs 는
-// 201 로 받아 몸통(줄 배열)을 모은다. 나머지 외부 호출은 support/stubs 가 막는다.
+// DB 계약대로 받는다 — 정확히 9칸 · 이벤트 16종 · 요청당 50줄 이하 · props JSON 4096 바이트 이하가 아니면 400 을 주고 위반으로
+// 적어 테스트를 떨어뜨린다. 이미 받은 (session_id, seq) 가 섞이면 실제 유일 인덱스처럼 묶음 전체를 409(23505)로 돌려준다.
+// 나머지 외부 호출은 support/stubs 가 막는다.
 //
 // 지키는 것: 방문 하나가 session_start · page_view · click · search 를 남긴다 · 화면 이동은 nav=route 로 이어진다 ·
 // 로그인 칸에 친 이메일·비밀번호는 어떤 줄에도 없다 · 주소창·시설의 좌표도 어떤 줄에도 없다.
@@ -24,8 +26,40 @@ interface LogRow {
   props: Record<string, unknown>;
 }
 
+/** DB 의 action_logs 가 브라우저에게 받는 칸(나머지는 트리거가 찍는다) — supabase/migrations/20261112090000_action_logs.sql. */
+const ROW_KEYS = ['device_id', 'event', 'host', 'locale', 'occurred_at', 'page', 'props', 'seq', 'session_id'];
+/** DB CHECK 의 이벤트 16종. */
+const EVENTS = new Set([
+  'session_start', 'page_view', 'click', 'input', 'submit', 'search', 'voice', 'key', 'swipe', 'scroll', 'map',
+  'visibility', 'heartbeat', 'api', 'error', 'auth',
+]);
+
+/** 이 몸통이 DB 계약을 어기는 까닭(없으면 null). */
+function contractViolation(body: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return 'body is not JSON';
+  }
+  if (!Array.isArray(parsed)) return 'body is not an array';
+  if (parsed.length === 0) return 'empty batch';
+  if (parsed.length > 50) return `batch of ${parsed.length} rows (> 50, action_logs_batch_too_large)`;
+  for (const row of parsed as Record<string, unknown>[]) {
+    const keys = row && typeof row === 'object' ? Object.keys(row).sort() : [];
+    if (JSON.stringify(keys) !== JSON.stringify(ROW_KEYS)) return `row keys ${keys.join(',')}`;
+    if (!EVENTS.has(String(row.event))) return `unknown event ${String(row.event)}`;
+    if (!row.props || typeof row.props !== 'object' || Array.isArray(row.props)) return 'props is not an object';
+    const propsBytes = Buffer.byteLength(JSON.stringify(row.props), 'utf8');
+    if (propsBytes > 4096) return `props ${propsBytes} bytes (> 4096)`;
+  }
+  return null;
+}
+
 interface Captured {
   bodies: string[];
+  /** DB 계약 위반(400 으로 돌려준 몸통의 까닭) — 비어 있어야 한다. */
+  violations: string[];
   headers: Record<string, string>[];
   /** (session_id, seq) 로 하나씩 — 다시 보내기로 같은 줄이 두 번 와도 한 줄로 본다. */
   rows: () => LogRow[];
@@ -35,6 +69,7 @@ interface Captured {
 
 async function captureActionLogs(page: Page): Promise<Captured> {
   const bodies: string[] = [];
+  const violations: string[] = [];
   const headers: Record<string, string>[] = [];
   const byKey = new Map<string, LogRow>();
   const conflicts: string[] = [];
@@ -45,25 +80,33 @@ async function captureActionLogs(page: Page): Promise<Captured> {
   await page.route('**/rest/v1/action_logs**', async (route) => {
     const request = route.request();
     const body = request.postData() ?? '';
+    const cors = { 'Access-Control-Allow-Origin': request.headers().origin ?? '*' };
     bodies.push(body);
     headers.push(request.headers());
-    try {
-      for (const row of JSON.parse(body) as LogRow[]) {
-        const key = `${row.session_id}#${row.seq}`;
-        const seen = byKey.get(key);
-        if (seen && JSON.stringify(seen) !== JSON.stringify(row)) conflicts.push(key);
-        else byKey.set(key, row);
-      }
-    } catch {
-      /* 배열이 아닌 몸통은 아래 검사가 잡는다 */
+    const violation = contractViolation(body);
+    if (violation) {
+      violations.push(violation);
+      await route.fulfill({ status: 400, headers: cors, contentType: 'application/json', body: JSON.stringify({ code: '23514', message: violation }) });
+      return;
     }
-    await route.fulfill({
-      status: 201,
-      headers: { 'Access-Control-Allow-Origin': request.headers().origin ?? '*' },
-      body: '',
-    });
+    const rows = JSON.parse(body) as LogRow[];
+    // (session_id, seq) 유일 인덱스 — 이미 받은 줄이 하나라도 있으면 한 문장 INSERT 전체가 실패한다.
+    const duplicate = rows.find((row) => byKey.has(`${row.session_id}#${row.seq}`));
+    if (duplicate) {
+      const seen = byKey.get(`${duplicate.session_id}#${duplicate.seq}`);
+      if (JSON.stringify(seen) !== JSON.stringify(duplicate)) conflicts.push(`${duplicate.session_id}#${duplicate.seq}`);
+      await route.fulfill({
+        status: 409,
+        headers: cors,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: '23505', message: 'duplicate key value violates unique constraint "uq_action_logs_session_seq"' }),
+      });
+      return;
+    }
+    for (const row of rows) byKey.set(`${row.session_id}#${row.seq}`, row);
+    await route.fulfill({ status: 201, headers: cors, body: '' });
   });
-  return { bodies, headers, rows: () => [...byKey.values()], conflicts: () => [...conflicts] };
+  return { bodies, violations, headers, rows: () => [...byKey.values()], conflicts: () => [...conflicts] };
 }
 
 const FACILITY = {
@@ -130,6 +173,7 @@ test('a guest visit leaves session_start, page_view, click and search rows — a
   expect(new Set(rows.map((r) => r.session_id)).size).toBe(1);
   expect(rows.every((r) => Number.isInteger(r.seq) && r.seq >= 0)).toBe(true);
   expect(log.conflicts()).toEqual([]);
+  expect(log.violations).toEqual([]);
   const start = rows.find((r) => r.event === 'session_start')!;
   expect(start.seq).toBe(0);
   expect(start.host).toBe(new URL(page.url()).host);
@@ -203,6 +247,7 @@ test('an email and a password typed on the login form never reach the log', asyn
   expect(submitted.props).not.toHaveProperty('q');
 
   const all = log.bodies.join('\n');
+  expect(log.violations).toEqual([]);
   expect(all).not.toContain(email);
   expect(all).not.toContain('example.invalid');
   expect(all).not.toContain(password);
