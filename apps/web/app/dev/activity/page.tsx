@@ -493,6 +493,13 @@ function ActivityConsole() {
           <span>
             기록은 쌓이기만 하고 고치거나 지울 수 없으며, 1년 동안 보관돼요. 이 화면은 연 것만 남고, 여기서 누르거나
             내려받은 것은 기록되지 않아요. 시각은 모두 한국 시간(KST)이고 서버가 받은 시각 기준이에요.
+            <span className="mt-1 block">
+              증빙은 <b className="font-semibold text-jade">서버가 찍은 값</b>(받은 시각 received_at · 계정 · IP ·
+              브라우저 UA)으로 읽으세요. 브라우저 시각(occurred_at) · 화면 · 내용 · seq 는{' '}
+              <b className="font-semibold text-muk">브라우저가 보낸 값</b>이라 기기 시계가 틀리면 같이 틀려요. 못 보낸
+              기록은 다음 방문 때 다시 보내므로 서버에 늦게 들어올 수 있어, 세션 안은 seq(브라우저 순번) 순으로 보여요.
+              CSV 열 이름도 server_ · browser_ 로 나뉘어요.
+            </span>
           </span>
         </p>
 
@@ -654,7 +661,7 @@ function ActivityConsole() {
             />
           ) : (
             <p className="py-6 text-center text-sm text-muk-soft">
-              위 표에서 기기를 고르면 그 기기의 기록이 세션별·시간순으로 보여요.
+              위 표에서 기기를 고르면 그 기기의 기록이 세션별로(세션 안은 브라우저 순번 seq 순) 보여요.
             </p>
           )}
         </section>
@@ -1236,6 +1243,10 @@ const SessionBlock = memo(function SessionBlock({ group, filter }: { group: Sess
   const startMs = parseTimestamp(group.startAt);
   const endMs = parseTimestamp(group.endAt);
   const sameDay = startMs !== null && endMs !== null && kstDay(startMs) === kstDay(endMs);
+  const clientStartMs = parseTimestamp(group.clientStartAt);
+  const clientEndMs = parseTimestamp(group.clientEndAt);
+  const clientSameDay =
+    clientStartMs !== null && clientEndMs !== null && kstDay(clientStartMs) === kstDay(clientEndMs);
   const accounts = group.accounts.filter((a) => a.email || !a.anonymous);
   const guests = group.accounts.length - accounts.length;
 
@@ -1245,10 +1256,37 @@ const SessionBlock = memo(function SessionBlock({ group, filter }: { group: Sess
         <span className="font-mono font-semibold text-muk" title={group.sessionId ?? ''}>
           세션 {group.sessionId ? shortId(group.sessionId) : '(없음)'}
         </span>
-        <span className="font-mono tabular-nums">
-          {formatKst(group.startAt, 'second') || '—'} → {formatKst(group.endAt, sameDay ? 'time' : 'second') || '—'}
+        <span
+          className="inline-flex flex-wrap items-center gap-x-1.5 text-muk"
+          title="서버가 받은 시각(received_at) 기준 — 증빙은 이 값으로 읽는다. 늦게 다시 보낸 기록이 있으면 끝이 그만큼 늘어난다."
+        >
+          <SourceTag source="server" />
+          <span className="font-mono tabular-nums">
+            {formatKst(group.startAt, 'second') || '—'} → {formatKst(group.endAt, sameDay ? 'time' : 'second') || '—'}
+          </span>
+          {group.durationS !== null && <span>{formatDuration(group.durationS)}</span>}
         </span>
-        {group.durationS !== null && <span>{formatDuration(group.durationS)}</span>}
+        {group.clientStartAt && (
+          <span
+            className="inline-flex flex-wrap items-center gap-x-1.5"
+            title="브라우저 시계(occurred_at) 기준 — 참고값. 기기 시계가 틀리면 같이 틀리지만, 늦게 도착한 기록에 길이가 늘어나지 않는다."
+          >
+            <SourceTag source="browser" />
+            <span className="font-mono tabular-nums">
+              {formatKst(group.clientStartAt, 'second') || '—'} →{' '}
+              {formatKst(group.clientEndAt, clientSameDay ? 'time' : 'second') || '—'}
+            </span>
+            {group.clientDurationS !== null && <span>{formatDuration(group.clientDurationS)}</span>}
+          </span>
+        )}
+        {group.lateRows > 0 && (
+          <span
+            className="font-semibold text-terracotta"
+            title="seq 로는 앞인데 뒤 순번보다 서버에 늦게 들어온 기록(보내지 못해 다음 방문 때 다시 보낸 것). 표는 seq 순이라 서버 시각이 거꾸로 가는 줄이 있다."
+          >
+            늦게 도착 {fmt(group.lateRows)}건
+          </span>
+        )}
         <span>
           이벤트 {fmt(group.events)} · 화면 이동 {fmt(group.pageViews)} · 클릭 {fmt(group.clicks)}
         </span>
@@ -1285,8 +1323,20 @@ const SessionBlock = memo(function SessionBlock({ group, filter }: { group: Sess
               <col className="w-[118px]" />
             </colgroup>
             <thead className="bg-white text-[11px] text-muk-soft">
+              {/* 출처 묶음 — 서버가 찍은 칸(초록 바탕)과 브라우저가 보낸 칸을 가른다. 증빙은 서버 칸으로 읽는다. */}
+              <tr className="text-[10px]">
+                <th scope="colgroup" className={`${SERVER_CELL} px-2.5 pt-1.5 font-semibold text-jade`}>
+                  서버가 찍음
+                </th>
+                <th scope="colgroup" colSpan={6} className="border-x border-line px-2.5 pt-1.5 font-semibold">
+                  브라우저가 보냄 (참고값 · 기기 시계)
+                </th>
+                <th scope="colgroup" colSpan={2} className={`${SERVER_CELL} px-2.5 pt-1.5 font-semibold text-jade`}>
+                  서버가 찍음
+                </th>
+              </tr>
               <tr>
-                <th scope="col" className={`${TD} font-semibold`}>서버 시각</th>
+                <th scope="col" className={`${TD} ${SERVER_CELL} font-semibold`}>서버 시각</th>
                 <th
                   scope="col"
                   className={`${TD} font-semibold`}
@@ -1295,12 +1345,14 @@ const SessionBlock = memo(function SessionBlock({ group, filter }: { group: Sess
                   시각 차이
                 </th>
                 <th scope="col" className={`${TD} font-semibold`}>세션</th>
-                <th scope="col" className={`${TD} font-semibold`}>#seq</th>
+                <th scope="col" className={`${TD} font-semibold`} title="세션 안 브라우저 순번 — 표는 이 순서(오름차순)다.">
+                  #seq ↑
+                </th>
                 <th scope="col" className={`${TD} font-semibold`}>이벤트</th>
                 <th scope="col" className={`${TD} font-semibold`}>화면</th>
                 <th scope="col" className={`${TD} font-semibold`}>내용</th>
-                <th scope="col" className={`${TD} font-semibold`}>계정</th>
-                <th scope="col" className={`${TD} font-semibold`}>IP</th>
+                <th scope="col" className={`${TD} ${SERVER_CELL} font-semibold`}>계정</th>
+                <th scope="col" className={`${TD} ${SERVER_CELL} font-semibold`}>IP</th>
               </tr>
             </thead>
             <tbody>
@@ -1315,6 +1367,20 @@ const SessionBlock = memo(function SessionBlock({ group, filter }: { group: Sess
   );
 });
 
+/** 서버가 찍은 값(받은 시각 · 계정 · IP)의 칸 바탕 — 브라우저가 보낸 칸과 한눈에 갈리게. */
+const SERVER_CELL = 'bg-jade/5';
+
+/** 시각 앞의 출처 꼬리표 — 세션 머리의 두 시각(서버 · 브라우저 시계)을 가른다. */
+function SourceTag({ source }: { source: 'server' | 'browser' }) {
+  return source === 'server' ? (
+    <span className="rounded border border-jade/40 bg-jade/10 px-1.5 text-[10px] font-semibold text-jade">서버</span>
+  ) : (
+    <span className="rounded border border-line bg-white px-1.5 text-[10px] font-semibold text-muk-soft">
+      브라우저 시계
+    </span>
+  );
+}
+
 function eventTone(event: string): string {
   if (event === 'error') return 'font-semibold text-terracotta';
   if (event === 'auth') return 'font-semibold text-jade';
@@ -1328,7 +1394,10 @@ function TimelineRow({ row }: { row: ActionLogRow }) {
   const summary = summarizeProps(row.event, row.props);
   return (
     <tr className="border-t border-line align-top">
-      <td className={`${TD} whitespace-nowrap font-mono tabular-nums`} title={formatKst(row.received_at, 'full')}>
+      <td
+        className={`${TD} ${SERVER_CELL} whitespace-nowrap font-mono tabular-nums`}
+        title={`서버가 받은 시각 ${formatKst(row.received_at, 'full')}`}
+      >
         {formatKst(row.received_at, 'second') || '—'}
       </td>
       <td
@@ -1349,7 +1418,7 @@ function TimelineRow({ row }: { row: ActionLogRow }) {
         {row.page || '—'}
       </td>
       <td className={`${TD} break-words`}>{summary || <span className="text-muk-soft">—</span>}</td>
-      <td className={TD}>
+      <td className={`${TD} ${SERVER_CELL}`}>
         {account ? (
           <span className="flex flex-wrap items-center gap-1">
             {judge && <JudgeBadge />}
@@ -1359,7 +1428,7 @@ function TimelineRow({ row }: { row: ActionLogRow }) {
           <span className="text-muk-soft">—</span>
         )}
       </td>
-      <td className={`${TD} truncate font-mono`} title={ipChainText(row.ip_chain) || (row.ip ?? '')}>
+      <td className={`${TD} ${SERVER_CELL} truncate font-mono`} title={ipChainText(row.ip_chain) || (row.ip ?? '')}>
         {row.ip || '—'}
       </td>
     </tr>

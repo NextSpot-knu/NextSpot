@@ -27,7 +27,7 @@ export const HEARTBEAT_INTERVAL_S = 30;
 export const DEVICE_LIST_MAX = 1000;
 
 // =========================================================================
-// 행 타입 — RPC 가 주는 이름(snake_case)을 그대로 쓴다. CSV 열 이름도 이것이다.
+// 행 타입 — RPC 가 주는 이름(snake_case)을 그대로 쓴다. 행 CSV 열 이름은 여기에 출처 앞머리(server_·browser_)를 붙인다.
 // =========================================================================
 
 export const ACTION_LOG_EVENTS = [
@@ -874,11 +874,21 @@ export function rowAccountLabel(row: ActionLogRow): string {
 export interface SessionGroup {
   /** 행의 session_id. 없던 행끼리는 null 한 묶음. */
   sessionId: string | null;
+  /** 세션 안 순서는 seq(브라우저 순번) 오름차순 — compareSessionRows. session_id 없는 묶음만 id 순. */
   rows: ActionLogRow[];
-  /** 서버가 받은 시각(received_at) 기준 — 브라우저 시계는 틀릴 수 있다. */
+  /** 서버가 받은 시각(received_at) 기준 — 증빙은 이 값으로 읽는다. 늦게 다시 보낸 행이 있으면 끝이 늘어난다. */
   startAt: string | null;
   endAt: string | null;
   durationS: number | null;
+  /** 브라우저 시계(occurred_at) 기준 — 참고값. 기기 시계가 틀리면 같이 틀리지만, 늦게 도착한 행에 늘어나지 않는다. */
+  clientStartAt: string | null;
+  clientEndAt: string | null;
+  clientDurationS: number | null;
+  /**
+   * 늦게 도착한 행 수 — seq 로는 앞인데 뒤 순번 행보다 서버에 늦게 들어온 행(보관함에 남았다가 다음 방문에 다시 보낸 것).
+   * 0 이 아니면 seq 순으로 놓은 표에서 서버 시각이 거꾸로 가는 줄이 있다.
+   */
+  lateRows: number;
   events: number;
   pageViews: number;
   clicks: number;
@@ -891,77 +901,133 @@ export interface SessionGroup {
   firstPage: string | null;
 }
 
-/** 세션별로 묶어 시작 시각 순으로 낸다. 각 묶음 안의 행 순서는 들어온 그대로(id 오름차순)다. */
-export function groupBySession(rows: readonly ActionLogRow[]): SessionGroup[] {
-  interface Acc extends SessionGroup {
-    startMs: number;
-    endMs: number;
-    seenAccounts: Set<string>;
+/**
+ * 세션 안 행 순서 — seq 오름차순, seq 가 같으면 id. seq 가 없는 행은 seq 있는 행 뒤에 id 순.
+ *
+ * received_at(=id) 순은 행동 순서가 아니다: 보내지 못한 행은 브라우저 보관함(localStorage)에 남았다가
+ * 다음 방문 때 다시 보내지므로, 앞선 행동이 뒤 행동보다 늦게 들어온다. seq 는 세션 안에서 브라우저가 매긴 순번이다.
+ * (seq 없음을 '맨 뒤'로 고정해야 비교가 추이적이다 — 'seq 가 둘 다 있을 때만 seq' 로 하면 순환이 생긴다.)
+ */
+export function compareSessionRows(a: ActionLogRow, b: ActionLogRow): number {
+  if (a.seq !== null && b.seq !== null) {
+    if (a.seq !== b.seq) return a.seq - b.seq;
+  } else if (a.seq !== null) {
+    return -1;
+  } else if (b.seq !== null) {
+    return 1;
   }
-  const groups = new Map<string, Acc>();
+  return a.id - b.id;
+}
+
+/** 행들 중 가장 이른·늦은 시각(원문 문자열 + ms). 하나도 못 읽으면 null 들. */
+function timeSpan(rows: readonly ActionLogRow[], pick: (row: ActionLogRow) => string | null) {
+  let startMs = Infinity;
+  let endMs = -Infinity;
+  let startAt: string | null = null;
+  let endAt: string | null = null;
   for (const row of rows) {
-    const key = row.session_id ?? '';
-    let g = groups.get(key);
-    if (!g) {
-      g = {
-        sessionId: row.session_id,
-        rows: [],
-        startAt: null,
-        endAt: null,
-        durationS: null,
-        events: 0,
-        pageViews: 0,
-        clicks: 0,
-        visibleS: 0,
-        activeS: 0,
-        accounts: [],
-        ips: [],
-        firstPage: null,
-        startMs: Infinity,
-        endMs: -Infinity,
-        seenAccounts: new Set(),
-      };
-      groups.set(key, g);
+    const value = pick(row);
+    const at = parseTimestamp(value);
+    if (at === null) continue;
+    if (at < startMs) {
+      startMs = at;
+      startAt = value;
     }
-    g.rows.push(row);
-    g.events += 1;
-    if (row.event === 'page_view') g.pageViews += 1;
-    if (row.event === 'click') g.clicks += 1;
+    if (at > endMs) {
+      endMs = at;
+      endAt = value;
+    }
+  }
+  const durationS = Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 1000 : null;
+  return { startMs, startAt, endAt, durationS };
+}
+
+/**
+ * seq 순으로 정렬된 행에서, 뒤 순번 행보다 서버에 늦게 들어온 행 수(뒤에서부터 최솟값을 들고 간다).
+ * seq 없는 행은 자리가 정해진 게 아니라(맨 뒤에 둘 뿐) 세지 않는다.
+ */
+function countLateRows(sorted: readonly ActionLogRow[]): number {
+  let late = 0;
+  let laterMin = Infinity;
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    if (sorted[i].seq === null) continue;
+    const at = parseTimestamp(sorted[i].received_at);
+    if (at === null) continue;
+    if (at > laterMin) late += 1;
+    else laterMin = at;
+  }
+  return late;
+}
+
+function summarizeSession(sessionId: string | null, input: readonly ActionLogRow[]): SessionGroup & { startMs: number } {
+  // seq 는 세션 안에서만 뜻이 있다 — session_id 없는 행끼리는 서로 다른 세션일 수 있어 들어온 순(id)으로 둔다.
+  const rows = sessionId === null ? [...input].sort((a, b) => a.id - b.id) : [...input].sort(compareSessionRows);
+  const server = timeSpan(rows, (row) => row.received_at);
+  const client = timeSpan(rows, (row) => row.occurred_at);
+  const group: SessionGroup & { startMs: number } = {
+    sessionId,
+    rows,
+    startAt: server.startAt,
+    endAt: server.endAt,
+    durationS: server.durationS,
+    clientStartAt: client.startAt,
+    clientEndAt: client.endAt,
+    clientDurationS: client.durationS,
+    lateRows: sessionId === null ? 0 : countLateRows(rows),
+    events: rows.length,
+    pageViews: 0,
+    clicks: 0,
+    visibleS: 0,
+    activeS: 0,
+    accounts: [],
+    ips: [],
+    firstPage: null,
+    startMs: server.startMs,
+  };
+  const seenAccounts = new Set<string>();
+  for (const row of rows) {
+    if (row.event === 'page_view') group.pageViews += 1;
+    if (row.event === 'click') group.clicks += 1;
     if (row.event === 'heartbeat') {
-      g.visibleS += HEARTBEAT_INTERVAL_S;
-      if (row.props.active !== false) g.activeS += HEARTBEAT_INTERVAL_S;
+      group.visibleS += HEARTBEAT_INTERVAL_S;
+      if (row.props.active !== false) group.activeS += HEARTBEAT_INTERVAL_S;
     }
-    const at = parseTimestamp(row.received_at);
-    if (at !== null) {
-      if (at < g.startMs) {
-        g.startMs = at;
-        g.startAt = row.received_at;
-      }
-      if (at > g.endMs) {
-        g.endMs = at;
-        g.endAt = row.received_at;
-      }
-    }
-    if (!g.firstPage && row.page) g.firstPage = row.page;
+    if (!group.firstPage && row.page) group.firstPage = row.page;
     const accountKey = row.user_id || row.email;
-    if (accountKey && !g.seenAccounts.has(accountKey)) {
-      g.seenAccounts.add(accountKey);
-      g.accounts.push({
+    if (accountKey && !seenAccounts.has(accountKey)) {
+      seenAccounts.add(accountKey);
+      group.accounts.push({
         user_id: row.user_id,
         email: row.email,
         role: row.account_role,
         anonymous: row.is_anonymous === true,
       });
     }
-    if (row.ip && !g.ips.includes(row.ip)) g.ips.push(row.ip);
+    if (row.ip && !group.ips.includes(row.ip)) group.ips.push(row.ip);
+  }
+  return group;
+}
+
+/**
+ * 세션별로 묶어 서버 시작 시각(received_at) 순으로 낸다. 묶음 안의 행은 seq 순(compareSessionRows)이다 —
+ * 늦게 도착한 행이 타임라인을 뒤섞지 않게. 첫 화면·계정 순서도 이 순서로 센다.
+ */
+export function groupBySession(rows: readonly ActionLogRow[]): SessionGroup[] {
+  const buckets = new Map<string, { sessionId: string | null; rows: ActionLogRow[] }>();
+  for (const row of rows) {
+    const key = row.session_id ?? '';
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { sessionId: row.session_id, rows: [] };
+      buckets.set(key, bucket);
+    }
+    bucket.rows.push(row);
   }
   // 시각을 못 읽은 묶음(startMs=Infinity)은 뒤로. Infinity - Infinity 는 NaN 이라 뺄셈으로 비교하지 않는다.
-  return [...groups.values()]
+  return [...buckets.values()]
+    .map((bucket) => summarizeSession(bucket.sessionId, bucket.rows))
     .sort((a, b) => (a.startMs === b.startMs ? 0 : a.startMs < b.startMs ? -1 : 1))
-    .map(({ startMs, endMs, seenAccounts: _seen, ...group }) => ({
-      ...group,
-      durationS: Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 1000 : null,
-    }));
+    .map(({ startMs: _startMs, ...group }) => group);
 }
 
 // =========================================================================
@@ -1146,30 +1212,72 @@ export const DEVICE_CSV_COLUMNS: CsvColumn<ActionLogDevice>[] = [
   { header: 'referrer', value: (d) => d.referrer },
 ];
 
-/** 행 CSV 열 — RPC 필드 전부(props 는 JSON) + KST 시각 · 시각 차이 · 내용 요약 · 심사 계정. */
+// 행의 값은 누가 적었나로 둘로 갈린다. 증빙은 서버 쪽 값으로 읽는다 — 브라우저 쪽 값은 방문자의 기기·코드가
+// 보낸 것이라(시계가 틀릴 수 있고, 보관함에 남았다가 늦게 다시 올 수 있다) 참고값이다.
+
+/** 서버(DB 트리거·RPC)가 찍은 필드 — 받은 시각 · 계정 · IP · UA. */
+export const ROW_SERVER_FIELDS = [
+  'id',
+  'received_at',
+  'user_id',
+  'email',
+  'is_anonymous',
+  'account_role',
+  'ip',
+  'ip_chain',
+  'user_agent',
+] as const satisfies readonly (keyof ActionLogRow)[];
+
+/** 브라우저가 보낸 필드 — 브라우저 시각 · 기기/세션 · 순번 · 이벤트 · 화면 · 내용. */
+export const ROW_BROWSER_FIELDS = [
+  'occurred_at',
+  'device_id',
+  'session_id',
+  'seq',
+  'event',
+  'page',
+  'host',
+  'locale',
+  'props',
+] as const satisfies readonly (keyof ActionLogRow)[];
+
+/**
+ * 행 CSV 열 이름 앞머리 — 머리줄 한 줄만으로 출처가 보이게 한다(server_received_at · browser_occurred_at).
+ * 머리줄 위에 설명 줄을 더하는 대신 이렇게 한 까닭: 엑셀·스프레드시트·pandas 모두 첫 줄을 열 이름으로 읽는다.
+ */
+export const CSV_SOURCE_PREFIX = { server: 'server_', browser: 'browser_' } as const;
+const S = CSV_SOURCE_PREFIX.server;
+const B = CSV_SOURCE_PREFIX.browser;
+
+/**
+ * 행 CSV 열 — RPC 필드 전부(props 는 JSON) + KST 시각 · 시각 차이 · 내용 요약 · 심사 계정.
+ * 이름은 출처 앞머리 + RPC 필드 이름이다. 파생 열은 무엇에서 나왔는지로 붙인다(시각 차이는 브라우저 시계가 들어가 browser_).
+ * 행은 id(서버가 받은 순) 순서로 나온다 — 세션 안 행동 순서는 browser_session_id · browser_seq 로 정렬해 본다.
+ */
 export const ROW_CSV_COLUMNS: CsvColumn<ActionLogRow>[] = [
-  { header: 'id', value: (r) => r.id },
-  { header: 'received_at_kst', value: (r) => formatKst(r.received_at, 'full') },
-  { header: 'received_at', value: (r) => r.received_at },
-  { header: 'occurred_at', value: (r) => r.occurred_at },
-  { header: 'clock_diff_s', value: (r) => clockDiffSeconds(r.occurred_at, r.received_at) },
-  { header: 'device_id', value: (r) => r.device_id },
-  { header: 'session_id', value: (r) => r.session_id },
-  { header: 'seq', value: (r) => r.seq },
-  { header: 'event', value: (r) => r.event },
-  { header: 'page', value: (r) => r.page },
-  { header: 'host', value: (r) => r.host },
-  { header: 'locale', value: (r) => r.locale },
-  { header: 'summary', value: (r) => summarizeProps(r.event, r.props) },
-  { header: 'props', value: (r) => r.props },
-  { header: 'user_id', value: (r) => r.user_id },
-  { header: 'email', value: (r) => r.email },
-  { header: 'is_anonymous', value: (r) => r.is_anonymous },
-  { header: 'account_role', value: (r) => r.account_role },
-  { header: 'judge_account', value: (r) => judgeConsoleForEmail(r.email) ?? '' },
-  { header: 'ip', value: (r) => r.ip },
-  { header: 'ip_chain', value: (r) => r.ip_chain },
-  { header: 'user_agent', value: (r) => r.user_agent },
+  { header: `${S}id`, value: (r) => r.id },
+  { header: `${S}received_at_kst`, value: (r) => formatKst(r.received_at, 'full') },
+  { header: `${S}received_at`, value: (r) => r.received_at },
+  { header: `${B}occurred_at_kst`, value: (r) => formatKst(r.occurred_at, 'full') },
+  { header: `${B}occurred_at`, value: (r) => r.occurred_at },
+  { header: `${B}clock_diff_s`, value: (r) => clockDiffSeconds(r.occurred_at, r.received_at) },
+  { header: `${B}device_id`, value: (r) => r.device_id },
+  { header: `${B}session_id`, value: (r) => r.session_id },
+  { header: `${B}seq`, value: (r) => r.seq },
+  { header: `${B}event`, value: (r) => r.event },
+  { header: `${B}page`, value: (r) => r.page },
+  { header: `${B}host`, value: (r) => r.host },
+  { header: `${B}locale`, value: (r) => r.locale },
+  { header: `${B}summary`, value: (r) => summarizeProps(r.event, r.props) },
+  { header: `${B}props`, value: (r) => r.props },
+  { header: `${S}user_id`, value: (r) => r.user_id },
+  { header: `${S}email`, value: (r) => r.email },
+  { header: `${S}is_anonymous`, value: (r) => r.is_anonymous },
+  { header: `${S}account_role`, value: (r) => r.account_role },
+  { header: `${S}judge_account`, value: (r) => judgeConsoleForEmail(r.email) ?? '' },
+  { header: `${S}ip`, value: (r) => r.ip },
+  { header: `${S}ip_chain`, value: (r) => r.ip_chain },
+  { header: `${S}user_agent`, value: (r) => r.user_agent },
 ];
 
 /**
