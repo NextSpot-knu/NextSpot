@@ -110,6 +110,8 @@ DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
 DROP TABLE IF EXISTS public.seoul_citydata_snapshots CASCADE;
 -- 익명 이용 기록(제품 분석, FK 없음 — 20261023090000).
 DROP TABLE IF EXISTS public.usage_events CASCADE;
+-- 사용자 행동 기록(FK 없음 — 20261112090000). 수정·삭제·TRUNCATE 를 막는 트리거는 DROP TABLE 을 막지 않는다.
+DROP TABLE IF EXISTS public.action_logs CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
@@ -119,6 +121,11 @@ DROP FUNCTION IF EXISTS public.clear_merchant_photo(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.owns_facility_folder(TEXT) CASCADE;
 -- 익명 이용 기록 집계(20261024100000).
 DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
+-- 사용자 행동 기록(20261112090000) — 서버 도장 · 추가만 가드 트리거 함수와 개발자 전용 읽기 RPC 둘.
+DROP FUNCTION IF EXISTS public.action_logs_stamp() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_guard() CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
 DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;
