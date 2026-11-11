@@ -6299,6 +6299,11 @@ CREATE INDEX IF NOT EXISTS idx_action_logs_user_received_at
     WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_action_logs_event_received_at
     ON public.action_logs (event, received_at DESC);
+-- 브라우저 전송은 '적어도 한 번'이다(재시도·탭 복제). 같은 (session_id, seq) 가 두 번 오면 409 — 웹은 그 줄만 버린다
+-- (lib/actionLog.ts 의 묶음 반 나누기). 기록이 두 번 세지지 않게 한다.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_action_logs_session_seq
+    ON public.action_logs (session_id, seq)
+    WHERE seq IS NOT NULL;
 
 COMMENT ON TABLE public.action_logs IS
     '사용자 행동 기록(20261112090000) — 방문자(심사위원 포함)가 서비스를 실제로 썼는지 행 단위로 확인하는 용도. '
