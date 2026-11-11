@@ -184,12 +184,14 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
 
     const map = new kakao.maps.Map(containerRef.current, mapOptions);
     mapRef.current = map;
-    trackMapActions(map, 'recommend-mini');
+    // 위치가 바뀌면 지도를 새로 만든다 — 앞 지도의 기록 리스너·마지막 상태 타이머는 여기서 뗀다.
+    const stopTracking = trackMapActions(map, 'recommend-mini');
 
     new kakao.maps.Marker({
       position: center,
       map: map,
     });
+    return stopTracking;
   }, [mapLoaded, latitude, longitude]);
 
   if (isSimulation) {

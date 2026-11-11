@@ -70,7 +70,7 @@ import { buildRecommendHref, candidateTypesFor } from '@/lib/recommendOrigin';
 import { isServerRecommendationId } from '@/lib/recommendationIds';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
-import { logSearch, logSearchTyping, trackMapActions } from '@/lib/actionLog';
+import { logAction, logSearch, logSearchTyping, trackMapActions } from '@/lib/actionLog';
 import { congestionKey } from '@/lib/congestionScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { errorMessage } from '@/lib/errors';
@@ -447,6 +447,8 @@ export default function MainPage() {
   // 높이 변화는 하단 스택의 CSS 배치가 처리한다. 애니메이션 프레임마다 이 큰 페이지를 다시 렌더하지 않는다.
   const recPanelRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
+  // 접속·조작 기록의 지도 리스너 떼기(lib/actionLog trackMapActions) — 화면을 떠날 때 부른다.
+  const mapTrackDisposeRef = useRef<(() => void) | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
   const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
   const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
@@ -2927,6 +2929,11 @@ export default function MainPage() {
 
     return () => clearInterval(initInterval);
   }, [mapUnavailable]);
+  // 지도는 화면이 살아 있는 동안 하나다 — 기록 리스너는 화면을 떠날 때만 뗀다(위 폴링 effect 의 재실행과 무관하게).
+  useEffect(() => () => {
+    mapTrackDisposeRef.current?.();
+    mapTrackDisposeRef.current = null;
+  }, []);
 
   // 늦은 SDK 자동 복구 — 타임아웃 직후 SDK 가 뒤늦게 로드되는 경계 케이스를 구제한다(5초 간격, 최대 3회 상한).
   // mapUnavailable 이 풀리면 위 폴링 effect([mapUnavailable] 의존)가 다시 돌며 지도를 초기화한다.
@@ -3000,7 +3007,8 @@ export default function MainPage() {
         };
         const map = new window.kakao.maps.Map(container, options);
         mapInstanceRef.current = map;
-        trackMapActions(map, 'main');
+        mapTrackDisposeRef.current?.();
+        mapTrackDisposeRef.current = trackMapActions(map, 'main');
         setMapLoaded(true);
 
         // 첫 진입(복원 없음): 기본 중심(=현재 위치 점)을 전체 화면이 아니라, 상단 칩 바 아래·
@@ -3123,6 +3131,20 @@ export default function MainPage() {
       marker.setZIndex(display.zIndex); // 선택 > 순위 > 등급 > 빈 핀
 
       kakao.maps.event.addListener(marker, "click", () => {
+        // 접속·조작 기록 — 어느 장소의 핀을 눌렀는지(이름·종류·번호만, 좌표는 남기지 않는다). 핀은 지도 SDK 가 그려
+        // 문서 click 만으로는 어느 장소인지 알 수 없다. 선택이 모이는 selectFacilityWithHoursGuard 에서는 남기지 않는다
+        // (목록·검색 선택까지 핀으로 섞이고, 여기와 두 번 남는다).
+        logAction('click', {
+          log: 'map-marker',
+          map: 'main',
+          kind: f.type === 'parking' ? 'parking' : f.isGroup ? 'group' : 'place',
+          name: typeof f.name === 'string' ? f.name : null,
+          type: typeof f.type === 'string' ? f.type : null,
+          id: f.id === undefined || f.id === null ? null : String(f.id),
+          count: f.isGroup && Array.isArray(f.subFacilities) ? f.subFacilities.length : undefined,
+          rank,
+          selected: isSel,
+        });
         if (activeOverlayRef.current) {
           activeOverlayRef.current.setMap(null);
           activeOverlayRef.current = null;
@@ -3156,6 +3178,14 @@ export default function MainPage() {
             btn.className = 'text-left text-muk text-xs px-3 py-2.5 hover:bg-hanji-deep rounded-xl transition-colors font-semibold whitespace-normal break-keep leading-snug cursor-pointer';
             btn.innerText = sub.name;
             btn.onclick = () => {
+              logAction('click', {
+                log: 'map-marker',
+                map: 'main',
+                kind: 'group-item',
+                name: typeof sub.name === 'string' ? sub.name : null,
+                type: typeof sub.type === 'string' ? sub.type : null,
+                id: sub.id === undefined || sub.id === null ? null : String(sub.id),
+              });
               setActiveGroupId(null);
               selectFacilityWithHoursGuard(sub);
               if (activeOverlayRef.current) {
@@ -3784,6 +3814,10 @@ export default function MainPage() {
     const marker = new window.kakao.maps.Marker({ position, title: item.name });
     marker.setMap(map);
     searchResultMarkerRef.current = marker;
+    // 접속·조작 기록 — 검색 결과 핀을 눌렀다(이름·종류·장소 번호만, 좌표는 남기지 않는다).
+    window.kakao.maps.event.addListener(marker, 'click', () => {
+      logAction('click', { log: 'map-marker', map: 'main', kind: 'search-result', name: item.name, type: item.type ?? null, id: item.placeId || null });
+    });
     // Kakao 기본지도에 같은 필지의 GS25 같은 다른 점포명이 보이더라도, 사용자가 선택한
     // 검색 결과의 이름을 핀 위에 명시해 어느 장소를 가리키는지 혼동하지 않게 한다.
     const label = document.createElement('div');

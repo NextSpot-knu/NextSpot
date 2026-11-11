@@ -40,6 +40,8 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
   const markerOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
   const userDotRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const polylineRef = useRef<kakao.maps.Polyline | null>(null);
+  // 접속·조작 기록의 지도 리스너 떼기(lib/actionLog trackMapActions) — 언마운트에서 부른다.
+  const mapTrackDisposeRef = useRef<(() => void) | null>(null);
 
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -65,7 +67,8 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
               level: 6,
             });
             mapRef.current = map;
-            trackMapActions(map, 'course');
+            mapTrackDisposeRef.current?.();
+            mapTrackDisposeRef.current = trackMapActions(map, 'course');
             setReady(true);
           });
         } catch (err) {
@@ -196,6 +199,8 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
   // 3) 언마운트 정리.
   useEffect(() => {
     return () => {
+      mapTrackDisposeRef.current?.();
+      mapTrackDisposeRef.current = null;
       markerOverlaysRef.current.forEach((o) => o.setMap(null));
       markerOverlaysRef.current = [];
       if (userDotRef.current) userDotRef.current.setMap(null);
