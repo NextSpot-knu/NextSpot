@@ -79,6 +79,18 @@ const win = Object.assign(eventTarget(), {
     href: 'http://localhost:3000/main?lat=35.8372&lng=129.2095&code=oauth-secret',
   },
   document: doc,
+  // Next 라우터처럼 주소만 바꾸는 history — 쿼리만 바뀐 이동을 page_view 로 남기는지 본다.
+  history: {
+    state: null as unknown,
+    pushState(state: unknown, _title: string, url?: string | URL | null) {
+      this.state = state;
+      if (url) setUrl(String(url));
+    },
+    replaceState(state: unknown, _title: string, url?: string | URL | null) {
+      this.state = state;
+      if (url) setUrl(String(url));
+    },
+  },
   localStorage: memoryStorage(),
   sessionStorage: memoryStorage(),
   navigator: { webdriver: true, languages: ['ko-KR', 'en-US', 'ja', 'zh'], language: 'ko-KR', maxTouchPoints: 5 },
@@ -98,6 +110,13 @@ const win = Object.assign(eventTarget(), {
     return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
   },
 });
+
+function setUrl(url: string) {
+  const next = new URL(url, win.location.href);
+  win.location.pathname = next.pathname;
+  win.location.search = next.search;
+  win.location.href = next.href;
+}
 
 const g = globalThis as Record<string, unknown>;
 g.window = win;
@@ -130,6 +149,11 @@ void (async () => {
   doc.fire('change', { target: password });
   logAction('page_view', { from: null, nav: 'load', query: sanitizeQuery(win.location.search) });
   logSearch('황남 010-9999-0000', 'main', 'enter');
+  // 같은 경로에서 쿼리만 바뀐 이동 — 한 줄(nav='query'). 같은 주소로 다시 쓰기·인증 값만 바뀐 것은 남기지 않는다.
+  win.history.pushState(null, '', '/main?tab=cafe&lat=35.8372');
+  win.history.replaceState({ internal: true }, '', '/main?tab=cafe&lat=35.8372');
+  win.history.replaceState(null, '', '/main?tab=cafe&lat=35.8372&code=oauth-secret-2');
+  win.fire('popstate', {});
 
   // API 호출은 감싼 fetch 를 지나 원래 fetch 로 그대로 간다 — 기록에는 경로만.
   const wrapped = win.fetch as unknown as FetchLike;
@@ -166,6 +190,10 @@ void (async () => {
   assert.equal(inputs.find((r) => r.props.type === 'text')?.props.value, '카페 [email]');
   assert.deepEqual(inputs.find((r) => r.props.type === 'password')?.props, { field: 'pw', type: 'password' });
   assert.deepEqual(rows.find((r) => r.event === 'search')?.props, { q: '황남 [phone]', source: 'main', via: 'enter' });
+  const queryViews = rows.filter((r) => r.event === 'page_view' && r.props.nav === 'query');
+  assert.deepEqual(queryViews.map((r) => r.props), [
+    { from: '/main', nav: 'query', how: 'push', query: '?tab=cafe&lat=[geo]', prev_query: '?lat=[geo]&lng=[geo]' },
+  ], '쿼리만 바뀐 이동은 한 번만(같은 주소 · 인증 값만 다른 주소는 남기지 않는다)');
   assert.deepEqual(
     rows.filter((r) => r.event === 'api').map((r) => [r.props.svc, r.props.method, r.props.path, r.props.status]),
     [['supabase', 'GET', '/rest/v1/facilities', 200], ['api', 'GET', '/api/v1/weather', 200]],
@@ -178,7 +206,14 @@ void (async () => {
   for (const secret of ['35.8372', '129.2095', 'oauth-secret', 'never-log-this', 'someone@example.com', '9999', '홍길동', 'select=']) {
     assert.ok(!text.includes(secret), `기록에 '${secret}' 가 남았다`);
   }
-  assert.deepEqual(JSON.parse(win.localStorage.getItem('nextspot_action_outbox') ?? '{}'), { v: 1, s: {} }, '보낸 셈 친 줄은 저장분에 남기지 않는다');
+  // keepalive 로 보낸 줄도 저장분(탭 세션마다 키 하나)에 '확인 못 함' 으로 남는다 — 다음 방문이 다시 보내고 409 로 확인한다.
+  const sessionId = win.sessionStorage.getItem('nextspot_action_session');
+  const saved = JSON.parse(win.localStorage.getItem(`nextspot_action_outbox:${sessionId}`) ?? 'null') as { live: number; rows: unknown[]; u?: number[] } | null;
+  assert.ok(saved, '이 탭의 키에 남는다');
+  assert.equal(saved!.live, 0);
+  assert.equal(saved!.rows.length, rows.length);
+  assert.ok(saved!.u?.every((flag) => flag === 1), '보낸 줄은 확인 못 함으로');
+  assert.equal(win.localStorage.getItem('nextspot_action_outbox'), null, '옛 한 키에는 쓰지 않는다');
 
   // 기록 보기 화면(/dev/activity) — 화면 열람만 남긴다.
   win.location.pathname = '/dev/activity';

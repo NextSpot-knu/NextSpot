@@ -3,6 +3,7 @@ import {
   ACTION_LOG_EVENTS,
   ACTION_LOG_LIMITS,
   actionLogHosts,
+  actionLogOutboxKey,
   apiTargets,
   byteLength,
   capOutbox,
@@ -32,7 +33,9 @@ import {
 // 접속·조작 기록(lib/actionLog) — 켜는 조건 · 가리기 · 값을 읽는 칸 · 누른 것 설명 · 묶음/저장분 · 표가 없을 때 멈춤 ·
 // fetch 감싸기. 브라우저 없이 가짜 저장소·fetch·타이머로 돈다(외부 호출 없음).
 
-const OUTBOX = 'nextspot_action_outbox';
+/** 옛 형식(모든 탭이 나눠 쓰던 한 키) — 이어받기만 한다. */
+const LEGACY_OUTBOX = 'nextspot_action_outbox';
+const OUTBOX = (session = 'session-0001') => `nextspot_action_outbox:${session}`;
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 // ── 이벤트 목록(DB CHECK 와 같은 순서) ──────────────────────────────────────
@@ -96,6 +99,10 @@ assert.equal(maskText('2026-11-12 10:00 예약'), '2026-11-12 10:00 예약', '�
 assert.equal(maskText('좌표 35.8372, 129.2095'), '좌표 [geo]', '좌표 한 쌍');
 assert.equal(maskText('35.837,129.209 근처'), '[geo] 근처', '소수 셋째 자리 쌍도 좌표');
 assert.equal(maskText('lat35.8372 pos_35.8372_x'), 'lat[geo] pos_[geo]_x', '글자·밑줄에 붙은 좌표');
+assert.equal(maskText('35.838 129.209'), '[geo]', '빈칸으로 이은 좌표 한 쌍');
+assert.equal(maskText('위치 35.838   129.209 근처'), '위치 [geo] 근처', '빈칸 여럿으로 이은 쌍');
+assert.equal(maskText('-33.868 151.209'), '[geo]', '음수 좌표 쌍');
+assert.equal(maskText('평점 4.5 3.25 4.75'), '평점 4.5 3.25 4.75', '짧은 소수 나열은 좌표가 아니다');
 assert.equal(maskText('평점 4.5 · 1.2km'), '평점 4.5 · 1.2km', '짧은 소수는 남는다');
 assert.equal(maskText('(010)1234-5678'), '[phone]', '괄호 친 휴대폰 앞자리');
 assert.equal(maskText('010–1234–5678 · 010—1234—5678'), '[phone] · [phone]', '다른 대시 문자');
@@ -250,6 +257,10 @@ assert.equal(isTextEntry(el('button')), false);
   assert.deepEqual(describePlainTarget(null), { tag: 'unknown', plain: true });
   assert.equal(findInteractive(el('div', { 'data-log': 'card' })) !== null, true, 'data-log 표시도 누를 수 있는 것으로 본다');
   assert.equal(findInteractive(el('div', { role: 'tab' })) !== null, true);
+  // Kakao 지도 마커는 이미지 맵의 <area> 로 눌린다 — 마커의 title 이 이름이 된다.
+  const markerArea = el('area', { title: '황남 쌈밥', shape: 'rect', href: '#' });
+  assert.equal(findInteractive(markerArea), markerArea, 'area 도 누를 수 있는 것으로 본다');
+  assert.deepEqual(describeTarget(markerArea, { base: BASE }), { tag: 'area', name: '황남 쌈밥', href: '#' });
 }
 
 // ── props 크기 ────────────────────────────────────────────────────────────
@@ -304,7 +315,10 @@ assert.equal(classifyActionLogResponse(400, 'PGRST204'), 'schema', '칸 이름�
 assert.equal(classifyActionLogResponse(401), 'auth');
 assert.equal(classifyActionLogResponse(403, '42501'), 'forbidden');
 assert.equal(classifyActionLogResponse(400, '23514'), 'reject');
-assert.equal(classifyActionLogResponse(409, '23505'), 'reject');
+assert.equal(classifyActionLogResponse(409, '23505'), 'duplicate', '이미 들어간 줄((session_id, seq) 유일 인덱스)');
+assert.equal(classifyActionLogResponse(409), 'duplicate', '본문 없는 409 도 이미 들어간 줄로 본다');
+assert.equal(classifyActionLogResponse(409, '23503'), 'reject', '다른 충돌은 잘못된 줄');
+assert.equal(actionLogOutboxKey('session-0001'), 'nextspot_action_outbox:session-0001', '탭(세션)마다 키 하나');
 assert.equal(classifyActionLogResponse(503), 'retry');
 assert.equal(classifyActionLogResponse(0), 'retry');
 
@@ -313,10 +327,18 @@ function memoryStorage() {
   const map = new Map<string, string>();
   let writes = 0;
   return {
+    map,
     getItem: (key: string) => map.get(key) ?? null,
     setItem: (key: string, value: string) => {
       writes += 1;
       map.set(key, value);
+    },
+    removeItem: (key: string) => {
+      map.delete(key);
+    },
+    key: (index: number) => [...map.keys()][index] ?? null,
+    get length() {
+      return map.size;
     },
     get writes() {
       return writes;
@@ -374,8 +396,19 @@ function core(overrides: Partial<ActionLogCoreDeps> & Pick<ActionLogCoreDeps, 'f
   });
 }
 
-function readOutbox(storage: { getItem(key: string): string | null }) {
-  return JSON.parse(storage.getItem(OUTBOX) ?? '{"v":1,"s":{}}') as { s: Record<string, { live: number; rows: ActionLogRow[] }> };
+interface SavedEntry {
+  v: number;
+  t: number;
+  live: number;
+  rows: ActionLogRow[];
+  subs?: (string | null)[];
+  u?: number[];
+}
+
+/** 그 탭(세션) 칸 — 없으면 undefined. */
+function readOutbox(storage: { getItem(key: string): string | null }, session = 'session-0001'): SavedEntry | undefined {
+  const raw = storage.getItem(OUTBOX(session));
+  return raw ? (JSON.parse(raw) as SavedEntry) : undefined;
 }
 
 void (async () => {
@@ -459,12 +492,13 @@ void (async () => {
     const backoff = [...timers.pending.values()].map((t) => t.ms).filter((ms) => ms !== ACTION_LOG_LIMITS.outboxWriteDelayMs);
     assert.ok(backoff.some((ms) => ms >= 1500 && ms <= 2500), `물러났다 다시 보내기를 예약한다 (${backoff.join(',')})`);
     log.persistNow();
-    const saved = readOutbox(storage);
-    assert.equal(saved.s['session-0001'].rows.length, ACTION_LOG_LIMITS.outboxRows);
-    assert.equal(saved.s['session-0001'].live, 1);
+    const saved = readOutbox(storage)!;
+    assert.equal(saved.rows.length, ACTION_LOG_LIMITS.outboxRows);
+    assert.equal(saved.live, 1);
+    assert.equal(storage.getItem(LEGACY_OUTBOX), null, '옛 한 키에는 쓰지 않는다');
   }
 
-  // 표가 아직 없다(404 · PGRST205) — 이 페이지에서는 멈추고 줄은 지킨다 → 다음 방문이 이어받아 보낸다
+  // 표가 아직 없다(404 · PGRST205) — 잠시 멈추고 줄은 지킨다 → 다음 방문이 이어받아 보낸다
   {
     const storage = memoryStorage();
     const missing = fakeFetch(() => ({ status: 404, body: JSON.stringify({ code: 'PGRST205', message: "Could not find the table 'public.action_logs'" }) }));
@@ -474,11 +508,11 @@ void (async () => {
     assert.equal(missing.calls.length, 1);
     assert.equal(log.paused, true);
     assert.equal(log.queue.length, 3, '표가 없어도 줄은 지킨다');
-    assert.equal(readOutbox(storage).s['session-0001'].rows.length, 3, '멈출 때 저장분에 바로 쓴다');
+    assert.equal(readOutbox(storage)!.rows.length, 3, '멈출 때 저장분에 바로 쓴다');
     log.push(row(3));
     await log.flush();
     await settle();
-    assert.equal(missing.calls.length, 1, '멈춘 뒤에는 이 페이지에서 다시 보내지 않는다');
+    assert.equal(missing.calls.length, 1, '멈춘 동안에는 다시 보내지 않는다');
     log.release(); // pagehide
 
     const ok = fakeFetch(() => ({ status: 201 }));
@@ -488,6 +522,107 @@ void (async () => {
     await next.flush();
     assert.equal(ok.calls.length, 1);
     assert.equal(next.queue.length, 0);
+  }
+
+  // 잠시 멈춤은 영원하지 않다 — 3분 뒤(멈출 때마다 두 배, 상한 30분) 다시 시도하고, 되면 이어서 보낸다.
+  {
+    const storage = memoryStorage();
+    const timers = fakeTimers();
+    let status = 401;
+    const net = fakeFetch(() => ({ status }));
+    const log = core({ fetch: net.fn, storage, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+    for (let i = 0; i < 3; i += 1) log.push(row(i));
+    await log.flush();
+    assert.equal(log.paused, true, '401(anon 키로도) — 멈춘다');
+    const retryTimer = () => [...timers.pending.entries()].find(([, t]) => t.ms >= 3 * 60_000);
+    const first = retryTimer();
+    assert.ok(first, '다시 시도할 타이머를 건다');
+    assert.equal(first![1].ms, 3 * 60_000, '처음은 3분 뒤');
+    // 3분 뒤에도 실패 — 다시 멈추고 이번에는 6분 뒤.
+    timers.pending.delete(first![0]);
+    first![1].fn();
+    await settle();
+    await settle();
+    assert.equal(log.paused, true);
+    const second = retryTimer();
+    assert.equal(second![1].ms, 6 * 60_000, '멈출 때마다 두 배');
+    // 이번에는 된다 — 멈춤이 풀리고 남은 줄을 보낸다.
+    status = 201;
+    timers.pending.delete(second![0]);
+    second![1].fn();
+    await settle();
+    await settle();
+    assert.equal(log.paused, false, '되면 멈춤이 풀린다');
+    assert.equal(log.queue.length, 0, '지켜 둔 줄을 보냈다');
+    log.push(row(3));
+    await log.flush();
+    assert.equal(net.calls[net.calls.length - 1].rows[0].seq, 3, '풀린 뒤에는 새 줄도 보낸다');
+  }
+
+  // 이미 들어간 줄(409 · 23505) — 반씩 나눠 그 줄은 '받은 셈' 치고 나머지를 넣는다. 버림으로 세지 않아 멈추지 않는다.
+  {
+    const stored = new Set<number>([1, 4, 7]);
+    const net = fakeFetch((call) => {
+      if (call.rows.some((r) => stored.has(r.seq))) return { status: 409, body: JSON.stringify({ code: '23505', message: 'duplicate key value violates unique constraint "uq_action_logs_session_seq"' }) };
+      for (const r of call.rows) stored.add(r.seq);
+      return { status: 201 };
+    });
+    const log = core({ fetch: net.fn });
+    for (let i = 0; i < 10; i += 1) log.push(row(i));
+    await log.flush();
+    assert.deepEqual([...stored].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], '나머지 줄은 다 들어갔다');
+    assert.equal(log.queue.length, 0, '이미 들어간 줄도 저장분에서 빠진다');
+    assert.equal(log.paused, false);
+  }
+
+  // 중복이 아무리 많아도(예: 다음 방문이 keepalive 로 이미 들어간 줄을 다시 보냄) 버림 상한에 걸려 멈추지 않는다.
+  {
+    const stored = new Set<number>(Array.from({ length: 60 }, (_, i) => i));
+    const net = fakeFetch((call) => {
+      if (call.rows.some((r) => stored.has(r.seq))) return { status: 409, body: '{"code":"23505"}' };
+      for (const r of call.rows) stored.add(r.seq);
+      return { status: 201 };
+    });
+    const log = core({ fetch: net.fn });
+    for (let i = 0; i < 70; i += 1) log.push(row(i)); // 25줄에서 이미 보내기 시작한다
+    for (let i = 0; i < 100 && log.queue.length; i += 1) {
+      await log.flush();
+      await settle();
+    }
+    assert.equal(log.paused, false, '중복 60줄로는 멈추지 않는다');
+    assert.equal(log.queue.length, 0);
+    assert.equal(stored.size, 70, '새 줄 10개는 들어갔다');
+    log.push(row(70));
+    await log.flush();
+    assert.ok(stored.has(70), '그 뒤에도 계속 보낸다');
+  }
+
+  // 끊긴 요청(0)은 서버가 이미 넣었을 수 있다 — 다시 보내 409 가 와도 받은 셈 친다.
+  {
+    const timers = fakeTimers();
+    let calls = 0;
+    const stored = new Set<number>();
+    const net = fakeFetch((call) => {
+      calls += 1;
+      if (calls === 1) {
+        for (const r of call.rows) stored.add(r.seq); // 서버는 넣었는데 응답이 끊겼다
+        return { status: 0 };
+      }
+      if (call.rows.some((r) => stored.has(r.seq))) return { status: 409, body: '{"code":"23505"}' };
+      for (const r of call.rows) stored.add(r.seq);
+      return { status: 201 };
+    });
+    const log = core({ fetch: net.fn, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+    for (let i = 0; i < 3; i += 1) log.push(row(i));
+    await log.flush();
+    assert.equal(log.queue.length, 3, '끊기면 줄은 남는다');
+    log.push(row(3));
+    await log.flush();
+    assert.deepEqual(net.calls[1].rows.map((r) => r.seq), [0, 1, 2], '확인 못 한 줄은 새 줄과 섞지 않고 따로 보낸다');
+    for (let i = 0; i < 3 && log.queue.length; i += 1) await log.flush();
+    assert.equal(log.queue.length, 0);
+    assert.equal(log.paused, false);
+    assert.deepEqual([...stored].sort((a, b) => a - b), [0, 1, 2, 3]);
   }
 
   // 잘못된 줄 하나가 묶음을 막지 않는다 — 반씩 나눠 그 줄만 버린다
@@ -502,7 +637,8 @@ void (async () => {
     assert.equal(log.paused, false);
   }
 
-  // pagehide — keepalive 로 바로 보내고, 보낸 셈 친 줄은 저장분에서 뺀다(다음 방문에 또 보내지 않게)
+  // pagehide — keepalive 로 바로 보내되, 응답을 확인 못 하니 저장분에 '확인 못 함'(u) 으로 남긴다.
+  // keepalive 가 무시·취소돼도 다음 방문이 다시 보내고, 이미 들어갔으면 409 로 확인돼 지워진다.
   {
     const storage = memoryStorage();
     const net = fakeFetch(() => ({ status: 201 }));
@@ -513,8 +649,50 @@ void (async () => {
     log.unload();
     assert.equal(net.calls.length, 1, '문서가 내려가기 전에 바로 보낸다');
     assert.equal(net.calls[0].init.keepalive, true);
-    assert.equal(readOutbox(storage).s['session-0001'], undefined);
+    const saved = readOutbox(storage)!;
+    assert.deepEqual(saved.rows.map((r) => r.seq), [0, 1], 'keepalive 로 보낸 줄도 저장분에 남긴다');
+    assert.deepEqual(saved.u, [1, 1], "'보냈지만 확인 못 함' 으로 적는다");
+    assert.equal(saved.live, 0, '주인이 떠났다');
     await settle();
+    assert.equal(log.queue.length, 0, '응답이 오면(bfcache 로 돌아온 경우) 메모리에서는 지운다');
+  }
+
+  // keepalive 가 사라졌다(브라우저가 취소) — 다음 방문이 다시 보낸다. 이미 들어간 줄이면 409 로 확인되고 멈추지 않는다.
+  {
+    const storage = memoryStorage();
+    const lost = fakeFetch(() => ({ status: 0 }));
+    const first = core({ fetch: lost.fn, storage });
+    first.adopt();
+    for (let i = 0; i < 4; i += 1) first.push(row(i));
+    first.unload();
+    await settle();
+    assert.deepEqual(readOutbox(storage)!.rows.map((r) => r.seq), [0, 1, 2, 3], '문서가 사라진 뒤라 저장분이 마지막 기록이다');
+
+    const stored = new Set<number>([0, 1]); // 앞 두 줄은 실제로는 들어가 있었다
+    const net = fakeFetch((call) => {
+      if (call.rows.some((r) => stored.has(r.seq))) return { status: 409, body: '{"code":"23505"}' };
+      for (const r of call.rows) stored.add(r.seq);
+      return { status: 201 };
+    });
+    const next = core({ fetch: net.fn, storage });
+    next.adopt();
+    assert.deepEqual(next.queue.map((r) => r.seq), [0, 1, 2, 3], '새로고침한 같은 탭이 이어받는다');
+    for (let i = 0; i < 3 && next.queue.length; i += 1) await next.flush();
+    assert.equal(next.queue.length, 0);
+    assert.equal(next.paused, false);
+    assert.deepEqual([...stored].sort((a, b) => a - b), [0, 1, 2, 3], '빠진 줄만 새로 들어갔다');
+  }
+
+  // 401 뒤 다시 보내기는 pagehide 에서는 await 너머라 못 간다 — 그래도 줄은 저장분에 남는다.
+  {
+    const storage = memoryStorage();
+    const net = fakeFetch((call) => (call.auth === 'Bearer member-token' ? { status: 401 } : { status: 201 }));
+    const log = core({ fetch: net.fn, storage, cachedAuth: () => ({ sub: 'member', token: 'member-token' }) });
+    log.adopt();
+    log.push(row(0), 'member');
+    log.unload();
+    assert.deepEqual(readOutbox(storage)!.rows.map((r) => r.seq), [0], 'pagehide 순간의 저장분에 남아 있다');
+    assert.deepEqual(readOutbox(storage)!.subs, ['member']);
   }
 
   // 로그인 상태가 정해지기 전에 만든 줄은 정해진 상태로 묶인다(assignSub) — 이미 정해진 줄은 그대로.
@@ -545,7 +723,8 @@ void (async () => {
     log.push(row(0), 'member');
     log.unload();
     assert.equal(net.calls.length, 0, '낡은 토큰으로는 보내지 않는다');
-    assert.deepEqual(readOutbox(storage).s['session-0001'].rows.map((r) => r.seq), [0], '다음 방문이 보내도록 남긴다');
+    assert.deepEqual(readOutbox(storage)!.rows.map((r) => r.seq), [0], '다음 방문이 보내도록 남긴다');
+    assert.equal(readOutbox(storage)!.u, undefined, '보내지 않은 줄은 확인 못 함 표시가 없다');
   }
 
   // 탭 복제 판별 · 주인이 떠난 칸 이어받기 · 살아 있는 탭의 칸은 건드리지 않기
@@ -566,14 +745,20 @@ void (async () => {
     const tabC = core({ fetch: ok(), storage, entryKey: () => 'session-cccc', now: () => t });
     tabC.adopt();
     assert.deepEqual(tabC.queue.map((r) => r.seq), [7], '주인이 떠난 칸은 다른 탭이 이어받는다');
-    assert.equal(readOutbox(storage).s['session-aaaa'], undefined);
+    assert.equal(readOutbox(storage, 'session-aaaa'), undefined, '이어받은 칸의 키는 지운다');
     tabC.push(row(8));
     tabC.persistNow();
 
     const tabD = core({ fetch: ok(), storage, entryKey: () => 'session-dddd', now: () => t });
     tabD.adopt();
     assert.equal(tabD.queue.length, 0, '살아 있는 탭의 칸은 가져가지 않는다');
-    assert.ok(readOutbox(storage).s['session-cccc'].rows.length >= 1);
+    assert.ok(readOutbox(storage, 'session-cccc')!.rows.length >= 1);
+    // 탭마다 자기 키만 쓴다 — D 가 쓴다고 C 의 칸이 바뀌지 않는다(읽고-고쳐-쓰기 경쟁 없음).
+    const before = storage.getItem(OUTBOX('session-cccc'));
+    tabD.push(row(9));
+    tabD.persistNow();
+    assert.equal(storage.getItem(OUTBOX('session-cccc')), before, '다른 탭의 칸은 건드리지 않는다');
+    assert.deepEqual(readOutbox(storage, 'session-dddd')!.rows.map((r) => r.seq), [9]);
 
     // 다른 탭이 오래 멈춘 탭의 칸을 가져갔으면, 돌아온 탭은 그때 저장한 줄을 다시 보내지 않는다.
     t += 11 * 60_000;
@@ -582,6 +767,37 @@ void (async () => {
     assert.ok(tabE.queue.some((r) => r.seq === 8), '10분 넘게 소식 없는 칸은 이어받는다');
     tabC.reclaim();
     assert.ok(!tabC.queue.some((r) => r.seq === 8), '넘겨준 줄은 돌아온 탭이 다시 보내지 않는다');
+  }
+
+  // 옛 형식(모든 탭이 한 키) 저장분 — 주인이 떠난 칸과 이 탭 칸만 이어받고, 옛 코드로 살아 있는 탭의 칸은 남긴다. 비면 키를 지운다.
+  {
+    const storage = memoryStorage();
+    const t = 50_000_000;
+    storage.setItem(LEGACY_OUTBOX, JSON.stringify({
+      v: 1,
+      s: {
+        'session-0001': { t, live: 1, rows: [row(0), row(1)], subs: ['member', 'member'] },
+        'session-gone': { t: t - 20 * 60_000, live: 1, rows: [{ ...row(5), session_id: 'session-gone' }] },
+        'session-live': { t, live: 1, rows: [{ ...row(6), session_id: 'session-live' }] },
+      },
+    }));
+    const log = core({ fetch: fakeFetch(() => ({ status: 201 })).fn, storage, now: () => t });
+    log.adopt();
+    assert.deepEqual(log.queue.map((r) => [r.session_id, r.seq]), [['session-0001', 0], ['session-0001', 1], ['session-gone', 5]]);
+    const legacy = JSON.parse(storage.getItem(LEGACY_OUTBOX) ?? 'null') as { s: Record<string, unknown> };
+    assert.deepEqual(Object.keys(legacy.s), ['session-live'], '살아 있는 옛 탭의 칸은 남긴다');
+    assert.deepEqual(readOutbox(storage)!.rows.map((r) => r.seq), [0, 1, 5], '이어받은 줄은 이 탭의 새 키로 옮긴다');
+
+    // 옛 탭도 떠나면 다음 이어받기가 가져가고 옛 키를 지운다.
+    const later = core({ fetch: fakeFetch(() => ({ status: 201 })).fn, storage, entryKey: () => 'session-next', now: () => t + 11 * 60_000 });
+    later.adopt();
+    assert.ok(later.queue.some((r) => r.session_id === 'session-live'));
+    assert.equal(storage.getItem(LEGACY_OUTBOX), null, '비면 옛 키를 지운다');
+
+    // 손상된 옛 저장분은 지운다.
+    storage.setItem(LEGACY_OUTBOX, '{not json');
+    later.adopt();
+    assert.equal(storage.getItem(LEGACY_OUTBOX), null);
   }
 
   // ── fetch 감싸기 — API 만, 경로만(쿼리·본문 없음), 이 기록의 전송은 빼고, 네트워크 오류는 0 ─────
@@ -615,6 +831,24 @@ void (async () => {
     assert.ok(!text.includes('?'), '쿼리스트링을 담지 않는다');
     assert.ok(!text.includes('35.8372') && !text.includes('grant_type'), '쿼리·본문 값을 담지 않는다');
     assert.ok(!text.includes('action_logs'), '이 기록 자체의 전송은 남기지 않는다');
+  }
+
+  // page — 요청을 시작한 화면을 잡아 둔다(응답이 화면을 옮긴 뒤 와도 그 화면의 줄).
+  {
+    let path = '/main';
+    const seen: { page?: string }[] = [];
+    let resolve: (res: Response) => void = () => {};
+    const wrapped = createLoggingFetch((() => new Promise<Response>((r) => { resolve = r; })) as typeof fetch, {
+      targets: apiTargets('https://api.example.com', 'https://sb.example.co'),
+      onCall: (info) => seen.push(info),
+      page: () => path,
+    });
+    const pending = wrapped('https://sb.example.co/rest/v1/facilities');
+    path = '/mypage';
+    resolve(new Response(null, { status: 200 }));
+    await pending;
+    await settle();
+    assert.equal(seen[0].page, '/main', '시작한 화면');
   }
 
   // 시작할 때 skip 이면(기록 보기 화면) 응답이 화면을 옮긴 뒤 와도 남기지 않는다.
