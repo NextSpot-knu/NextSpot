@@ -194,12 +194,15 @@ function safeDecode(text: string): string {
 
 // 정규식에 뒤보기(lookbehind)를 쓰지 않는다 — 옛 iOS Safari(16.3 이하)는 그 문법만 봐도 번들 전체가 죽는다.
 const URL_IN_TEXT_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+// 한글 도메인(홍길동@네이버.com)까지 — \p{L} 은 ES2018(iOS 11.3+)이라 뒤보기와 달리 문제없다.
+const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
+// 하이픈 꼴 문자(‐ ‑ ‒ – — ― − ﹘ ﹣ －)는 먼저 '-' 로 맞춘다 — 그래야 아래 번호 규칙이 잡는다.
+const DASHES_RE = /[‐-―−﹘﹣－]/g;
 const PHONE_RES: readonly RegExp[] = [
   // +82 10-1234-5678 · 82 (0)10 1234 5678
   /(?:\+|\b)82[-. ]?(?:\(0\)|0)?[-. ]?1[016789][-. ]?\d{3,4}[-. ]?\d{4}\b/g,
-  // 010-1234-5678 · 01012345678 · 011 123 4567
-  /\b01[016789][-. ]?\d{3,4}[-. ]?\d{4}\b/g,
+  // 010-1234-5678 · 01012345678 · 011 123 4567 · (010)1234-5678
+  /\(?\b01[016789]\)?[-. ]?\d{3,4}[-. ]?\d{4}\b/g,
   // 지역 번호(02 · 031~064 · 070) — 02-123-4567 · (054) 772-1234
   /\b0(?:2|[3-6][1-5]|70)[-. )]{0,2}\d{3,4}[-. ]?\d{4}\b/g,
   // 대표 번호 1588-1234
@@ -210,8 +213,10 @@ const PHONE_RES: readonly RegExp[] = [
 const CARD_RE = /\b\d{4}(?:[ -]\d{4}){3}\b/g;
 // 하이픈을 사이에 둔 것까지 아홉 자리 이상 숫자(주민·사업자·계좌 번호 꼴). 날짜(2026-11-12 = 8자리)는 남는다.
 const DIGIT_RUN_RE = /\d(?:-?\d){8,}/g;
-// 소수점 아래 네 자리 이상(위경도 꼴 35.8372 · 129.2095).
-const GEO_NUMBER_RE = /-?\b\d{1,3}\.\d{4,}\b/g;
+// 위경도 꼴 — 쉼표로 이은 한 쌍(소수 둘째 자리부터, 35.837,129.209)과 소수 넷째 자리 이상 하나(35.8372).
+// 글자·밑줄에 붙어 있어도(lat35.8372 · pos_35.8372_x) 잡도록 \b 대신 '앞이 숫자·점이 아님' 을 잡아 되돌려 쓴다.
+const GEO_PAIR_RE = /(^|[^\d.])-?\d{1,3}\.\d{2,}\s*,\s*-?\d{1,3}\.\d{2,}(?!\d)/g;
+const GEO_NUMBER_RE = /(^|[^\d.])-?\d{1,3}\.\d{4,}(?!\d)/g;
 
 function stripUrlInText(raw: string): string {
   const match = /^(.*?)([).,;:!?\]]*)$/.exec(raw);
@@ -235,11 +240,13 @@ export function maskText(input: unknown, max = 80): string {
   if (!text) return '';
   if (text.length > 4000) text = text.slice(0, 4000); // 정규식 비용 상한
   text = text.replace(URL_IN_TEXT_RE, stripUrlInText);
+  text = text.replace(DASHES_RE, '-');
   text = text.replace(EMAIL_RE, '[email]');
   for (const re of PHONE_RES) text = text.replace(re, '[phone]');
   text = text.replace(CARD_RE, '[num]');
   text = text.replace(DIGIT_RUN_RE, '[num]');
-  text = text.replace(GEO_NUMBER_RE, '[geo]');
+  text = text.replace(GEO_PAIR_RE, '$1[geo]');
+  text = text.replace(GEO_NUMBER_RE, '$1[geo]');
   text = text.replace(/\s+/g, ' ').trim();
   return clipText(text, max);
 }
@@ -747,6 +754,11 @@ export interface ActionLogCoreDeps {
   /** 이 페이지에서 본 그 계정의 토큰(로그인 전 게스트 줄을 게스트 토큰으로 보내기 위해). */
   tokenForSub?: (sub: string) => string | null;
   refreshAuth?: () => Promise<ActionLogAuth | null>;
+  /**
+   * 토큰이 아직 쓸 만한가(만료 1분 전까지). pagehide 에서는 401 을 받아 다시 보낼 수 없으므로, 낡은 토큰이면
+   * 보내지 않고 저장분에 남겨 다음 방문이 보내게 한다. 없으면 늘 쓸 만하다고 본다.
+   */
+  isTokenFresh?: (token: string) => boolean;
 }
 
 export interface ActionLogCore {
@@ -765,6 +777,8 @@ export interface ActionLogCore {
   adopt(): void;
   /** 이 칸의 주인이 지금 다른 탭에 살아 있는가(탭 복제로 세션 번호까지 복사된 경우). */
   liveElsewhere(key: string): boolean;
+  /** 계정을 모를 때(null) 만든 줄에 계정을 정해 준다 — 로그인 상태가 처음 정해졌을 때('' 은 로그인 안 함). */
+  assignSub(rows: readonly ActionLogRow[], sub: string): void;
   readonly queue: readonly ActionLogRow[];
   readonly paused: boolean;
 }
@@ -944,9 +958,14 @@ export function createActionLogCore(deps: ActionLogCoreDeps): ActionLogCore {
     }
   }
 
-  /** 이 묶음을 어느 토큰으로 — 만든 계정이 지금 계정(또는 모름)이면 지금 토큰, 다른 계정이면 그 계정 토큰, 없으면 anon 키. */
+  /**
+   * 이 묶음을 어느 토큰으로 — 만든 계정이 지금 계정이면 지금 토큰, 다른 계정이면 이 페이지에서 본 그 계정 토큰.
+   * 로그인하지 않은 때 만든 줄('')과 계정을 모르는 줄(null — 로그인 상태가 정해지기 전, 다른 방문에서 이어받은 줄)은
+   * anon 키로 보낸다. 나중 계정의 토큰으로 보내면 그 계정이 한 일처럼 찍힌다(심사 증거가 틀어진다).
+   */
   function chooseToken(sub: string | null, current: ActionLogAuth): { token: string | null; current: boolean } {
-    if (sub === null || sub === current.sub) return { token: current.token, current: true };
+    if (!sub) return { token: null, current: false };
+    if (sub === current.sub) return { token: current.token, current: true };
     return { token: tokenForSub(sub), current: false };
   }
 
@@ -975,7 +994,7 @@ export function createActionLogCore(deps: ActionLogCoreDeps): ActionLogCore {
         } catch {
           fresh = null;
         }
-        if (fresh?.token && (sub === null || fresh.sub === sub)) {
+        if (fresh?.token && fresh.sub === sub) {
           res = await post(rows, fresh.token, mode.keepalive);
           kind = classifyActionLogResponse(res.status, res.code);
         }
@@ -1092,7 +1111,10 @@ export function createActionLogCore(deps: ActionLogCoreDeps): ActionLogCore {
     if (!paused) {
       const budget = L.batchBytes - keepaliveBytes;
       const batch = budget > 2000 ? nextBatch(budget) : [];
-      if (batch.length) {
+      // 낡은 토큰(숨긴 탭에서는 supabase-js 가 갱신을 멈춘다)이면 401 뒤 다시 보낼 기회가 없다 — 보내지 않고 남긴다.
+      const token = batch.length ? chooseToken(subOf(batch[0]), cachedAuth()).token : null;
+      const stale = !!token && !!deps.isTokenFresh && !deps.isTokenFresh(token);
+      if (batch.length && !stale) {
         for (const row of batch) {
           inflight.add(row);
           inflightKeepalive.add(row);
@@ -1151,6 +1173,10 @@ export function createActionLogCore(deps: ActionLogCoreDeps): ActionLogCore {
     if (pending().length) scheduleFlush(L.flushDelayMs);
   }
 
+  function assignSub(rows: readonly ActionLogRow[], sub: string): void {
+    for (const row of rows) if (subs.has(row) && subs.get(row) === null) subs.set(row, sub);
+  }
+
   function liveElsewhere(key: string): boolean {
     const entry = readFile().s[key];
     return !!entry && entry.live === 1 && now() - entry.t < LIVE_CLAIM_MS;
@@ -1166,6 +1192,7 @@ export function createActionLogCore(deps: ActionLogCoreDeps): ActionLogCore {
     reclaim,
     adopt,
     liveElsewhere,
+    assignSub,
     get queue() {
       return queue;
     },
@@ -1221,7 +1248,8 @@ export function describeApiCall(input: unknown, init: RequestInit | undefined, t
   const target = targets.find((t) => t.origin === url.origin
     && (!t.pathPrefix || url.pathname === t.pathPrefix || url.pathname.startsWith(`${t.pathPrefix}/`)));
   if (!target) return null;
-  if (url.pathname.includes(ACTION_LOG_PATH)) return null;
+  // 이 기록의 전송과 기록 보기 화면의 조회(rpc/action_log_*)는 남기지 않는다.
+  if (url.pathname.includes(ACTION_LOG_PATH) || url.pathname.includes('/rest/v1/rpc/action_log')) return null;
   const requestMethod = input && typeof input === 'object' ? (input as { method?: unknown }).method : undefined;
   const method = String(init?.method ?? (typeof requestMethod === 'string' ? requestMethod : 'GET')).toUpperCase().slice(0, 10);
   return { svc: target.svc, method, path: sanitizePath(url.pathname, 120) };
@@ -1231,6 +1259,8 @@ export interface LoggingFetchOptions {
   targets: readonly ApiTarget[];
   base?: () => string | undefined;
   onCall: (info: ApiCallInfo & { status: number; ms: number }) => void;
+  /** 요청을 시작하는 순간 true 면 이 호출은 남기지 않는다(응답이 화면을 옮긴 뒤 와도 시작한 화면 기준). */
+  skip?: () => boolean;
   now?: () => number;
 }
 
@@ -1240,7 +1270,7 @@ export function createLoggingFetch(original: typeof fetch, opts: LoggingFetchOpt
   const wrapped = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     let info: ApiCallInfo | null = null;
     try {
-      info = describeApiCall(input, init, opts.targets, opts.base?.());
+      info = opts.skip?.() ? null : describeApiCall(input, init, opts.targets, opts.base?.());
     } catch {
       info = null;
     }
@@ -1325,6 +1355,20 @@ function writeSession(storage: Storage | null, id: string, seq: number): void {
   }
 }
 
+/** JWT 의 exp(초) — 서명은 보지 않는다(만료가 가까운지만 본다). 읽을 수 없으면 null. */
+export function jwtExpiry(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    const json = typeof atob === 'function' ? atob(base64) : '';
+    const exp = (JSON.parse(json) as { exp?: unknown }).exp;
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp : null;
+  } catch {
+    return null;
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), ms);
@@ -1405,6 +1449,8 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
 
   // 계정 상태 — auth 이벤트로 따라간다. 토큰은 메모리에만 둔다(저장분에는 계정 번호만).
   let auth: ActionLogAuth = { sub: null, token: null };
+  let authKnown = false;
+  const unresolved: ActionLogRow[] = [];
   const tokensBySub = new Map<string, string>();
   const remember = (s: Session | null | undefined): ActionLogAuth => {
     const sub = s?.user?.id ?? null;
@@ -1434,6 +1480,10 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
       }
     },
     tokenForSub: (sub) => tokensBySub.get(sub) ?? null,
+    isTokenFresh: (token) => {
+      const exp = jwtExpiry(token);
+      return exp === null || exp * 1000 - Date.now() > 60_000;
+    },
     refreshAuth: async () => {
       try {
         const { data } = await withTimeout(createPublicClient().auth.refreshSession(), 4000);
@@ -1483,7 +1533,9 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
       locale: clipText(w.document?.documentElement?.lang || 'ko', 16) || 'ko',
       props: cleanProps(props),
     };
-    core.push(row, auth.sub);
+    // 줄마다 만든 때의 계정: 계정 번호 · 로그인 안 함('') · 아직 모름(null — 첫 auth 이벤트에서 정한다).
+    core.push(row, authKnown ? auth.sub ?? '' : null);
+    if (!authKnown && unresolved.length < 500) unresolved.push(row);
   };
 
   const rt: ActionLogRuntime = { log };
@@ -1641,6 +1693,15 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
   w.addEventListener('pageshow', guard((event: PageTransitionEvent) => {
     if (!event.persisted) return;
     unloading = false; // bfcache 에서 돌아왔다
+    // 그사이 같은 탭의 다른 페이지(예: OAuth 왕복)가 같은 세션 번호로 순번을 더 썼으면, 이어 쓰면 (session_id, seq) 가
+    // 겹치고 그 페이지가 남긴 저장분 칸을 덮는다 — 새 세션을 연다(그때 저장한 줄은 reclaim 이 그 칸 몫으로 넘긴다).
+    const stored = readSession(sessionStore);
+    if (!stored.fresh && (stored.id !== sessionId || stored.seq > seq)) {
+      sessionId = newLogId();
+      seq = 0;
+      writeSession(sessionStore, sessionId, seq);
+      log('session_start', { ...sessionStartProps(w, false), restored: true });
+    }
     log('visibility', { state: 'pageshow' });
     core.reclaim();
   }));
@@ -1695,6 +1756,7 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
     w.fetch = createLoggingFetch(original.bind(w), {
       targets: apiTargets(),
       base: () => w.location.href,
+      skip: () => isActivityViewer(w.location.pathname || '/'),
       now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
       onCall: (info) => log('api', { svc: info.svc, method: info.method, path: info.path, status: info.status, ms: info.ms }),
     });
@@ -1702,6 +1764,13 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
 
   // ── 로그인 상태 — 종류 · 익명 여부 · 로그인 수단만(이메일·토큰은 담지 않는다). ──
   let initialLogged = false;
+  // 로그인 상태가 처음 정해지면, 그 전에 만든 줄(session_start · 첫 page_view 등)을 그 상태로 묶는다.
+  const resolveAuth = () => {
+    if (authKnown) return;
+    authKnown = true;
+    core.assignSub(unresolved, auth.sub ?? '');
+    unresolved.length = 0;
+  };
   const authProps = (kind: string, s: Session | null): ActionLogProps => ({
     kind,
     anonymous: s ? s.user?.is_anonymous === true : null,
@@ -1713,10 +1782,12 @@ function createRuntime(w: ActionLogWindow): ActionLogRuntime {
         // 나간 계정의 줄로 남긴다(바뀌기 전 계정 번호로 묶인다).
         if (auth.sub) log('auth', authProps('signed_out', null));
         auth = remember(null);
+        resolveAuth();
         return;
       }
       const previous = auth;
       auth = remember(s);
+      resolveAuth();
       if (event === 'INITIAL_SESSION') {
         if (!initialLogged) log('auth', authProps('initial', s));
         initialLogged = true;

@@ -18,6 +18,7 @@ import {
   isActionLogRow,
   isTextEntry,
   isValueCapturable,
+  jwtExpiry,
   maskText,
   sanitizePath,
   sanitizeQuery,
@@ -92,7 +93,13 @@ assert.equal(maskText('1234-5678-9012-3456 카드'), '[num] 카드');
 assert.equal(maskText('123456789'), '[num]', '아홉 자리 이상 숫자');
 assert.equal(maskText('12345678'), '12345678', '여덟 자리까지는 남는다');
 assert.equal(maskText('2026-11-12 10:00 예약'), '2026-11-12 10:00 예약', '날짜·시각은 남는다');
-assert.equal(maskText('좌표 35.8372, 129.2095'), '좌표 [geo], [geo]', '좌표 꼴 숫자');
+assert.equal(maskText('좌표 35.8372, 129.2095'), '좌표 [geo]', '좌표 한 쌍');
+assert.equal(maskText('35.837,129.209 근처'), '[geo] 근처', '소수 셋째 자리 쌍도 좌표');
+assert.equal(maskText('lat35.8372 pos_35.8372_x'), 'lat[geo] pos_[geo]_x', '글자·밑줄에 붙은 좌표');
+assert.equal(maskText('평점 4.5 · 1.2km'), '평점 4.5 · 1.2km', '짧은 소수는 남는다');
+assert.equal(maskText('(010)1234-5678'), '[phone]', '괄호 친 휴대폰 앞자리');
+assert.equal(maskText('010–1234–5678 · 010—1234—5678'), '[phone] · [phone]', '다른 대시 문자');
+assert.equal(maskText('홍길동@네이버.com 으로'), '[email] 으로', '한글 도메인 이메일');
 assert.equal(maskText('see https://ex.com/a/b?token=abc&lat=35.1#x.'), 'see https://ex.com/a/b.', '글 속 URL 은 쿼리를 뗀다');
 assert.equal(maskText('  여러   칸\n\n공백  '), '여러 칸 공백');
 assert.equal(maskText('가'.repeat(100), 10), `${'가'.repeat(9)}…`);
@@ -122,7 +129,7 @@ assert.equal(hrefForLog('/explore/recommend?facilityId=r1&lat=35.8&lng=129.2', B
 assert.equal(hrefForLog('/login?next=/merchant&code=abc', BASE), '/login?next=/merchant');
 assert.equal(
   hrefForLog('https://map.kakao.com/link/to/황남쌈밥,35.8372,129.2095?ref=x', BASE),
-  'https://map.kakao.com/link/to/황남쌈밥,[geo],[geo]',
+  'https://map.kakao.com/link/to/황남쌈밥,[geo]',
   '바깥 링크는 쿼리 없이, 경로 속 좌표도 가린다',
 );
 assert.equal(hrefForLog('mailto:someone@example.com', BASE), 'mailto:');
@@ -404,11 +411,12 @@ void (async () => {
     log.push(row(2), 'member');
     log.push(row(3), null);
     log.push(row(4), 'gone');
-    for (let i = 0; i < 5; i += 1) await log.flush();
+    log.push(row(5), '');
+    for (let i = 0; i < 6; i += 1) await log.flush();
     assert.deepEqual(
       net.calls.map((c) => [c.auth, c.rows.map((r) => r.seq)]),
-      // 계정을 모를 때 만든 줄(null)은 지금 세션으로 — 묶음은 같은 계정끼리만.
-      [['Bearer guest-token', [0, 1]], ['Bearer member-token', [2]], ['Bearer member-token', [3]], ['Bearer anon-key', [4]]],
+      // 계정을 모르는 줄(null)·로그인 안 한 때의 줄('')은 지금 계정이 아니라 anon 키로 — 나중 계정에 붙지 않게.
+      [['Bearer guest-token', [0, 1]], ['Bearer member-token', [2]], ['Bearer anon-key', [3]], ['Bearer anon-key', [4]], ['Bearer anon-key', [5]]],
       '줄은 만들 때의 계정으로 묶여 들어간다',
     );
   }
@@ -509,6 +517,37 @@ void (async () => {
     await settle();
   }
 
+  // 로그인 상태가 정해지기 전에 만든 줄은 정해진 상태로 묶인다(assignSub) — 이미 정해진 줄은 그대로.
+  {
+    const net = fakeFetch(() => ({ status: 201 }));
+    const log = core({ fetch: net.fn, currentAuth: async () => ({ sub: 'member', token: 'member-token' }) });
+    const early = [row(0), row(1)];
+    log.push(early[0], null);
+    log.push(early[1], null);
+    log.push(row(2), 'member');
+    log.assignSub(early, 'member');
+    log.assignSub([log.queue[2]], 'guest');
+    await log.flush();
+    assert.deepEqual(net.calls.map((c) => [c.auth, c.rows.map((r) => r.seq)]), [['Bearer member-token', [0, 1, 2]]]);
+  }
+
+  // pagehide 에 토큰이 낡았으면(숨긴 탭은 갱신이 멈춘다) 보내지 않고 저장분에 남긴다 — 401 뒤 다시 보낼 기회가 없다.
+  {
+    const storage = memoryStorage();
+    const net = fakeFetch(() => ({ status: 201 }));
+    const log = core({
+      fetch: net.fn,
+      storage,
+      cachedAuth: () => ({ sub: 'member', token: 'old-token' }),
+      isTokenFresh: (token) => token !== 'old-token',
+    });
+    log.adopt();
+    log.push(row(0), 'member');
+    log.unload();
+    assert.equal(net.calls.length, 0, '낡은 토큰으로는 보내지 않는다');
+    assert.deepEqual(readOutbox(storage).s['session-0001'].rows.map((r) => r.seq), [0], '다음 방문이 보내도록 남긴다');
+  }
+
   // 탭 복제 판별 · 주인이 떠난 칸 이어받기 · 살아 있는 탭의 칸은 건드리지 않기
   {
     const storage = memoryStorage();
@@ -559,6 +598,7 @@ void (async () => {
     await wrapped('https://sb.example.co/rest/v1/facilities?select=id,name&region=eq.gyeongju');
     await wrapped('https://sb.example.co/rest/v1/action_logs', { method: 'POST', body: '[]' });
     await wrapped('https://sb.example.co/rest/v1/action_logs?select=*');
+    await wrapped('https://sb.example.co/rest/v1/rpc/action_log_rows', { method: 'POST', body: '{}' });
     await wrapped('https://other.example.net/api/v1/x?y=1');
     await wrapped(new Request('https://sb.example.co/auth/v1/token?grant_type=password', { method: 'POST' }));
     await wrapped(new URL('https://api.example.com/api/v1/users/a%40b.com/visits?x=1'));
@@ -575,6 +615,31 @@ void (async () => {
     assert.ok(!text.includes('?'), '쿼리스트링을 담지 않는다');
     assert.ok(!text.includes('35.8372') && !text.includes('grant_type'), '쿼리·본문 값을 담지 않는다');
     assert.ok(!text.includes('action_logs'), '이 기록 자체의 전송은 남기지 않는다');
+  }
+
+  // 시작할 때 skip 이면(기록 보기 화면) 응답이 화면을 옮긴 뒤 와도 남기지 않는다.
+  {
+    let onViewer = true;
+    const seen: unknown[] = [];
+    const wrapped = createLoggingFetch((async () => new Response(null, { status: 200 })) as typeof fetch, {
+      targets: apiTargets('https://api.example.com', 'https://sb.example.co'),
+      onCall: (info) => seen.push(info),
+      skip: () => onViewer,
+    });
+    const pending = wrapped('https://sb.example.co/rest/v1/facilities');
+    onViewer = false;
+    await pending;
+    await wrapped('https://sb.example.co/rest/v1/facilities');
+    await settle();
+    assert.equal(seen.length, 1);
+  }
+
+  // JWT exp — 서명은 보지 않고 만료만 읽는다.
+  {
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    assert.equal(jwtExpiry(`${b64({ alg: 'HS256' })}.${b64({ sub: 'u', exp: 1_800_000_000 })}.sig`), 1_800_000_000);
+    assert.equal(jwtExpiry('not-a-jwt'), null);
+    assert.equal(jwtExpiry('your-supabase-anon-key'), null);
   }
 
   console.log('actionLog tests passed');

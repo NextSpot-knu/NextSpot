@@ -184,15 +184,21 @@ void (async () => {
   win.location.pathname = '/dev/activity';
   win.location.search = '';
   win.location.href = 'http://localhost:3000/dev/activity';
+  // 그사이 같은 탭의 다른 페이지가 같은 세션으로 순번을 더 썼다(OAuth 왕복 등) — 돌아온 페이지는 새 세션을 연다.
+  const before = win.sessionStorage.getItem('nextspot_action_session');
+  win.sessionStorage.setItem('nextspot_action_seq', '999');
   win.fire('pageshow', { persisted: true }); // bfcache 에서 돌아온 기록 보기 화면
+  assert.notEqual(win.sessionStorage.getItem('nextspot_action_session'), before, '순번이 앞선 세션은 이어 쓰지 않는다');
   doc.fire('click', { target: new FakeElement('button', {}, '새로고침') });
   await wrapped('https://your-supabase-project.supabase.co/rest/v1/action_logs?select=*');
   logAction('page_view', { from: '/main', nav: 'route', query: '' });
   logSearch('anything', 'dev');
   win.fire('pagehide', { persisted: true });
   const viewer = posts.slice(1).flatMap((p) => p.body);
-  assert.deepEqual(viewer.map((r) => r.event), ['page_view'], '/dev/activity 에서는 page_view 만');
-  assert.equal(viewer[0].page, '/dev/activity');
+  assert.deepEqual(viewer.map((r) => r.event), ['session_start', 'page_view'], '/dev/activity 에서는 session_start · page_view 만');
+  assert.equal(viewer[0].seq, 0);
+  assert.equal(viewer[0].props.restored, true);
+  assert.equal(viewer[1].page, '/dev/activity');
 
   console.log('actionLogRuntime tests passed');
   process.exit(0); // Supabase 클라이언트의 자동 갱신 타이머가 프로세스를 붙잡지 않게
