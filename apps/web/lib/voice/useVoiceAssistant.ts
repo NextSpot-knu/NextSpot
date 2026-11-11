@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VoiceAppCommand } from './voiceCommands';
 import { pickVoice } from './speechLocale';
+import { logVoice } from '@/lib/actionLog';
 
 // TTS 는 브라우저 내장 speechSynthesis 만 사용한다.
 // (대회용 Google Cloud Text-to-Speech 연동은 제거됨 — 로컬 전용·외부 의존성 0.)
@@ -407,6 +408,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
           if (stateRef.current !== "listening") return;
           if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
           setLiveTranscript(finalAlts[0] || "");
+          logVoice(finalAlts[0] || "", "assistant"); // 알아들은 문장만(가려서) — 녹음은 남기지 않는다(lib/actionLog)
           handleIntent(finalAlts);
         }
       };

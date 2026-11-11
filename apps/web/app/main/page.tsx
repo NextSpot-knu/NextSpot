@@ -64,6 +64,7 @@ import { buildRecommendHref, candidateTypesFor } from '@/lib/recommendOrigin';
 import { isServerRecommendationId } from '@/lib/recommendationIds';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
+import { logSearch, logSearchTyping, trackMapActions } from '@/lib/actionLog';
 import { congestionKey } from '@/lib/congestionScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { errorMessage } from '@/lib/errors';
@@ -746,6 +747,7 @@ export default function MainPage() {
   const speechSearch = useSpeechSearch(
     (text) => {
       setSearchQuery(text);
+      logSearch(text, 'main', 'voice');
       commitSearchRef.current(text);
     },
     (kind) => showToast(kind === 'denied' ? t('map.sttMicDenied') : t('map.sttFailed')),
@@ -2869,6 +2871,7 @@ export default function MainPage() {
         };
         const map = new window.kakao.maps.Map(container, options);
         mapInstanceRef.current = map;
+        trackMapActions(map, 'main');
         setMapLoaded(true);
 
         // 첫 진입(복원 없음): 기본 중심(=현재 위치 점)을 전체 화면이 아니라, 상단 칩 바 아래·
@@ -3904,11 +3907,18 @@ export default function MainPage() {
           <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
+            data-log-value="search"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              logSearchTyping(e.target.value, 'main');
+            }}
             onKeyDown={(e) => {
               // 한글 조합 중의 Enter 는 글자를 마무리할 뿐이다 — 조합이 끝난 Enter 로 연다.
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitSearchHit(searchQuery);
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                logSearch(searchQuery, 'main', 'enter');
+                commitSearchHit(searchQuery);
+              }
             }}
             enterKeyHint="search"
             placeholder={t('map.searchPlaceholder')}
