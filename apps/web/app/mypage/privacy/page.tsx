@@ -1,11 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, FileText, HardDrive, BarChart3, ShieldAlert, ShieldCheck, Scale, Mail } from 'lucide-react';
+import { ChevronLeft, FileText, HardDrive, BarChart3, MousePointerClick, ShieldAlert, ShieldCheck, Scale, Mail } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
-// 이 안내문을 마지막으로 고친 날 — 문구를 바꾸면 함께 바꾼다(푸터 '최종 업데이트 · {date}').
-const PRIVACY_UPDATED_AT = '2026-10-31';
+// 이 안내문을 마지막으로 고친 날 — 문구를 바꾸면 함께 바꾼다(푸터 '최종 업데이트 · {date}', e2e/mypage.spec.ts 가 잠근다).
+// 2026-11-12: '접속·조작 기록' 절 추가(lib/actionLog). ⚠️ 이 절과 함께 고친 문장은 법률 검토 대기 중이다 — 화면에는 적지 않는다.
+const PRIVACY_UPDATED_AT = '2026-11-12';
 
 export default function PrivacyPage() {
   const router = useRouter();
@@ -15,10 +16,15 @@ export default function PrivacyPage() {
   const sections = [
     { id: 'collect', icon: FileText, titleKey: 'privacy.collectTitle', bodyKey: 'privacy.collectBody' },
     { id: 'storage', icon: HardDrive, titleKey: 'privacy.storageTitle', bodyKey: 'privacy.storageBody' },
-    // 익명 이용 기록(lib/usageEvents · public.usage_events, 2026-10-23).
-    { id: 'usage', icon: BarChart3, titleKey: 'privacy.usageTitle', bodyKey: 'privacy.usageBody' },
+    // 익명 이용 기록(lib/usageEvents · public.usage_events, 2026-10-23). 제목은 웹 전용 anonUsageTitle —
+    // privacy.usageTitle 은 앱(apps/mobile)이 그대로 쓴다. 아래 접속·조작 기록과 헷갈리지 않게 '익명' 을 붙였다.
+    { id: 'usage', icon: BarChart3, titleKey: 'privacy.anonUsageTitle', bodyKey: 'privacy.usageBody' },
+    // 접속·조작 기록(lib/actionLog · public.action_logs, 2026-11-12) — 계정·IP 원본(1년)·화면 조작, 검색어·음성 문장은 가려서.
+    // 법률 검토 대기 중(코드 주석으로만 둔다).
+    { id: 'actionLog', icon: MousePointerClick, titleKey: 'privacy.actionLogTitle', bodyKey: 'privacy.actionLogBody' },
     // 게스트 방문 확인 답의 네트워크 대역 해시(30일) · 원본 IP 는 메모리에만(D3, 2026-10-31). Turnstile 은 제3자 항목에.
-    { id: 'abuse', icon: ShieldAlert, titleKey: 'privacy.abuseTitle', bodyKey: 'privacy.abuseBody' },
+    // 웹은 abuseWebBody — 'IP 원본은 저장하지 않는다' 를 이 답으로 좁혔다(접속·조작 기록이 IP 를 남긴다). 앱은 privacy.abuseBody 그대로.
+    { id: 'abuse', icon: ShieldAlert, titleKey: 'privacy.abuseTitle', bodyKey: 'privacy.abuseWebBody' },
     { id: 'thirdParty', icon: ShieldCheck, titleKey: 'privacy.thirdPartyTitle', bodyKey: 'privacy.thirdPartyBody' },
     { id: 'terms', icon: Scale, titleKey: 'privacy.termsTitle', bodyKey: 'privacy.termsBody' },
     { id: 'contact', icon: Mail, titleKey: 'privacy.contactTitle', bodyKey: 'privacy.contactBody' },
