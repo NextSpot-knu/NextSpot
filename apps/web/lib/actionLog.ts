@@ -16,7 +16,7 @@
 //     사람이 쓴 글(문의 본문·프로필)이 버튼 안에 보이는 곳은 data-log-private 로 감싸면 그 안에서는 이름을 읽지 않는다
 //     (/dev 개발자 콘솔은 통째로 그렇게 다룬다). 버튼·링크가 아닌 곳을 누르면 글자를 아예 읽지 않는다.
 //   · 음성 녹음 · 위치 좌표(지도 중심 포함) · 쿼리스트링의 인증 값 · 요청/응답 본문은 어디에도 담지 않는다. 위치정보법 때문에
-//     쿼리의 좌표 키와 자유 텍스트 속 좌표 꼴 숫자도 [geo] 로 바꾼다. 지도는 확대 단계만 남긴다.
+//     쿼리의 좌표 키와 자유 텍스트 속 좌표 꼴 숫자도 [geo] 로 바꾼다. 지도는 확대 단계와 누른 핀의 장소(이름·종류·번호)만 남긴다.
 //
 // 언제 남기나(shouldRecordActionLog): 운영 주소(nextspot-nu.vercel.app + NEXT_PUBLIC_ACTION_LOG_HOSTS)에서 자동화가 아닌
 // 브라우저(navigator.webdriver 가 아님)일 때. window.__NEXTSPOT_ACTION_LOG__ === 'force' 면 둘 다 무시하고 켠다(e2e/action-log.spec.ts).
