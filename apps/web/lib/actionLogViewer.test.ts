@@ -25,6 +25,10 @@ import {
   buildCsv,
   classifyRpcError,
   clockDiffSeconds,
+  compareSessionRows,
+  CSV_SOURCE_PREFIX,
+  ROW_BROWSER_FIELDS,
+  ROW_SERVER_FIELDS,
   collectKeyset,
   csvCell,
   csvFileName,
@@ -511,10 +515,13 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..');
     '세션은 시작 시각 순, 시각을 못 읽은 묶음은 맨 뒤',
   );
   const [a, b, none] = groups;
-  assert.deepEqual(a.rows.map((r) => r.id), [2, 3, 4, 5, 7], '묶음 안의 순서는 들어온 순서 그대로');
+  assert.deepEqual(a.rows.map((r) => r.id), [2, 3, 4, 5, 7], '늦게 온 행이 없으면 seq 순 = 들어온 순');
   assert.equal(a.startAt, '2026-11-12T01:00:00Z');
   assert.equal(a.endAt, '2026-11-12T01:10:00Z');
   assert.equal(a.durationS, 600);
+  assert.equal(a.clientStartAt, '2026-11-12T01:00:00Z');
+  assert.equal(a.clientDurationS, 600);
+  assert.equal(a.lateRows, 0);
   assert.equal(a.events, 5);
   assert.equal(a.pageViews, 1);
   assert.equal(a.clicks, 1);
@@ -526,7 +533,52 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..');
   assert.equal(b.firstPage, '/course');
   assert.equal(none.durationS, null);
   assert.equal(none.startAt, null);
+  assert.equal(none.clientDurationS, null);
   assert.deepEqual(groupBySession([]), []);
+
+  // 보관함(localStorage)에 남았다가 다음 방문에 다시 보낸 행 — 서버에는 하루 뒤(큰 id·늦은 received_at)로 들어온다.
+  // 타임라인은 seq(브라우저 순번) 순이어야 하고, 브라우저 시계 기준 길이는 늦게 온 행에 늘어나지 않는다.
+  const late = (id: number, seq: number | null, occurred: string, received: string, event: string, extra: Partial<ActionLogRow> = {}) =>
+    mk(id, 'L', received, event, { seq, occurred_at: occurred, ...extra });
+  const lateRows = [
+    late(10, 0, '2026-11-12T02:00:00Z', '2026-11-12T02:00:01Z', 'session_start', { page: '/main' }),
+    late(11, 1, '2026-11-12T02:00:10Z', '2026-11-12T02:00:11Z', 'page_view', { page: '/main' }),
+    late(12, 4, '2026-11-12T02:03:00Z', '2026-11-12T02:03:01Z', 'click', { page: '/course' }),
+    // seq 2·3 은 보내지 못했다가 다음 날 들어왔다.
+    late(40, 3, '2026-11-12T02:02:00Z', '2026-11-13T09:00:00Z', 'click', { page: '/explore', user_id: 'u2', email: 'x@example.com' }),
+    late(39, 2, '2026-11-12T02:01:00Z', '2026-11-13T09:00:00Z', 'page_view', { page: '/explore' }),
+    // seq 가 같으면 id 순, seq 가 없으면 맨 뒤에 id 순.
+    late(41, 4, '2026-11-12T02:03:00Z', '2026-11-13T09:00:01Z', 'heartbeat'),
+    late(13, null, '2026-11-12T02:04:00Z', '2026-11-12T02:04:01Z', 'error'),
+  ];
+  const [lg] = groupBySession(lateRows);
+  assert.deepEqual(lg.rows.map((r) => r.seq), [0, 1, 2, 3, 4, 4, null], '세션 안은 seq 순이어야 한다(received_at 순 X)');
+  assert.deepEqual(lg.rows.map((r) => r.id), [10, 11, 39, 40, 12, 41, 13], 'seq 가 같거나 없으면 id 순');
+  assert.equal(lg.startAt, '2026-11-12T02:00:01Z', '서버 시작은 가장 이른 received_at');
+  assert.equal(lg.endAt, '2026-11-13T09:00:01Z', '서버 끝은 늦게 온 행까지 늘어난다');
+  assert.equal(lg.durationS, (Date.parse('2026-11-13T09:00:01Z') - Date.parse('2026-11-12T02:00:01Z')) / 1000);
+  assert.equal(lg.clientStartAt, '2026-11-12T02:00:00Z', '브라우저 시계 시작은 가장 이른 occurred_at');
+  assert.equal(lg.clientEndAt, '2026-11-12T02:04:00Z');
+  assert.equal(lg.clientDurationS, 240, '브라우저 시계 길이는 늦게 온 행에 늘어나지 않는다');
+  assert.equal(lg.lateRows, 2, 'seq 2·3 이 뒤 순번(seq 4, id 12)보다 늦게 들어왔다');
+  assert.equal(lg.firstPage, '/main', '첫 화면은 seq 순으로 센다');
+  // 입력 순서와 상관없이 같은 결과(뒤집어 넣어도).
+  assert.deepEqual(groupBySession([...lateRows].reverse())[0].rows.map((r) => r.id), [10, 11, 39, 40, 12, 41, 13]);
+
+  // 비교 함수 단독 — seq 없음이 섞여도 추이적이어야 정렬이 안정적으로 나온다.
+  const x = late(1, 5, '', '', 'click');
+  const y = late(2, null, '', '', 'click');
+  const z = late(3, 1, '', '', 'click');
+  assert.deepEqual([x, y, z].sort(compareSessionRows).map((r) => r.id), [3, 1, 2]);
+  assert.deepEqual([y, z, x].sort(compareSessionRows).map((r) => r.id), [3, 1, 2]);
+
+  // session_id 없는 행끼리는 seq 가 서로 다른 세션 것일 수 있다 — 들어온 순(id) 그대로.
+  const orphan = groupBySession([
+    mk(21, null, '2026-11-12T03:00:00Z', 'click', { seq: 9 }),
+    mk(20, null, '2026-11-12T03:00:05Z', 'click', { seq: 1 }),
+  ]);
+  assert.deepEqual(orphan[0].rows.map((r) => r.id), [20, 21]);
+  assert.equal(orphan[0].lateRows, 0);
 
   assert.equal(rowAccountLabel(rows[4]), 'openapi@gmail.com · admin');
   assert.equal(rowAccountLabel(mk(9, 'A', '2026-11-12T01:00:00Z', 'click', { user_id: 'abcdef123', is_anonymous: true })), '게스트 abcdef');
@@ -758,9 +810,26 @@ async function keysetTests() {
   const deviceHeaders = DEVICE_CSV_COLUMNS.map((c) => c.header);
   const rowHeaders = ROW_CSV_COLUMNS.map((c) => c.header);
   for (const field of DEVICE_FIELDS) assert.ok(deviceHeaders.includes(field), `기기 CSV 에 ${field} 가 없다`);
-  for (const field of ROW_FIELDS) assert.ok(rowHeaders.includes(field), `행 CSV 에 ${field} 가 없다`);
   assert.equal(new Set(deviceHeaders).size, deviceHeaders.length, '기기 CSV 열 이름이 겹친다');
   assert.equal(new Set(rowHeaders).size, rowHeaders.length, '행 CSV 열 이름이 겹친다');
+
+  // 행 CSV 는 열 이름 앞머리로 출처(서버가 찍음 / 브라우저가 보냄)를 가른다 — 모든 RPC 필드가 정확히 한쪽에 든다.
+  assert.deepEqual(
+    [...ROW_SERVER_FIELDS, ...ROW_BROWSER_FIELDS].sort(),
+    [...ROW_FIELDS].sort(),
+    '서버·브라우저 필드 목록이 RPC 필드를 빠짐없이·겹침 없이 나누지 않는다',
+  );
+  for (const field of ROW_SERVER_FIELDS) {
+    assert.ok(rowHeaders.includes(`${CSV_SOURCE_PREFIX.server}${field}`), `행 CSV 에 server_${field} 가 없다`);
+  }
+  for (const field of ROW_BROWSER_FIELDS) {
+    assert.ok(rowHeaders.includes(`${CSV_SOURCE_PREFIX.browser}${field}`), `행 CSV 에 browser_${field} 가 없다`);
+  }
+  for (const header of rowHeaders) {
+    assert.match(header, /^(server|browser)_[a-z_]+$/, `행 CSV 열 ${header} 에 출처 앞머리가 없다`);
+  }
+  assert.ok(rowHeaders.includes('server_received_at_kst') && rowHeaders.includes('browser_occurred_at_kst'));
+  assert.ok(csvHeader(ROW_CSV_COLUMNS).startsWith('server_id,server_received_at_kst,'), '머리줄은 한 줄 — 위에 설명 줄을 두지 않는다');
 
   // 행 CSV 한 줄 — props 는 JSON, 시각은 원본(UTC)과 KST 를 둘 다.
   const row = normalizeRow({
@@ -785,11 +854,14 @@ async function keysetTests() {
   })!;
   const line = csvRows(ROW_CSV_COLUMNS, [row]);
   const get = (header: string) => ROW_CSV_COLUMNS.find((c) => c.header === header)!.value(row);
-  assert.equal(get('received_at_kst'), '2026-11-13 00:30:05');
-  assert.equal(get('clock_diff_s'), -1);
-  assert.equal(get('judge_account'), 'admin');
-  assert.deepEqual(get('props'), { q: '=1+1', source: 'main' });
-  assert.equal(get('summary'), '“=1+1” · main');
+  assert.equal(get('server_received_at_kst'), '2026-11-13 00:30:05');
+  assert.equal(get('browser_occurred_at_kst'), '2026-11-13 00:30:04');
+  assert.equal(get('browser_clock_diff_s'), -1);
+  assert.equal(get('server_judge_account'), 'admin');
+  assert.deepEqual(get('browser_props'), { q: '=1+1', source: 'main' });
+  assert.equal(get('browser_summary'), '“=1+1” · main');
+  assert.equal(get('server_ip'), '1.2.3.4');
+  assert.equal(get('browser_seq'), 3);
   assert.ok(line.includes('"{""q"":""=1+1"",""source"":""main""}"'), `props JSON 이 그대로 들어가지 않았다: ${line}`);
   assert.ok(line.endsWith('\r\n'));
 
