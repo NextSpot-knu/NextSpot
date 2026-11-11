@@ -42,6 +42,7 @@ import {
   judgeConsoleForEmail,
   judgeUsage,
   kstDay,
+  latestLastAt,
   kstDayStartMs,
   normalizeDevice,
   normalizeDevices,
@@ -112,6 +113,23 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..');
   assert.equal(snapshotUpperBound('2026-11-12T15:00:00.000Z', nowMs), '2026-11-12T04:59:50.000Z', '오늘이 든 기간은 지금 직전까지');
   assert.equal(snapshotUpperBound('2026-11-10T15:00:00.000Z', nowMs), '2026-11-10T15:00:00.000Z', '지난 기간은 그대로');
   assert.equal(snapshotUpperBound('nope', nowMs), '2026-11-12T04:59:50.000Z');
+  // 기기 시계가 늦어도 서버가 이미 받았다고 알려 준 행(last_at)은 잘라 내지 않는다(끝은 미포함이라 +1ms).
+  assert.equal(
+    snapshotUpperBound('2026-11-12T15:00:00.000Z', nowMs, { floorIso: '2026-11-12T07:30:00.123456+00:00' }),
+    '2026-11-12T07:30:00.124Z',
+    '시계가 늦은 기기에서 최신 행이 조용히 빠졌다',
+  );
+  assert.equal(
+    snapshotUpperBound('2026-11-12T15:00:00.000Z', nowMs, { floorIso: '2026-11-12T04:00:00Z' }),
+    '2026-11-12T04:59:50.000Z',
+    '바닥이 지금보다 앞이면 지금 − 10초 그대로',
+  );
+  assert.equal(
+    snapshotUpperBound('2026-11-10T15:00:00.000Z', nowMs, { floorIso: '2026-11-12T07:30:00Z' }),
+    '2026-11-10T15:00:00.000Z',
+    '기간 끝을 넘지는 않는다',
+  );
+  assert.equal(snapshotUpperBound('2026-11-12T15:00:00.000Z', nowMs, { marginMs: 0, floorIso: null }), '2026-11-12T05:00:00.000Z');
   assert.equal(addKstDays('2026-12-31', 1), '2027-01-01');
   assert.equal(addKstDays('2026-03-01', -1), '2026-02-28');
 
@@ -324,6 +342,9 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), '..');
     device('d3', ['someone@example.com']),
     device('d4', []),
   ];
+  assert.equal(latestLastAt(devices), '2026-11-12T05:00:00Z', '가장 늦은 last_at');
+  assert.equal(latestLastAt([]), null);
+  assert.equal(latestLastAt([device('x', [], { last_at: null })]), null);
   assert.equal(deviceHasJudge(devices[0]), true);
   assert.equal(deviceHasJudge(devices[2]), false);
   assert.equal(deviceHasJudge(devices[3]), false);

@@ -61,6 +61,7 @@ import {
   judgeConsoleForEmail,
   judgeUsage,
   kstDay,
+  latestLastAt,
   normalizeDevices,
   normalizeRange,
   normalizeRows,
@@ -153,9 +154,9 @@ function presetRangeNow(key: RangePreset): KstDayRange {
   return presetRange(key, Date.now());
 }
 
-/** 내려받기의 끝 시각 — 시작한 순간에 고정한다(snapshotUpperBound 주석). */
-function exportSnapshotTo(toIso: string): string {
-  return snapshotUpperBound(toIso, Date.now());
+/** 내려받기의 끝 시각 — 시작한 순간에 고정하되, 서버가 알려 준 마지막 시각 앞으로는 자르지 않는다(snapshotUpperBound 주석). */
+function exportSnapshotTo(toIso: string, floorIso: string | null): string {
+  return snapshotUpperBound(toIso, Date.now(), { floorIso });
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -236,7 +237,9 @@ type ExportState =
       partial: 'cap' | 'error' | null;
       fileName: string;
     }
-  | { phase: 'error'; deviceId: string | null; label: string; loaded: number; title: string; detail: string | null };
+  | { phase: 'error'; deviceId: string | null; label: string; loaded: number; title: string; detail: string | null }
+  /** 중지했지만 받은 행이 있다 — 이어 받거나 받은 데까지 저장할 수 있다. */
+  | { phase: 'stopped'; deviceId: string | null; label: string; loaded: number };
 
 interface DevicesState {
   key: string;
@@ -381,8 +384,13 @@ function ActivityConsole() {
       });
       if (life.cancelled) return;
       if (result.reason === 'cancelled') {
-        exportJobRef.current = null;
-        setExportState({ phase: 'idle' });
+        // 받은 행이 있으면(앞서 실패했다 이어 받던 것 포함) 버리지 않는다 — 이어 받기·받은 데까지 저장을 남긴다.
+        if (job.loaded > 0) {
+          setExportState({ phase: 'stopped', deviceId: job.deviceId, label: job.label, loaded: job.loaded });
+        } else {
+          exportJobRef.current = null;
+          setExportState({ phase: 'idle' });
+        }
         toast('내려받기를 멈췄어요.');
         return;
       }
@@ -401,17 +409,31 @@ function ActivityConsole() {
   /** deviceId 가 null 이면 기간 전체(모든 기기). */
   const startExport = (deviceId: string | null) => {
     if (exportBusyRef.current) return;
+    // 실패·중지로 남은 작업(이어 받거나 저장할 수 있는 행)을 말없이 덮어쓰지 않는다.
+    const pending = exportJobRef.current;
+    if (
+      pending &&
+      pending.loaded > 0 &&
+      !window.confirm(`받다 만 ${pending.label} ${fmt(pending.loaded)}건이 있어요. 버리고 새로 받을까요?`)
+    ) {
+      return;
+    }
     const listComplete = !devicesLoading && !devicesError && !accountsOnly && !truncated;
     const expected = deviceId
       ? (devices.find((d) => d.device_id === deviceId)?.events ?? null)
       : listComplete
         ? devices.reduce((sum, d) => sum + d.events, 0)
         : null;
+    // 서버가 알려 준 마지막 시각 — 이 브라우저 시계가 늦어도 그보다 앞에서 자르지 않는다.
+    const listFresh = !devicesLoading && !devicesError;
+    const floorIso = listFresh
+      ? latestLastAt(deviceId ? devices.filter((d) => d.device_id === deviceId) : devices)
+      : null;
     void runExport({
       deviceId,
       label: deviceId ? `기기 ${shortId(deviceId)} 기록` : '기간 전체 기록',
       range,
-      iso: { from: iso.from, to: exportSnapshotTo(iso.to) },
+      iso: { from: iso.from, to: exportSnapshotTo(iso.to, floorIso) },
       expected,
       parts: [CSV_BOM + csvHeader(ROW_CSV_COLUMNS)],
       loaded: 0,
@@ -681,18 +703,37 @@ function ExportStatus({
           </div>
         )}
         <p className="mt-1.5 text-[11px] text-muk-soft">
-          {fmt(EXPORT_ROW_CAP)}건이 넘으면 거기서 멈추고 그때까지 받은 것만 저장해요. 받기 시작한 뒤에 들어온 기록은
-          넣지 않아요.
+          {fmt(EXPORT_ROW_CAP)}건이 넘으면 거기서 멈추고 그때까지 받은 것만 저장해요. 받기 시작하기 약 10초 전까지 서버에
+          들어온 기록만 담아요(그 뒤 기록은 다시 받으면 들어가요).
         </p>
       </div>
     );
   }
 
   const warn = state.phase === 'error' || (state.phase === 'done' && state.partial !== null);
+  // 실패·중지 뒤에 남은 행 — 이어 받거나(마지막 id 다음부터) 받은 데까지 저장한다.
+  const leftover =
+    state.phase === 'error' || state.phase === 'stopped' ? (
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button type="button" onClick={onResume} className={`${PILL} ${PILL_IDLE}`}>
+          <RefreshCw size={14} aria-hidden />{' '}
+          {state.loaded > 0 ? `이어서 받기(${fmt(state.loaded)}건 다음부터)` : '다시 시도'}
+        </button>
+        {state.loaded > 0 && (
+          <button type="button" onClick={onSavePartial} className={`${PILL} ${PILL_IDLE}`}>
+            <Download size={14} aria-hidden /> 받은 {fmt(state.loaded)}건만 저장
+          </button>
+        )}
+      </div>
+    ) : null;
   return (
     <div
       className={`mt-3 flex items-start justify-between gap-2 rounded-2xl border px-3.5 py-2.5 text-[12px] ${
-        warn ? 'border-terracotta/40 bg-terracotta/5' : 'border-jade/40 bg-jade/10'
+        warn
+          ? 'border-terracotta/40 bg-terracotta/5'
+          : state.phase === 'stopped'
+            ? 'border-line bg-hanji'
+            : 'border-jade/40 bg-jade/10'
       }`}
       aria-live="polite"
     >
@@ -715,22 +756,20 @@ function ExportStatus({
               </p>
             )}
           </>
+        ) : state.phase === 'stopped' ? (
+          <>
+            <p className="font-semibold text-muk">
+              {state.label} 받기를 멈췄어요 — 지금까지 {fmt(state.loaded)}건.
+            </p>
+            {leftover}
+          </>
         ) : (
           <>
             <p className="font-semibold text-terracotta">
               {state.label}을 받지 못했어요 — {state.title}
             </p>
             {state.detail && <p className="break-words text-muk-soft">{state.detail}</p>}
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button type="button" onClick={onResume} className={`${PILL} ${PILL_IDLE}`}>
-                <RefreshCw size={14} aria-hidden /> {state.loaded > 0 ? `이어서 받기(${fmt(state.loaded)}건 다음부터)` : '다시 시도'}
-              </button>
-              {state.loaded > 0 && (
-                <button type="button" onClick={onSavePartial} className={`${PILL} ${PILL_IDLE}`}>
-                  <Download size={14} aria-hidden /> 받은 {fmt(state.loaded)}건만 저장
-                </button>
-              )}
-            </div>
+            {leftover}
           </>
         )}
       </div>

@@ -473,11 +473,35 @@ export function rangeDayCount(range: KstDayRange): number {
  *
  * 오늘이 든 기간을 받는 동안에도 행은 계속 들어온다. 끝을 열어 두면 파일이 받는 도중의 상태로 흔들리고,
  * id 를 먼저 받고 늦게 커밋된 행은 키셋이 이미 지나간 자리라 빠질 수 있다 — 고정한 끝 앞의 행만 받으면 둘 다 없다.
+ *
+ * '지금' 은 브라우저 시계라 늦게 맞춰진 기기에서는 서버가 이미 받은 행보다 앞에서 잘릴 수 있다. 그래서
+ * floorIso(서버가 알려 준 마지막 received_at — 기기 목록의 last_at)보다 앞으로는 자르지 않는다.
+ * RPC 의 끝은 미포함([from, to))이라 그 행이 들어가도록 1ms 뒤로 둔다.
  */
-export function snapshotUpperBound(toIso: string, nowMs: number, marginMs = 10_000): string {
+export function snapshotUpperBound(
+  toIso: string,
+  nowMs: number,
+  options: { marginMs?: number; floorIso?: string | null } = {},
+): string {
   const to = Date.parse(toIso);
-  const cut = nowMs - marginMs;
+  let cut = nowMs - (options.marginMs ?? 10_000);
+  const floor = parseTimestamp(options.floorIso);
+  if (floor !== null && floor + 1 > cut) cut = floor + 1;
   return new Date(Number.isFinite(to) ? Math.min(to, cut) : cut).toISOString();
+}
+
+/** 기기들의 last_at 중 가장 늦은 것(서버 시각). 없으면 null. */
+export function latestLastAt(devices: readonly ActionLogDevice[]): string | null {
+  let best: string | null = null;
+  let bestMs = -Infinity;
+  for (const device of devices) {
+    const ms = parseTimestamp(device.last_at);
+    if (ms !== null && ms > bestMs) {
+      bestMs = ms;
+      best = device.last_at;
+    }
+  }
+  return best;
 }
 
 // =========================================================================
