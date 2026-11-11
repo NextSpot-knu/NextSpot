@@ -9,8 +9,10 @@
 // UX 이고, 실제 차단은 백엔드가 매 요청 수행한다(require_role("developer")).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  Activity,
   ShieldAlert,
   Loader2,
   Search,
@@ -138,6 +140,13 @@ export default function DevConsolePage() {
             <p className="mt-1 text-sm text-muk-soft">
               역할 임명·가게 소유권·인증 심사. 모든 변경은 감사 로그에 남습니다.
             </p>
+            {/* 행동 로그는 탭이 아니라 따로 된 화면이다(표가 넓고 CSV 내보내기가 길게 돈다). */}
+            <Link
+              href="/dev/activity"
+              className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-gold/50 bg-gold/10 px-3.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/15"
+            >
+              <Activity size={15} /> 이용 기록(행동 로그)
+            </Link>
           </div>
           <button
             type="button"
