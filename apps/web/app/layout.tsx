@@ -7,6 +7,7 @@ import BottomNav from "@/components/shell/BottomNav";
 import ServiceWorkerRegister from "@/components/shell/ServiceWorkerRegister";
 import SessionBootstrap from "@/components/shell/SessionBootstrap";
 import { UsageTracker } from "@/components/shell/UsageTracker";
+import { ActionLogger } from "@/components/shell/ActionLogger";
 import InstallPrompt from "@/components/shell/InstallPrompt";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 // 계정 권한(역할·소유 가게) 단일 출처 — 콘솔 진입점 게이팅에 쓴다(lib/account.tsx).
@@ -83,6 +84,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SessionBootstrap />
         {/* 익명 이용 기록 — 화면 이동마다 page_view(운영 주소에서만, lib/usageEvents). */}
         <UsageTracker />
+        <ActionLogger />
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
         <ThemeProvider>
           <I18nProvider>
