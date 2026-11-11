@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi, adminApiForbiddenDetail } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
+import { logSearchTyping } from '@/lib/actionLog';
 import {
   countNameMatchesByType,
   fetchAdminFacilityRows,
@@ -238,10 +239,12 @@ export function FacilityTable() {
           </div>
           <input
             type="search"
+            data-log-value="search"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setCurrentPage(1);
+              logSearchTyping(e.target.value, 'admin-facilities');
             }}
             placeholder="장소 이름 검색"
             aria-label="장소 이름 검색"

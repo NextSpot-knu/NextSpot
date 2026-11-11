@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
+import { logSearchTyping } from '@/lib/actionLog';
 
 interface Ticket {
   id: string;
@@ -223,9 +224,10 @@ export default function SupportPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
+                data-log-value="search"
                 placeholder="문의 검색 (이름·제목·내용)"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); logSearchTyping(e.target.value, 'admin-support'); }}
                 className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full lg:w-64"
               />
             </div>

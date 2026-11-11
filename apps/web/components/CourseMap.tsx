@@ -8,6 +8,7 @@
 // 키 미설정 등으로 SDK 가 끝내 뜨지 않으면 3초 타임아웃 후 null 을 반환(레이아웃은 시트가 자연히 위로).
 
 import { useEffect, useRef, useState } from 'react';
+import { trackMapActions } from '@/lib/actionLog';
 
 // (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
 //  중복 선언하던 `kakao: any` 를 걷어냈다.)
@@ -64,6 +65,7 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
               level: 6,
             });
             mapRef.current = map;
+            trackMapActions(map, 'course');
             setReady(true);
           });
         } catch (err) {

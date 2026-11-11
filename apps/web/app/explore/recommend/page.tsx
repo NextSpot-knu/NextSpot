@@ -28,6 +28,7 @@ import { recordActiveTrip } from "@/lib/visits";
 import { queueRecommendationOutcome } from "@/lib/recommendationOutcomes";
 import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
+import { logAction, logVoice, trackMapActions } from "@/lib/actionLog";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
 import { congestionDisplay, formatEstimateTime, formatLastObserved, isBaselinePrediction, parseCongestionEstimate } from "@/lib/congestionEstimate";
@@ -183,6 +184,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
 
     const map = new kakao.maps.Map(containerRef.current, mapOptions);
     mapRef.current = map;
+    trackMapActions(map, 'recommend-mini');
 
     new kakao.maps.Marker({
       position: center,
@@ -827,7 +829,10 @@ function RecommendContent() {
       rec.maxAlternatives = 1;
       rec.onresult = (e: SpeechRecognitionEvent) => {
         const transcript = e.results?.[0]?.[0]?.transcript ?? "";
-        if (transcript) setNlText((prev) => (prev ? prev + " " : "") + transcript);
+        if (!transcript) return;
+        // 취향 받아쓰기는 검색칸도 음성 비서도 아니라 문장은 남기지 않는다 — 말했다는 사실과 길이만(lib/actionLog).
+        logAction("voice", { source: "preference", phase: "final", length: transcript.length });
+        setNlText((prev) => (prev ? prev + " " : "") + transcript);
       };
       rec.onend = () => setIsListening(false);
       rec.onerror = () => {
@@ -1317,6 +1322,7 @@ function RecommendContent() {
           if (voiceStateRef.current !== "listening") return; // thinking/acting 중 추가 final 무시
           clearListenTimeout();
           setLiveTranscript(finalAlts[0] || "");
+          logVoice(finalAlts[0] || "", "assistant"); // 알아들은 문장만(가려서) — 녹음은 남기지 않는다(lib/actionLog)
           handleVoiceIntent(finalAlts, idxForThisListen);
         }
       };
