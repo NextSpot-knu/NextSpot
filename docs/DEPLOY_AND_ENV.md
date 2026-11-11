@@ -109,6 +109,7 @@
 | `NEXT_PUBLIC_SITE_URL` | `https://nextspot-nu.vercel.app` (OG 이미지 절대 URL) |
 | `NEXT_PUBLIC_DEMO_CONTROLS` | 운영은 미설정. `1`이면 메인 지도에 시연용 내부 컨트롤 표시 — 데모 프리뷰 배포에서만 |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (선택) | Cloudflare Turnstile **사이트 키**(공개값). 있을 때만 게스트 익명 로그인 전에 Turnstile 을 싣는다 — 없으면 지금과 같다. 비밀 키는 Supabase Auth CAPTCHA 에만(1-2) |
+| `NEXT_PUBLIC_ACTION_LOG_HOSTS` (선택) | 접속·조작 기록(`lib/actionLog` → `public.action_logs`)을 남길 **추가** 호스트 이름(쉼표 구분). 비우면 운영 주소 `nextspot-nu.vercel.app` 에서만 남긴다 — 커스텀 도메인을 붙이면 여기에 넣는다 |
 
 - 관리자·사장님 콘솔용 env는 없다(앱 계정 로그인 + `users.role`). 토큰·비밀번호를 `NEXT_PUBLIC_*`에 넣지 않는다.
 - Kakao 개발자 콘솔 → 플랫폼 → Web 도메인에 Vercel 도메인(커스텀 도메인 포함)을 등록해야 지도가 렌더링된다.
