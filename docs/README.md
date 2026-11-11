@@ -54,6 +54,7 @@
 | [`contest/DATA_UTILIZATION.md`](./contest/DATA_UTILIZATION.md) | TourAPI 필드 → SPOT 변수 매핑(코드 근거) + §7 TourAPI 외 공공데이터(경주 ITS 주차 · 서울 실시간 도시데이터) · §8 추정 모드 | living | 2026-09-20 |
 | [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) | PT 데모 대본 + 데모 전 체크리스트. UI 문구 변경 전 대조 대상 | living | 2026-09-20 |
 | [`contest/JUDGE_QA.md`](./contest/JUDGE_QA.md) | 심사위원 예상 질문 14문 + 답변(Q11~Q14 = 추정 모드·서울 검증). UI 문구 변경 전 대조 대상 | living | 2026-09-20 |
+| [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) | 재심사 대비(11-12~) — 공모전이 끝나서 바꾼 것 되돌리기 목록(A/B/C) · 운영 반영 두 안 · 재심사 전 점검표 · 웹 행동 기록 | living | 2026-11-12 |
 | [`contest/CONTEST_STRATEGY.md`](./contest/CONTEST_STRATEGY.md) | 심사 배점 대응 전략 (2026-07-07 작성, 2026-09-20 현황 정정) | frozen | 2026-09-20 |
 | [`contest/TIMELINESS.md`](./contest/TIMELINESS.md) | 시의성 소재 — 실존 보도 인용집 (2026-07-14 검증, 2026-09-20 '실시간' 문구 정정) | frozen | 2026-09-20 |
 

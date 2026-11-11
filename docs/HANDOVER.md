@@ -58,7 +58,12 @@
 
 ## 우선순위
 
-1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
+0. **관광공모전 전면 재심사 대응(2026-11-12~) — 최우선.** 부실 심사(심사위원이 출품작을 써 보지 않고 서류로만 평가)로 문체부 조사 뒤 전면 재심사가 정해졌다. 이번에는 심사위원이 웹앱을 실제로 쓴다.
+   - 공모전이 끝났다고 보고 바꾼 것과 운영 반영 두 안·재심사 전 점검표는 [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md)(권장 안 1: 운영을 심사 당시 판 `168f979` + 행동 기록 — **사용자 확인 대기**).
+   - 재심사 동안: `DEMO_SCENARIO`·`JUDGE_QA` 대조 규칙과 TourAPI 필수가 다시 유효, main 은 되돌림·버그 수정·행동 기록만(yunseong 승격 금지), 웹 W1 수정 보류·W1 #9 취소.
+   - 심사위원이 실제로 썼는지 남기는 웹 행동 기록(`public.action_logs` · `/dev/activity`)을 더했다(아래 2026-11-12).
+   - 모바일 앱(모두의 창업)은 이 제약 밖이다.
+1. **실서비스 창업 방향(2026-10-31~, 재심사가 끝날 때까지 웹·API 는 0번이 먼저)** — 공모전은 우수상이었다(11-05 시상, 11-12 재심사 확정). 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 · 11-01 S3·S4 구현 끝, main 미반영 — **S4 는 홍대 CSV 반출(사람 작업) 대기**, 받으면 홍대 1차(예비) 결과 · 종로는 수집 쌓인 뒤 재실행만. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
@@ -74,6 +79,10 @@
 ## 사람 작업 대기
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
+
+- [ ] **(11-12 재심사) 운영 반영 안 고르기 + 재심사 전 점검** — [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5(안 1 권장: 운영을 심사 당시 `168f979` + 행동 기록)·§7 점검표. 콘솔 작업: Render `LLM_ENABLED=true`("Save and deploy", Upstage 키·잔액·지출 상한 먼저) · Supabase 익명 로그인 한도 300/h(재심사 동안) · 배치 D(D3·D6·D7) 다시. 제출 서류에 오리건 API 주소가 있는지 확인.
+- [ ] **(11-12) `20261112090000_action_logs.sql` 적용 + `NOTIFY pgrst, 'reload schema';`** — 웹 행동 기록 표·개발자 RPC. 웹이 배포되기 전에 적용해도 된다(그 전엔 아무도 쓰지 않는다). 확인은 아래 "마이그레이션 확인" 23번과 파일 끝 쿼리(트리거 4개 · cron `nextspot-action-logs-retention`). 웹 배포 뒤 개발자 계정으로 운영 사이트를 눌러 보고 `/dev/activity` 에서 본인 IP 가 `ip` 에 맞게 찍히는지(`ip_chain` 원문으로 어느 헤더인지) 본다.
+- [ ] **(11-12) 개인정보 안내 '접속·조작 기록' 절 법무 확인** — IP 원본 1년 · 계정 연결 · 검색어·음성 문장 · 추적 거부와 무관 · '평가·심사 포함 이용 확인' 목적(`/mypage/privacy`, 4로케일). 10-31c ⑥ 과 함께 본다.
 
 - [ ] **(11-11) Expo 개발 빌드 다시 만들기 + Z Fold7 확인** — F1 이 네이티브 모듈 `expo-notifications` 를 더했다. `eas build --profile development --platform android` 로 새 개발 빌드를 깔고 `npx expo start --dev-client`. 확인 목록은 `MOBILE_WEB_PARITY.md` §8.2 + 묶음 보고(첫 탭에만 알림 권한 창, 예약됨 유지·재부팅, 시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14 시험, 탭 막대 뒤로 키·콜드 딥링크, 지도 패딩·기본 핀·내 위치 점 탭, 첫 실행 OAuth 복귀). 재빌드 전 앱은 알림 버튼만 숨는다.
 - [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
@@ -291,7 +300,10 @@ with checks(seq, migration, applied) as (values
       and exists (select 1 from pg_policies where tablename='facilities'
                    and policyname='facilities_public_region_only' and permissive='RESTRICTIVE')),
   (22, '20261101091000_zone_population_baseline', exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                   where n.nspname = 'public' and p.proname = 'zone_population_baseline'))
+                   where n.nspname = 'public' and p.proname = 'zone_population_baseline')),
+  (23, '20261112090000_action_logs', exists (select 1 from pg_indexes where schemaname = 'public'
+                   and indexname = 'uq_action_logs_session_seq')
+      and exists (select 1 from pg_trigger where tgname = 'action_logs_batch_cap'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -304,6 +316,18 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-11-12 — 관광공모전 전면 재심사: 되돌릴 목록 문서 · 웹 접속·조작 기록(심사위원 이용 확인)
+
+- 도구·브랜치: Claude Code(조사 3 · 구현 3 · 검토 2 · 수정 1 에이전트) / `yunseong`
+- 커밋: `9be078b`..`430d202`(웹 기록·i18n·e2e·DB·뷰어·검토 반영) + 이 기록(문서)
+- 한 것: 사용자 "공모전이 끝나서 수정한 것을 모두 되돌린다 — 꼼꼼히 문서로, 그리고 심사위원이 심사했는지 알 수 있게 웹앱의 모든 행동을 로그로"(모바일은 범위 밖).
+  - 되돌릴 목록 [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md): A(LLM 끔 · 익명 한도 300→30 · 관제 시나리오 제거·지표 재정의 · 엔진 검증 developer 전용 · 게스트 제보 차단 · 문서 전제) · B(실서비스 기준 변경 9건) · C. 운영 확인 — 웹 `0747801`(번들 문구) · API `a9ecd92`(`/health`, 앱 코드는 `168f979` 와 같다). 권장 안 1: 운영을 `168f979` 로 + 행동 기록(**사용자 확인 대기**).
+  - 웹 접속·조작 기록: `public.action_logs`(브라우저 9칼럼 INSERT, 계정·IP·UA 는 트리거, 추가만 1년, 요청당 50줄·IP 1분 600줄, (session_id, seq) 유일) · developer 전용 RPC 둘 · `lib/actionLog.ts`·`ActionLogger`·검색·음성·지도 핀 훅 · `/dev/activity`(기기 요약·타임라인·CSV) · 개인정보 안내 '접속·조작 기록' 절(4로케일). 사용자 결정: 모든 방문 + 계정 연결 · IP 원본 1년 · 글은 검색어·음성 문장만.
+  - 문서 전제 정정: HANDOVER 우선순위 0 · PRODUCT_EVALUATION_PLAN 머리말 · SEOUL_TESTBED_PLAN · MOBILE_WEB_PARITY D8/W1 #9 보류 · DEMO_SCENARIO·JUDGE_QA 머리말 · AI 메모리.
+- 검증: api ruff · pytest 4018+ · build_reset · check-docs · web lint 0 error · typecheck · test 135 · build · e2e(action-log·mypage·judge-flow·judge-copy·map-time-strip). PGlite 행동 점검(커밋 안 함). 렌즈 다른 검토 2회 → 지적 전부 반영(409 중복이 기록을 멈추던 것 · pagehide 줄 유실 · 마커 장소 · 탭 경합 · 남용 상한 · 안내 누락).
+- 다음·미결: 사용자 — 운영 반영 안 고르기(§5) · main 반영 지시. 안 1 이면 `release` 브랜치에서 코드 경로를 `168f979` 로 + `01edd15` + 기록 커밋을 얹는다. yunseong 에서 `54f0c43`→`50ed9b8` revert(A4)는 확인 뒤. 실제 IP 헤더(`ip_chain`)는 배포 뒤 확인.
+- 사람 작업: "사람 작업 대기" 11-12 세 줄(안 고르기·콘솔 · 마이그레이션 적용 · 안내 법무).
 
 ## 2026-11-11 — 웹 ↔ Expo 동등성 구현 전부(A·B·D·H·F) · 묶음마다 다른 렌즈 검토 반영 · 전체 재촬영
 
@@ -349,30 +373,6 @@ from checks order by seq;
 - 검증: mobile tsc · 테스트 68 · check:shared · expo-doctor · export(웹·안드로이드). Playwright 412×915·1440×900 흐름 전부 + 8분 켜 두기(오류 0). 검토 → 네이티브 회귀 없음, High 0.
 - 다음·미결: 웹은 시트 본문 마우스 끌기가 안 된다(손잡이·휠은 됨). 개발 모드 접근성 prop 경고 다수(운영 빌드엔 없음). 웹 재배포 = `apps/mobile` 에서 `npx expo export --platform web` → `npx eas-cli deploy --prod`.
 - 사람 작업: 카카오 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가 — **11-10 사용자가 끝냄**(아래 11-10b 에서 확인).
-
-## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
-
-- 도구·브랜치: Claude Code(i7, 구현 3 · 독립 검토 4회) / `yunseong` · 커밋 `c23ded5`..`d5c0269` + 이 기록. 갤북↔i7 인계 문서는 git 제외 `scratch/`.
-- 한 것: ① preview·출시 빌드 지도 안내 판 — Expo 가 공개 설정에서 `android.config` 를 지워 `MAP_AVAILABLE` 이 늘 거짓이었다 → `extra.googleMapsConfigured`(불리언) `c23ded5`. preview 실기기 지도 확인(사용자). ② SDK 57 패치 6개 `e7ac629`(expo-doctor 21/21). ③ 사용자 요청: 추천 시트는 높이와 상관없이 같은 내용(끄는 만큼 이어서 보임, 놓으면 3단 정렬), 가장 낮은 높이는 머리+첫 행동 줄을 재서(글자 1.6배까지), 펼친 뒤에만 예측 API. 여정 카드도 접은 판 없이 남은 자리만큼 + 스크롤. EAS preview `381cf7de`·development `edf9d84d`(폰에 설치). 원격 `claude/pin-supabase-2-33` 삭제(병합됨). i7 시스템 PATH 의 옛 adb 제거.
-- 검증: mobile tsc · 테스트 65 · check:shared · expo-doctor · export. 에뮬레이터(폰·360×780·폴드 크기·글자 1.0/1.3/1.6). 검토 4회 → High·Med 0.
-- 다음·미결: 실기기 미확인 — 상황 변경 입력 중 키보드(AI 동의 필요)·위치 점·구글 로그인 복귀·TalkBack. **Metro 8081 파일 감시가 반복해서 멈춘다**(옛 번들을 준다 — `--clear` 재시작으로 임시 해결, 원인 미조사). 한 폰에 EAS 빌드와 로컬 빌드를 번갈아 깔면 서명이 달라 설치가 거부된다 — 폰에는 EAS 빌드만. P0 ③ PR #31 설명·리뷰어(진석 님 GitHub 아이디 필요) · P1 개발 빌드 첫 실행 반복 · 계획 iOS 항목 정리.
-- 사람 작업: 진석 님 GitHub 아이디 · Play Console 계정 확인. Supabase Redirect·익명 30/h 줄은 지웠다(11-05 완료).
-
-## 2026-11-08 — 갤럭시북 앱 실행 환경 · 팀원용 preview APK · App Store 폐기 · 개발 중 첫 실행 반복 요청
-
-- 도구·브랜치: Claude Code / `yunseong`(`01edd15` — supabase 2.33.0 고정은 사용자가 클라우드 세션으로) · 커밋 이 기록(문서)만
-- 한 것: 두 번째 PC(갤럭시북)에 앱 실행 환경 — `apps/mobile/.env.local`(공개 값 + `Expo_Token_for_Claude`), EAS preview APK 빌드 `d5b58709`(팀원 설치 링크), 로컬 개발 빌드 → Z Fold7 설치(USB `adb reverse tcp:8081`). **로컬 빌드는 JDK 21 로**(`C:\Program Files\Java\jdk-21.0.11`) — JDK 25 는 react-native-screens·worklets 의 `configureCMakeDebug` 가 'restricted method' 경고로 실패한다(`--enable-native-access` 로도 안 됨). 갤럭시북에서는 `npx` 캐시가 깨져 eas-cli 를 따로 설치해 썼다.
-- 결정(사용자): **App Store 출시 폐기 — Play 스토어만.** `MOBILE_APP_PLAN.md` 의 iOS 항목(TestFlight·4.8·Apple 로그인 철회·진석 님 Apple 권한)은 더 진행하지 않는다(계획 본문 정리는 아직).
-- 다음·미결: ① **개발 빌드에서 게스트 세션을 기기에 남기지 않기(사용자 요청, 미구현)** — 지금은 Supabase 세션(`lib/core/supabase.ts` `storage: globalThis.localStorage` = expo-sqlite)과 첫 실행 표시(`features/onboarding/firstRunCore.ts` `INTRO_SEEN_KEY`·`SETUP_SEEN_KEY`)가 재실행에도 남아 취향 조사 화면이 완전 첫 설치에만 뜬다. 개발 중에는 같은 폰에서도 매번 첫 실행 흐름을 검사할 수 있어야 한다. 운영 빌드는 지금 동작 유지(`__DEV__`·`APP_VARIANT=development` 로 가른다). 주의: 실행마다 새 익명 로그인을 하면 익명 한도 30/h(IP)와 운영 DB 의 빈 게스트 행이 늘어난다 — 세션은 두고 첫 실행 표시만 지우는 방식이나 개발 메뉴 '첫 실행 다시 보기'도 함께 검토. ② preview APK(링크 설치)에서 지도가 안 나온다는 사용자 보고 — 같은 패키지·EAS 키(SHA-1 `C8:94…`)라 키 제한 목록·preview 환경 변수부터 확인. ③ 아이폰 팀원 열람은 Appetize(독립 실행 APK 필요) 또는 웹 export(반나절~하루 추정) 중 미정.
-- 사람 작업: Play Console — 진석 님 개발자 계정 등록 여부·종류·생성일 확인 후 사용자 초대(로그인만으로는 개발자 계정이 되지 않는다).
-
-## 2026-11-05 — 모바일 3단계: 홈 여정 카드·내 위치·폴드 펼친 화면 · Z Fold7 실기기 연결
-
-- 도구·브랜치: Claude Code(구현 1 · 작은 수정 Sonnet 1 · 독립 검토 3회) / `yunseong` · 커밋 `77684e8`..`890b093` + 이 기록
-- 한 것: 여정 카드는 한 번에 하나(방문 확인 먼저), 시트 위 남은 높이 안에서 스크롤, 넓은 화면은 560dp 열. 감출 때는 떼지 않는다(상태 유지). 위치 점·'내 위치로'는 약관 동의+허용일 때만, 거부 상태별 흐름. 줌 대응 실측 고정. 대기 머리글 중복·웹 `userData` 대기열 키. Maps 키 Android 앱 제한 적용(사용자) 뒤 지도 정상.
-- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · i18n · web test. 검토 3회(Med 3 → 0). 화면 확인은 에뮬레이터(폰·폴드 크기). 위치 점·키보드는 실기기 미확인.
-- 다음·미결: 실기기에서 위치 점·구글 로그인 복귀·펼친 화면 확인 → 4단계. 오류 URL 이 `seenCodes` 에 안 남는 OAuth 틈(결정 필요). Metro 8081 감시가 죽어 8082 를 쓴다.
-- 사람 작업: Supabase Redirect `nextspot://**`·익명 30/h 는 사용자가 저장(11-05). 남은 것: 진석 님 권한(Apple $99 가입 여부 확인 포함)·법무 검토.
 
 ## 기록 규칙
 

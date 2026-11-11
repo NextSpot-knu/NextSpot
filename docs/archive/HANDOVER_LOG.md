@@ -1,4 +1,28 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
+
+- 도구·브랜치: Claude Code(i7, 구현 3 · 독립 검토 4회) / `yunseong` · 커밋 `c23ded5`..`d5c0269` + 이 기록. 갤북↔i7 인계 문서는 git 제외 `scratch/`.
+- 한 것: ① preview·출시 빌드 지도 안내 판 — Expo 가 공개 설정에서 `android.config` 를 지워 `MAP_AVAILABLE` 이 늘 거짓이었다 → `extra.googleMapsConfigured`(불리언) `c23ded5`. preview 실기기 지도 확인(사용자). ② SDK 57 패치 6개 `e7ac629`(expo-doctor 21/21). ③ 사용자 요청: 추천 시트는 높이와 상관없이 같은 내용(끄는 만큼 이어서 보임, 놓으면 3단 정렬), 가장 낮은 높이는 머리+첫 행동 줄을 재서(글자 1.6배까지), 펼친 뒤에만 예측 API. 여정 카드도 접은 판 없이 남은 자리만큼 + 스크롤. EAS preview `381cf7de`·development `edf9d84d`(폰에 설치). 원격 `claude/pin-supabase-2-33` 삭제(병합됨). i7 시스템 PATH 의 옛 adb 제거.
+- 검증: mobile tsc · 테스트 65 · check:shared · expo-doctor · export. 에뮬레이터(폰·360×780·폴드 크기·글자 1.0/1.3/1.6). 검토 4회 → High·Med 0.
+- 다음·미결: 실기기 미확인 — 상황 변경 입력 중 키보드(AI 동의 필요)·위치 점·구글 로그인 복귀·TalkBack. **Metro 8081 파일 감시가 반복해서 멈춘다**(옛 번들을 준다 — `--clear` 재시작으로 임시 해결, 원인 미조사). 한 폰에 EAS 빌드와 로컬 빌드를 번갈아 깔면 서명이 달라 설치가 거부된다 — 폰에는 EAS 빌드만. P0 ③ PR #31 설명·리뷰어(진석 님 GitHub 아이디 필요) · P1 개발 빌드 첫 실행 반복 · 계획 iOS 항목 정리.
+- 사람 작업: 진석 님 GitHub 아이디 · Play Console 계정 확인. Supabase Redirect·익명 30/h 줄은 지웠다(11-05 완료).
+
+## 2026-11-08 — 갤럭시북 앱 실행 환경 · 팀원용 preview APK · App Store 폐기 · 개발 중 첫 실행 반복 요청
+
+- 도구·브랜치: Claude Code / `yunseong`(`01edd15` — supabase 2.33.0 고정은 사용자가 클라우드 세션으로) · 커밋 이 기록(문서)만
+- 한 것: 두 번째 PC(갤럭시북)에 앱 실행 환경 — `apps/mobile/.env.local`(공개 값 + `Expo_Token_for_Claude`), EAS preview APK 빌드 `d5b58709`(팀원 설치 링크), 로컬 개발 빌드 → Z Fold7 설치(USB `adb reverse tcp:8081`). **로컬 빌드는 JDK 21 로**(`C:\Program Files\Java\jdk-21.0.11`) — JDK 25 는 react-native-screens·worklets 의 `configureCMakeDebug` 가 'restricted method' 경고로 실패한다(`--enable-native-access` 로도 안 됨). 갤럭시북에서는 `npx` 캐시가 깨져 eas-cli 를 따로 설치해 썼다.
+- 결정(사용자): **App Store 출시 폐기 — Play 스토어만.** `MOBILE_APP_PLAN.md` 의 iOS 항목(TestFlight·4.8·Apple 로그인 철회·진석 님 Apple 권한)은 더 진행하지 않는다(계획 본문 정리는 아직).
+- 다음·미결: ① **개발 빌드에서 게스트 세션을 기기에 남기지 않기(사용자 요청, 미구현)** — 지금은 Supabase 세션(`lib/core/supabase.ts` `storage: globalThis.localStorage` = expo-sqlite)과 첫 실행 표시(`features/onboarding/firstRunCore.ts` `INTRO_SEEN_KEY`·`SETUP_SEEN_KEY`)가 재실행에도 남아 취향 조사 화면이 완전 첫 설치에만 뜬다. 개발 중에는 같은 폰에서도 매번 첫 실행 흐름을 검사할 수 있어야 한다. 운영 빌드는 지금 동작 유지(`__DEV__`·`APP_VARIANT=development` 로 가른다). 주의: 실행마다 새 익명 로그인을 하면 익명 한도 30/h(IP)와 운영 DB 의 빈 게스트 행이 늘어난다 — 세션은 두고 첫 실행 표시만 지우는 방식이나 개발 메뉴 '첫 실행 다시 보기'도 함께 검토. ② preview APK(링크 설치)에서 지도가 안 나온다는 사용자 보고 — 같은 패키지·EAS 키(SHA-1 `C8:94…`)라 키 제한 목록·preview 환경 변수부터 확인. ③ 아이폰 팀원 열람은 Appetize(독립 실행 APK 필요) 또는 웹 export(반나절~하루 추정) 중 미정.
+- 사람 작업: Play Console — 진석 님 개발자 계정 등록 여부·종류·생성일 확인 후 사용자 초대(로그인만으로는 개발자 계정이 되지 않는다).
+
+## 2026-11-05 — 모바일 3단계: 홈 여정 카드·내 위치·폴드 펼친 화면 · Z Fold7 실기기 연결
+
+- 도구·브랜치: Claude Code(구현 1 · 작은 수정 Sonnet 1 · 독립 검토 3회) / `yunseong` · 커밋 `77684e8`..`890b093` + 이 기록
+- 한 것: 여정 카드는 한 번에 하나(방문 확인 먼저), 시트 위 남은 높이 안에서 스크롤, 넓은 화면은 560dp 열. 감출 때는 떼지 않는다(상태 유지). 위치 점·'내 위치로'는 약관 동의+허용일 때만, 거부 상태별 흐름. 줌 대응 실측 고정. 대기 머리글 중복·웹 `userData` 대기열 키. Maps 키 Android 앱 제한 적용(사용자) 뒤 지도 정상.
+- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · i18n · web test. 검토 3회(Med 3 → 0). 화면 확인은 에뮬레이터(폰·폴드 크기). 위치 점·키보드는 실기기 미확인.
+- 다음·미결: 실기기에서 위치 점·구글 로그인 복귀·펼친 화면 확인 → 4단계. 오류 URL 이 `seenCodes` 에 안 남는 OAuth 틈(결정 필요). Metro 8081 감시가 죽어 8082 를 쓴다.
+- 사람 작업: Supabase Redirect `nextspot://**`·익명 30/h 는 사용자가 저장(11-05). 남은 것: 진석 님 권한(Apple $99 가입 여부 확인 포함)·법무 검토.
+
 ## 2026-11-02d — 모바일: EAS 연결 · 지도 키 · 첫 클라우드 개발 빌드
 
 - 도구·브랜치: Claude Code / `yunseong` · 커밋 `c929e52` + 이 기록

@@ -413,6 +413,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | 승인 — 신청에 가게가 붙어 있을 때 | `POST /dev/verification-requests/{id}/approve` | 그 시설에 소유권 부여 |
 | 승인 — **가게가 없는 신청** | 〃 (본문에 기존 시설 id **또는** 새 POI 스펙) | 새로 만들 때 `features.origin='merchant_request'` + `verification_request_id` 를 박아 적재분과 구분한다 |
 | 반려 · 감사 로그 · 최근 실패 | `POST .../reject` · `GET /dev/audit-log` · `GET /dev/failures` | 심사 이력은 `role_audit_log` |
+| 접속·조작 기록 보기(`/dev/activity`, 11-12) | Supabase RPC `action_log_devices` · `action_log_rows`(API 아님) | developer 만(그 밖 42501). 쓰기는 브라우저가 `public.action_logs` 에 9칼럼 INSERT, 계정·IP 는 DB 트리거가 찍는다 — `contest/REJUDGE_REVERT.md` §8 |
 
 ---
 
