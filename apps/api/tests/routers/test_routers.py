@@ -1891,16 +1891,6 @@ _CONGESTION_URL = "/api/v1/reports/congestion"
 _CONGESTION_BODY = {"facility_id": "f-1", "level": "혼잡"}
 
 
-class _NoWriteSupabase:
-    """게스트 거부는 DB 를 건드리기 전에 끝나야 한다 — 어떤 표·RPC 든 열면 실패."""
-
-    def table(self, name):
-        raise AssertionError(f"게스트 제보가 {name} 표에 닿았다")
-
-    def rpc(self, name, _params):
-        raise AssertionError(f"게스트 제보가 {name} RPC 를 불렀다")
-
-
 def _as_user(user_id: str, *, anonymous: bool = False) -> None:
     app.dependency_overrides[get_current_user] = lambda: {
         "id": user_id,
@@ -1937,23 +1927,15 @@ def report_client():
         app.dependency_overrides.pop(get_current_user, None)
 
 
-@pytest.mark.parametrize("path, body", [
-    (_CONGESTION_URL, _CONGESTION_BODY),
-    ("/api/v1/reports/availability", {"facility_id": "f-1", "status": "closed"}),
-])
-def test_reports_reject_guest_session_before_touching_db(path, body):
-    from app.core import authz
-
+def test_report_congestion_guest_is_recorded_and_still_one_account_per_ip(report_client):
+    # 2026-11-12 재심사 — 게스트 제보를 다시 받는다(REJUDGE_REVERT A5). 재심사 뒤 get_registered_user 로
+    # 되돌릴 때 이 테스트도 403 기대로 함께 되돌린다.
+    c = report_client
     _as_user("guest-1", anonymous=True)
-    try:
-        with TestClient(app) as c, patch("app.routers.reports.supabase_admin", new=_NoWriteSupabase()):
-            res = c.post(path, json=body)
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
-    assert res.status_code == 403
-    assert "게스트" in res.json()["detail"]
-    # 프로필(users 표) 조회도 하지 않는다 — 조회 장애가 게스트 거부를 503 으로 바꾸지 않게.
-    authz._load_profile.assert_not_awaited()
+    assert c.post(_CONGESTION_URL, json=_CONGESTION_BODY, headers={"x-forwarded-for": _IP_A}).status_code == 200
+    # 같은 IP 의 두 번째 게스트 — IP·시설당 한 계정(30분)이 남은 방어다.
+    _as_user("guest-2", anonymous=True)
+    assert c.post(_CONGESTION_URL, json=_CONGESTION_BODY, headers={"x-forwarded-for": _IP_A}).status_code == 429
 
 
 def test_report_congestion_one_account_per_ip_for_the_whole_corroboration_window(report_client):

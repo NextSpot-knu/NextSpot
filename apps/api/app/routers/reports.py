@@ -5,8 +5,8 @@
 보안 배경(init RLS 20250523120001 + 20260827140000):
   congestion_logs 에는 일반 사용자용 INSERT 정책이 **없다** — anon 도, 로그인한 관광객도
   Supabase 로 직접 쓸 수 없다. 그래서 제보는 반드시 이 백엔드 엔드포인트를 거쳐
-  supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 authz.get_registered_user(계정 로그인 필수 —
-  게스트 익명 세션은 403, 아래 '게스트(익명 세션) 차단')로 강제한다.
+  supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 get_current_user(로그인 필수 — 게스트 익명
+  세션 포함, 아래 '게스트(익명 세션) 제보')로 강제한다.
 
   2026-09-07 이전에는 "service_role 만 쓸 수 있다" 가 **사실이 아니었다.** 정책 admin_all_logs
   (FOR ALL TO authenticated, USING/WITH CHECK = public.is_admin_or_dev()) 가 admin·developer
@@ -16,15 +16,14 @@
   20260907090000_congestion_logs_admin_read_only.sql 이 그 정책을 admin_read_logs(FOR SELECT)
   로 좁혀 닫았다. **이 문단을 지우지 말 것** — '언제부터 사실인지' 가 이 문장의 핵심이다.
 
-게스트(익명 세션) 차단(2026-10-30, 보안 진단 '중'):
-  두 제보 경로 모두 계정 로그인을 요구한다(JWT 의 is_anonymous → 403, DB 를 읽기 전에 끝난다).
-  그 전에는 get_current_user 만 봐서 SessionBootstrap 이 모든 방문자에게 자동 발급하는 익명
-  세션도 통과했다. 익명 세션은 클릭 한 번이면 새로 생기므로 '사용자·시설당 쿨다운' 이 세션마다
-  초기화됐고, 게스트 둘이 같은 단계를 보내면 DB 트리거(correlate_congestion_report_evidence)가
-  corroborated 로 승격했다 — 그 등급은 추천 순위와 모델 학습 정답에 들어간다. 영업 상태도 같아서
-  게스트 둘이 '닫힘' 을 맞추면 그 장소가 60분간 추천에서 빠졌다(record_facility_availability_report).
-  웹은 게스트의 영업 상태 답을 서버에 기록하지 않고 그 사람 화면에만 적용한다(RecommendationCard ·
-  explore/recommend) — 수락·길안내 흐름은 게스트에게도 그대로다.
+게스트(익명 세션) 제보(2026-11-12 재심사 — 다시 받는다):
+  2026-10-30(e8b64ed)에 두 제보 경로가 계정 로그인을 요구하도록(JWT is_anonymous → 403) 막았다. 익명 세션은
+  클릭 한 번이면 새로 생겨 '사용자·시설당 쿨다운' 이 세션마다 초기화되고, 게스트 둘이 같은 단계를 보내면
+  DB 트리거(correlate_congestion_report_evidence)가 corroborated 로 승격하며, '닫힘' 둘이면 그 장소가 60분간
+  추천에서 빠진다(record_facility_availability_report) — 보안 진단 '중'.
+  그 차단은 '심사 뒤' 로 미뤄 뒀던 항목이었고, 관광공모전 전면 재심사(docs/contest/REJUDGE_REVERT.md A5)에서
+  심사위원이 게스트로 제보를 써 볼 수 있어야 해서 재심사 동안 되돌린다. 남는 방어는 아래 IP·시설당 한 계정(30분)이다.
+  재심사가 끝나면 get_registered_user 로 다시 막는다(이 커밋 revert).
 
 레이트리밋 두 겹(프로세스 인메모리, 단일 인스턴스 데모 기준 — 다중 인스턴스는 Redis 등 공유 저장소로 승격):
   · 사용자·시설당 쿨다운(혼잡 5분 · 영업 1분) — 같은 사람의 연타.
@@ -43,14 +42,13 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.core.authz import get_registered_user
 from app.core.client_ip import client_ip
 from app.core.report_slots import CONGESTION_VOTES_BY_IP, release_report_slot, reserve_report_slot
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 # 이 문장이 **모든 authenticated 역할에 대해** 참이 된 시점과 그 전에 무엇이 열려 있었는지는
 # 이 파일 상단 독스트링의 '보안 배경' 을 볼 것(20260907090000 마이그레이션).
-from app.core.supabase import supabase_admin
+from app.core.supabase import get_current_user, supabase_admin
 from app.services import reference_snapshot
 from app.services.coupon_service import issue_coupon_if_partner
 
@@ -174,13 +172,13 @@ def _coerce_level(level: float | str) -> float:
 async def report_availability(
     req: AvailabilityReportRequest,
     request: Request,
-    current_user: dict = Depends(get_registered_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """Record a short-lived opening-status check using server time.
 
     The database RPC atomically keeps one current report per user/place and promotes
     only two-user agreement to corroborated evidence. A single report never affects
-    recommendation eligibility. Guest (anonymous) sessions are rejected with 403.
+    recommendation eligibility. Guest (anonymous) sessions are accepted during the re-judging.
     """
     facility = await asyncio.to_thread(
         supabase_admin.table("facilities")
@@ -237,11 +235,11 @@ async def report_availability(
 async def report_congestion(
     req: CongestionReportRequest,
     request: Request,
-    current_user: dict = Depends(get_registered_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').
 
-    흐름: 인증 + 게스트 거부(get_registered_user, 403) → level 정규화 → 시설 존재 검증 →
+    흐름: 인증(get_current_user — 게스트 포함) → level 정규화 → 시설 존재 검증 →
     쿨다운(사용자 5분 · IP 한 계정 30분) → supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다
     (congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).
     """

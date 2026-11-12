@@ -5203,7 +5203,7 @@
   },
   "/api/v1/admin/dashboard/today": {
    "get": {
-    "description": "오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.\n\n반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, sampleCount,\n        latestObservedAt, fallback }\n  · hasLogs = 오늘 로그 수 >= 5\n  · avgCongestion.value = 평균 혼잡도(소수 2자리)\n  · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**\n  · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null\n  · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수\n  · anomalyCount = congestion_level >= 0.9 건수\n  · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)\n  · anomalies = 시설별 >=0.9 피크 상위 6건\n로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).\n관리자 입력·모의·시드·주차 파생 추정 행은 관측이 아니라서 세지 않는다(NON_OBSERVATION_SOURCES).\n\n── 신규 키(추가만 한다) ─────────────────────────────────────────────────────\n  · sampleCount      = 오늘 구간의 로그 건수(0 과 '4건뿐' 을 구분)\n  · latestObservedAt = congestion_logs 전체의 가장 최근 관측 시각(UTC ISO) 또는 null\n  · fallback         = 오늘이 비었을 때 **집계할 수 있는 가장 최근 KST 하루** 의 같은 집계\n                       { dateKst, observedAt, hasLogs, avgCongestion, anomalyCount,\n                         heatmap, anomalies, sampleCount } 또는 null\n                       observedAt 은 **그 날의** 마지막 관측이라 latestObservedAt 과\n                       다를 수 있다(_pick_fallback_day 주석 참조).\n\n왜 폴백을 최상위 키에 섞지 않고 **별도 객체**로 두는가: Vercel(웹)과 Render(API)는 배포\n시점이 다르고 스테이징이 없다. 오늘 구간이 빈 날 최상위 hasLogs 에 폴백 값을 채워\n보내면, 아직 옛 번들을 받은 관리자 화면은 **19일 전 데이터를 오늘 것으로** 그린다.\n그건 값을 지어내는 것과 같다. 최상위 키의 뜻은 '오늘' 그대로 두고, 폴백을 읽을 줄 아는\n새 번들만 날짜 배지와 함께 그린다.\n\n(이 응답 shape 은 admin/report 화면·브리핑과도 공유한다. 둘 다 최상위 hasLogs/\n avgCongestion/anomalyCount 만 읽으므로 신규 키의 영향을 받지 않는다.)\n\n── 신규 키 2(추가만 한다) — 경주 추정 모드 ─────────────────────────────────────\n  · estimated = 오늘(KST)의 **추정** 집계 또는 null(계산 실패·시간 초과·옛 원본 부재)\n                { dateKst, hasLogs, avgCongestion, anomalyCount, heatmap, anomalies,\n                  sampleCount, sourceComposition{'estimated': n}, basis{...} }\n                모양은 위 오늘 집계와 같고, basis 가 산식·근거(주차장 수·관측 시각·반경)를\n                싣는다(congestion_estimator_service.aggregate_estimated_day).\n                표본 단위가 로그 1행이 아니라 (대표 장소 × 10분 버킷)이다.\n\n추정을 최상위 키에 섞지 않는 이유는 폴백과 같다: 옛 번들은 최상위만 읽으므로, 거기에\n추정을 채우면 **추정치가 라벨 없이 실측처럼** 그려진다. 추정을 읽을 줄 아는 새 번들만\n'추정' 배지와 근거 문장을 붙여 그린다. 실측(최상위)이 있으면 화면은 실측을 쓴다.",
+    "description": "오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.\n\n반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, sampleCount,\n        latestObservedAt, fallback }\n  · hasLogs = 오늘 로그 수 >= 5\n  · avgCongestion.value = 평균 혼잡도(소수 2자리)\n  · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**\n  · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null\n  · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수\n  · anomalyCount = congestion_level >= 0.9 건수\n  · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)\n  · anomalies = 시설별 >=0.9 피크 상위 6건\n로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).\n\n── 신규 키(추가만 한다) ─────────────────────────────────────────────────────\n  · sampleCount      = 오늘 구간의 로그 건수(0 과 '4건뿐' 을 구분)\n  · latestObservedAt = congestion_logs 전체의 가장 최근 관측 시각(UTC ISO) 또는 null\n  · fallback         = 오늘이 비었을 때 **집계할 수 있는 가장 최근 KST 하루** 의 같은 집계\n                       { dateKst, observedAt, hasLogs, avgCongestion, anomalyCount,\n                         heatmap, anomalies, sampleCount } 또는 null\n                       observedAt 은 **그 날의** 마지막 관측이라 latestObservedAt 과\n                       다를 수 있다(_pick_fallback_day 주석 참조).\n\n왜 폴백을 최상위 키에 섞지 않고 **별도 객체**로 두는가: Vercel(웹)과 Render(API)는 배포\n시점이 다르고 스테이징이 없다. 오늘 구간이 빈 날 최상위 hasLogs 에 폴백 값을 채워\n보내면, 아직 옛 번들을 받은 관리자 화면은 **19일 전 데이터를 오늘 것으로** 그린다.\n그건 값을 지어내는 것과 같다. 최상위 키의 뜻은 '오늘' 그대로 두고, 폴백을 읽을 줄 아는\n새 번들만 날짜 배지와 함께 그린다.\n\n(이 응답 shape 은 admin/report 화면·브리핑과도 공유한다. 둘 다 최상위 hasLogs/\n avgCongestion/anomalyCount 만 읽으므로 신규 키의 영향을 받지 않는다.)\n\n── 신규 키 2(추가만 한다) — 경주 추정 모드 ─────────────────────────────────────\n  · estimated = 오늘(KST)의 **추정** 집계 또는 null(계산 실패·시간 초과·옛 원본 부재)\n                { dateKst, hasLogs, avgCongestion, anomalyCount, heatmap, anomalies,\n                  sampleCount, sourceComposition{'estimated': n}, basis{...} }\n                모양은 위 오늘 집계와 같고, basis 가 산식·근거(주차장 수·관측 시각·반경)를\n                싣는다(congestion_estimator_service.aggregate_estimated_day).\n                표본 단위가 로그 1행이 아니라 (대표 장소 × 10분 버킷)이다.\n\n추정을 최상위 키에 섞지 않는 이유는 폴백과 같다: 옛 번들은 최상위만 읽으므로, 거기에\n추정을 채우면 **추정치가 라벨 없이 실측처럼** 그려진다. 추정을 읽을 줄 아는 새 번들만\n'추정' 배지와 근거 문장을 붙여 그린다. 실측(최상위)이 있으면 화면은 실측을 쓴다.",
     "operationId": "get_dashboard_today_api_v1_admin_dashboard_today_get",
     "responses": {
      "200": {
@@ -5577,7 +5577,7 @@
   },
   "/api/v1/admin/impact": {
    "get": {
-    "description": "추천 수락 결과 — 재배치(원본 ≠ 목적지 · 도착 확인) 건수와 그 건들의 예상 대기 차이(모델 추정, 분).\n\n수락은 재배치·도착 미확인·같은 장소·시설 정보 없음으로 나눠 따로 싣고(합 = accepted_total), 내부 계정\n(admin·developer)은 뺀다. since(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일.",
+    "description": "수락 추천 기준 재배치 건수·절감 대기시간(분) 집계.\n\nsince(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일 롤링 윈도우.\n프런트(대시보드)는 KST '오늘 00:00' 을 since 로 넘겨 '오늘' 지표로 쓴다.",
     "operationId": "get_impact_api_v1_admin_impact_get",
     "parameters": [
      {
@@ -5743,7 +5743,6 @@
   },
   "/api/v1/admin/metrics": {
    "get": {
-    "description": "추천 결정·이용 지표 — { since, recommendations[], feedback[], truncated, acceptance, active_users }.\n\nacceptance  = 수락 ÷ (수락 + 거절) — 모든 source(메인 거절 포함)의 같은 행 집합, 내부 계정 제외.\n              decisions(표본 수)를 비율과 함께 싣는다. 결정이 0건이면 rate=null.\nactive_users = 오늘(KST) 피드백을 남긴 순 사용자 수(users)와 그 행 수(events), 내부 계정 제외.\nrecommendations · feedback = 구 번들용 원본 행(뜻 그대로: browse 제외 추천 행 · 피드백 행, 내부 계정 제외).\nsince(ISO8601)가 오면 그 시각 이후, 없으면 최근 days 일.",
     "operationId": "get_metrics_api_v1_admin_metrics_get",
     "parameters": [
      {
@@ -5754,22 +5753,6 @@
        "default": 28,
        "title": "Days",
        "type": "integer"
-      }
-     },
-     {
-      "in": "query",
-      "name": "since",
-      "required": false,
-      "schema": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Since"
       }
      }
     ],
@@ -5855,7 +5838,7 @@
   },
   "/api/v1/admin/metrics/trend": {
    "get": {
-    "description": "최근 days일(KST 일 단위, 오늘 포함) 현장 관측 혼잡·추천 결정 추이 — 과거→오늘 순 daily 배열.\n\navg_congestion·samples 는 현장 관측만 센다 — 관리자 입력(admin_override)·모의(simulated)·시드(seed)·\n주차 파생 추정(parking_derived)은 뺀다(excluded_sources). decisions·accepted·rejected 는 /metrics 의\n수락률과 같은 정의(모든 source, 내부 계정 제외)다. rec_total·rec_accepted 는 구 번들용 키다\n(browse 제외 추천 행 수·그중 수락 행 수, 내부 계정 제외).",
+    "description": "최근 days일(KST 일 단위, 오늘 포함) 혼잡·추천수락 실측 추이 — 과거→오늘 순 daily 배열.",
     "operationId": "get_metrics_trend_api_v1_admin_metrics_trend_get",
     "parameters": [
      {
@@ -8537,7 +8520,7 @@
   },
   "/api/v1/reports/availability": {
    "post": {
-    "description": "Record a short-lived opening-status check using server time.\n\nThe database RPC atomically keeps one current report per user/place and promotes\nonly two-user agreement to corroborated evidence. A single report never affects\nrecommendation eligibility. Guest (anonymous) sessions are rejected with 403.",
+    "description": "Record a short-lived opening-status check using server time.\n\nThe database RPC atomically keeps one current report per user/place and promotes\nonly two-user agreement to corroborated evidence. A single report never affects\nrecommendation eligibility. Guest (anonymous) sessions are accepted during the re-judging.",
     "operationId": "report_availability_api_v1_reports_availability_post",
     "requestBody": {
      "content": {
@@ -8584,7 +8567,7 @@
   },
   "/api/v1/reports/congestion": {
    "post": {
-    "description": "관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').\n\n흐름: 인증 + 게스트 거부(get_registered_user, 403) → level 정규화 → 시설 존재 검증 →\n쿨다운(사용자 5분 · IP 한 계정 30분) → supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다\n(congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).",
+    "description": "관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').\n\n흐름: 인증(get_current_user — 게스트 포함) → level 정규화 → 시설 존재 검증 →\n쿨다운(사용자 5분 · IP 한 계정 30분) → supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다\n(congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).",
     "operationId": "report_congestion_api_v1_reports_congestion_post",
     "requestBody": {
      "content": {
