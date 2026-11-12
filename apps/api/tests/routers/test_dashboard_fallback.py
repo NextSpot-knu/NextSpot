@@ -72,14 +72,8 @@ class _DayFilteredTable:
         self._desc = False
         self._limit: int | None = None
         self._range: tuple[int, int] | None = None
-        self._neq: list[tuple[str, object]] = []
 
     def select(self, *_args, **_kwargs):
-        return self
-
-    def neq(self, column: str, value):
-        # 관제 조회가 비관측 출처(simulated 등)를 쿼리 단계에서 거른다 — 운영 빌더처럼 실제로 적용한다.
-        self._neq.append((column, value))
         return self
 
     def gte(self, column: str, value):
@@ -113,7 +107,6 @@ class _DayFilteredTable:
             row for row in self._rows
             if (self._gte is None or row["timestamp"] >= self._gte)
             and (self._lte is None or row["timestamp"] <= self._lte)
-            and all(row.get(column) != value for column, value in self._neq)
         ]
         rows.sort(key=lambda r: r["timestamp"], reverse=self._desc)
         if self._limit is not None:

@@ -13,8 +13,6 @@ import type { CellBasis } from '@/lib/adminPredictedView';
 import { heatmapCellClass, heatmapLegend } from '@/lib/adminHeatmapScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { scenarioDayLabels } from '@/lib/adminScenarioLabels';
-import { MIN_RATE_SAMPLES, insufficientSampleLabel } from '@/lib/adminLoopMetrics';
-import { MIN_MEASURED_TREND_DAYS } from '@/lib/adminTrendThreshold';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
@@ -56,27 +54,15 @@ const HANOK = {
   voidInk: '#63533f',  // --color-hanok-muted — 음영 라벨
 } as const;
 
-export function DashboardCharts({
-  distribution,
-  mode = 'demo',
-  observedDays = 0,
-}: {
-  distribution: any[];
-  /** live = 실측 추이 · insufficient = 운영 화면인데 관측일이 문턱 미만(표본 부족) · demo = 데모 화면(?demo=1) 전용 시나리오. */
-  mode?: 'live' | 'demo' | 'insufficient';
-  /** insufficient 일 때 현장 관측이 있었던 날 수(표본). */
-  observedDays?: number;
-}) {
-  // mode='demo': distribution = [ { date, beforeCongestion, afterCongestion, alternativeUsage } ] (합성 예시 — 데모 화면 전용)
+export function DashboardCharts({ distribution, mode = 'demo' }: { distribution: any[]; mode?: 'live' | 'demo' }) {
+  // mode='demo': distribution = [ { date, beforeCongestion, afterCongestion, alternativeUsage } ] (합성 예시)
   // mode='live': distribution = [ { date, avgCongestion, acceptShare } ] (metrics/trend KST 일별 실측, 결측일 null)
-  // mode='insufficient': 그릴 선이 없다 — 운영 화면은 합성 '도입 전/후' 곡선으로 채우지 않고 표본 부족을 말한다(P0-3).
   // recharts tooltip formatter to show percentage
   // (recharts Formatter 의 value 는 number|string|Array 유니언 — 반공변 파라미터라 unknown 이 안전하게 대입된다)
   const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
 
   // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
-  const insufficient = mode === 'insufficient';
-  const hasData = !insufficient && Array.isArray(distribution) && distribution.length > 0;
+  const hasData = Array.isArray(distribution) && distribution.length > 0;
   const live = mode === 'live';
   // 시나리오(도입 목표 패턴)는 실제 날짜 축에 그리지 않는다 — 9/7…10/6 위의 합성 곡선은 실측 추이로 읽혔다(I20).
   // 축은 '1일차 … 30일차' 이고 제목도 시나리오임을 말한다.
@@ -106,20 +92,15 @@ export function DashboardCharts({
           <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-500/15 text-emerald-700 border-emerald-500/30">
             ③ 분산 효과
           </span>
-          {/* 운영 화면 제목은 무엇을 그리는지만 말한다 — 반사실 기준선이 없어 '분산 효과 분석' 을 주장할 수 없다. */}
-          <h3 className="text-lg font-bold text-hanok-ink">{live || insufficient ? '최근 30일 혼잡·추천 수락 추이' : '도입 30일 분산 효과 시나리오'}</h3>
+          <h3 className="text-lg font-bold text-hanok-ink">{live ? '최근 30일 관광 수요 분산 효과 분석' : '도입 30일 분산 효과 시나리오'}</h3>
         </div>
-        {/* 실측 집계인지 · 표본 부족인지 · 시나리오(데모)인지 라벨로 가른다. */}
+        {/* 실측 집계인지 시나리오인지 라벨로 가른다 — 실측이면 집계 출처를, 시나리오면 목표 패턴임을 밝힌다. */}
         {live ? (
           <span
-            title="현장 관측 로그의 일평균 혼잡도(관리자 입력·모의·시드·주차 파생 추정 제외)와 추천 결정(수락·거절)의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 결정이 5건 미만인 날은 수락률을 비우고, 관측이 없는 날은 선을 잇지 않고 음영으로 표시합니다."
+            title="혼잡 로그의 일평균 혼잡도와 추천 기록의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 수집 구간 외의 날은 선을 잇지 않고 음영으로 표시합니다."
             className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-emerald-500/10 text-emerald-700 border-emerald-500/25 cursor-help"
           >
             실측 집계(30일)
-          </span>
-        ) : insufficient ? (
-          <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
-            표본 부족
           </span>
         ) : (
           <span
@@ -173,8 +154,8 @@ export function DashboardCharts({
                   {/* 실측 계열 — 반사실('도입 전') 기준선은 실측 불가라 표시하지 않는다.
                       connectNulls={false}: 결측일을 직선으로 이으면 **없는 관측을 그린 것**이다.
                       성과 리포트와 같은 정책이며, 끊긴 이유는 위 음영과 아래 캡션이 말한다. */}
-                  <Line name="일평균 혼잡도(현장 관측)" type="monotone" dataKey="avgCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
-                  <Line name="추천 수락률(결정 기준)" type="monotone" dataKey="acceptShare" stroke="#10b981" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
+                  <Line name="일평균 혼잡도(실측)" type="monotone" dataKey="avgCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
+                  <Line name="추천 수락률(실측)" type="monotone" dataKey="acceptShare" stroke="#10b981" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
                 </>
               ) : (
                 <>
@@ -185,14 +166,6 @@ export function DashboardCharts({
               )}
             </LineChart>
           </ResponsiveContainer>
-        ) : insufficient ? (
-          // 운영 화면의 표본 부족 — 예시 곡선을 그리지 않고 몇 일이 모자란지를 말한다.
-          <div className="h-full flex flex-col items-center justify-center gap-1.5 rounded-xl border border-hanok-line bg-hanok-card/40 px-6 text-center">
-            <p className="text-sm font-bold text-hanok-ink">{insufficientSampleLabel(observedDays, MIN_MEASURED_TREND_DAYS, '일')}</p>
-            <p className="max-w-xl text-xs leading-relaxed text-hanok-muted">
-              최근 30일 중 현장 관측이 있었던 날이 {MIN_MEASURED_TREND_DAYS}일 이상이면 일평균 혼잡도와 추천 수락률(결정 {MIN_RATE_SAMPLES}건 이상인 날)을 이 자리에 그립니다.
-            </p>
-          </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-1 text-hanok-muted">
             <p className="text-sm font-semibold">분산 효과 추이를 집계하는 중입니다.</p>
@@ -207,7 +180,7 @@ export function DashboardCharts({
         <p className="flex gap-1.5 text-[11px] leading-relaxed text-hanok-muted">
           <Info size={12} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
           <span>
-            관측 — 혼잡도 {congestionStats.observed}일 · 수락률(결정 {MIN_RATE_SAMPLES}건 이상) {acceptStats.observed}일 / {congestionStats.total}일.
+            관측 — 혼잡도 {congestionStats.observed}일 · 수락률 {acceptStats.observed}일 / {congestionStats.total}일.
             {' '}{GAP_SHADING_NOTE}
           </span>
         </p>

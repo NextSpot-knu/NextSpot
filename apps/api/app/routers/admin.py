@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 from app.core.config import settings as app_settings
 from app.core.authz import ROLE_ADMIN, forbid_judge_admin, get_current_profile, require_role
 from app.core.executors import run_admin_io
-from app.core.internal_accounts import filter_internal_roles, internal_ids_from_rows, is_internal_user
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
 from app.services import reference_snapshot
@@ -105,128 +104,6 @@ def _fetch_capped(
         # 화면에 내려보내는 truncated 플래그와 별개로, 상한에 닿았다는 사실 자체를 남긴다.
         logger.warning("admin_query_truncated", endpoint=endpoint, table=table, cap=cap)
     return rows, truncated
-
-
-# =========================================================================
-# 관제 지표의 공용 정의 — 내부 계정 · 추천 결정 · '관측' 출처 (P0-5 f · P1-1)
-# =========================================================================
-# 지표 엔드포인트 셋(/metrics · /metrics/trend · /impact)이 같은 말을 같은 뜻으로 쓰게 정의를 한곳에 둔다.
-# 엔드포인트마다 따로 세면 한 화면의 수락률과 리포트의 수락률이 다른 모집단을 세게 된다.
-
-# 내부 계정 — 관리자·개발자(users.role). 시연·점검으로 누른 수락·거절이 관광객의 결정으로 세이면, 표본이
-# 얇은 지금은 그 몇 건이 수락률을 통째로 바꾼다. '무엇이 내부인가' 는 사장님 성적표와 같은 정의를 쓴다
-# (app/core/internal_accounts.py).
-# 관리자·개발자 계정 수는 몇 명 수준이다. 상한에 닿으면 _fetch_capped 가 경고를 남긴다.
-_INTERNAL_USERS_CAP = 1000
-
-
-def _fetch_internal_user_ids() -> frozenset[str]:
-    """내부 계정(admin·developer) id 집합. 실패는 그대로 올린다 — 못 거른 수치를 거른 척 내보내지 않는다."""
-    rows, _truncated = _fetch_capped(
-        "users",
-        "id, role",
-        filter_internal_roles,
-        _INTERNAL_USERS_CAP,
-        endpoint="internal-users",
-    )
-    return internal_ids_from_rows(rows)
-
-
-def _is_internal(row: dict, internal_ids) -> bool:
-    return is_internal_user(row.get("user_id"), internal_ids)
-
-
-# 추천 '결정' — 사용자가 추천된 장소 하나를 두고 명시적으로 고른 것.
-#   · 수락 = recommendations.accepted = true, 또는 그 행에 수락 결정(user_feedback)이 붙은 경우
-#            (/feedback 의 accepted_visit_intent, 메인 '바로 갈래요'(/recommendations/accept) — 옛 모양은
-#             원본=추천인 새 행을 넣고, 새 모양은 노출된 행을 갱신한다. 둘 다 accepted=true 로 남는다)
-#   · 거절 = 그 행에 'rejected' 결정이 붙은 경우(추천 화면 거절 + 메인 거절 — 메인 거절은 source='browse'
-#            행으로 저장된다. 예전 수락률은 이 browse 행을 분모에서 빼면서 수락은 셌다 — 같은 모집단이 아니었다)
-#   · 결정이 아닌 것: skipped · dismissed_batch · unsaved · 만족도(helpful 등) — 장소를 두고 고른 것이 아니다.
-# 수락률 = 수락 ÷ (수락 + 거절). 분자·분모 모두 같은 행 집합(모든 source, 내부 계정 제외)에서 센다.
-# 창은 추천 행의 created_at(노출 또는 메인 결정이 기록된 시각)이다.
-_ACCEPT_DECISION_ACTIONS = frozenset({"accepted_visit_intent", "accepted"})
-_REJECT_DECISION_ACTIONS = frozenset({"rejected"})
-# 결정 판정에 필요한 칸만 받는다. user_feedback(action) 은 FK(recommendation_id) 임베드 —
-# recommendations 라우터의 거절 경로가 이미 같은 임베드를 운영에서 쓴다.
-_DECISION_SELECT = "id, user_id, accepted, created_at, source, user_feedback(action)"
-
-
-def _embedded_rows(value) -> list[dict]:
-    """PostgREST 임베드 값 → dict 목록. 관계 모양에 따라 list(1:N) 또는 dict(1:1)로 온다 — 둘 다 받는다."""
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, dict)]
-    if isinstance(value, dict):
-        return [value]
-    return []
-
-
-def _decision_of(row: dict) -> str | None:
-    """추천 행 하나의 결정 — 'accepted' | 'rejected' | None(결정 없음). 수락이 거절보다 이긴다."""
-    actions = {str(item.get("action")) for item in _embedded_rows(row.get("user_feedback"))}
-    if row.get("accepted") is True or actions & _ACCEPT_DECISION_ACTIONS:
-        return "accepted"
-    if actions & _REJECT_DECISION_ACTIONS:
-        return "rejected"
-    return None
-
-
-def _is_browse(row: dict) -> bool:
-    # source 칸이 없던 옛 행·가짜 행은 DB 기본값('spot')과 같게 읽는다.
-    return (row.get("source") or "spot") == "browse"
-
-
-def _decision_summary(rows: list[dict], internal_ids: set[str]) -> dict:
-    """추천 행 → 결정 집계. 표본 수(decisions)를 비율과 늘 함께 싣는다."""
-    accepted = rejected = shown = excluded = 0
-    for row in rows:
-        if _is_internal(row, internal_ids):
-            excluded += 1
-            continue
-        if not _is_browse(row):
-            shown += 1
-        decision = _decision_of(row)
-        if decision == "accepted":
-            accepted += 1
-        elif decision == "rejected":
-            rejected += 1
-    decisions = accepted + rejected
-    return {
-        "accepted": accepted,
-        "rejected": rejected,
-        # 수락률의 분모이자 표본 수(n).
-        "decisions": decisions,
-        "rate": round(accepted / decisions, 4) if decisions else None,
-        # 같은 창의 추천 노출 행(browse 제외) — 결정이 아니다. 참고용 규모.
-        "shown": shown,
-        "excluded_internal": excluded,
-    }
-
-
-# '관측' 이 아닌 congestion_logs 출처 — 실측 평균·이상 건수·관측 일수에서 뺀다(P0-5 f).
-#   · admin_override  : 관리자가 슬라이더로 넣은 값(사람의 입력이지 관측이 아니다)
-#   · simulated · seed: 모의 발생·시드
-#   · parking_derived : 주차 점유율에서 파생한 추정치(추정은 dashboard/today 의 estimated 가 따로 싣는다)
-# 거부목록인 이유: 관측 출처(user_report · merchant_report · traffic_cctv · tour_api · event)는 늘 수 있지만,
-# 비관측 출처는 마이그레이션으로만 생긴다. 출처를 모르는 옛 행·가짜 행은 관측으로 둔다(조용히 버리지 않는다).
-NON_OBSERVATION_SOURCES = frozenset({"admin_override", "simulated", "seed", "parking_derived"})
-
-
-def _is_observation(row: dict) -> bool:
-    return str(row.get("source") or "") not in NON_OBSERVATION_SOURCES
-
-
-def _exclude_non_observation(query):
-    """PostgREST 필터로도 거른다(같은 칸에 neq 를 여러 번 걸면 AND 로 묶인다).
-
-    목적은 상한(cap)을 비관측 행이 먼저 채우지 않게 하는 것이다. 파이썬 필터(_is_observation)만 두면 상한에서
-    잘린 **뒤에** 거르게 된다 — simulate-peak 세 번(시설 수만큼 × 3 ≈ 5,000행)이면 최신순 조회의 상한을 모의 행이
-    통째로 채워, 그 너머의 실제 관측이 있는데도 '마지막 관측 없음' 이 된다. 판정의 정본은 여전히 파이썬 쪽이다
-    (호출부가 _is_observation 으로 한 번 더 거른다).
-    """
-    for source in sorted(NON_OBSERVATION_SOURCES):
-        query = query.neq("source", source)
-    return query
 
 
 # =========================================================================
@@ -564,45 +441,19 @@ async def update_inquiry_status(
 _METRICS_ROW_CAP = 5000
 
 
-def _normalize_since(since: str | None, days: int) -> str:
-    """since(ISO8601) 검증·정규화. 없으면 최근 days 일 롤링 창의 시작. 잘못된 문자열은 422 —
-    PostgREST 필터로 그대로 흘러가지 않게 한다."""
-    if since:
-        try:
-            parsed = datetime.fromisoformat(since.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="since 는 ISO8601 형식이어야 합니다.")
-        # 오프셋 없는 값은 UTC 로 읽는다(DB 시각이 UTC 적재) — 오프셋이 있는 시각과 비교할 때 터지지 않게.
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.isoformat()
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-
 @router.get("/metrics")
 @coalesced_admin_view("admin/metrics")
-async def get_metrics(days: int = 28, since: str | None = None):
-    """추천 결정·이용 지표 — { since, recommendations[], feedback[], truncated, acceptance, active_users }.
-
-    acceptance  = 수락 ÷ (수락 + 거절) — 모든 source(메인 거절 포함)의 같은 행 집합, 내부 계정 제외.
-                  decisions(표본 수)를 비율과 함께 싣는다. 결정이 0건이면 rate=null.
-    active_users = 오늘(KST) 피드백을 남긴 순 사용자 수(users)와 그 행 수(events), 내부 계정 제외.
-    recommendations · feedback = 구 번들용 원본 행(뜻 그대로: browse 제외 추천 행 · 피드백 행, 내부 계정 제외).
-    since(ISO8601)가 오면 그 시각 이후, 없으면 최근 days 일.
-    """
+async def get_metrics(days: int = 28):
     days = max(1, min(days, 90))
-    since = _normalize_since(since, days)
-    today_start, _ = _kst_today_range_utc()
-    # 오늘의 순 사용자는 창이 오늘 0시보다 늦게 시작해도 하루치를 본다.
-    feedback_since = min(since, today_start, key=_parse_utc)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
-        (recs, recs_truncated), (feedback, fb_truncated), internal_ids = await asyncio.gather(
+        (recs, recs_truncated), (feedback, fb_truncated) = await asyncio.gather(
             run_admin_io(
                 _fetch_capped,
                 "recommendations",
-                # 결정 판정에 필요한 칸 — 구 키(recommendations)도 같은 조회에서 뽑는다(왕복 한 번).
-                _DECISION_SELECT,
-                lambda q: q.gte("created_at", since)
+                "accepted, created_at",
+                lambda q: q.neq("source", "browse")
+                .gte("created_at", since)
                 .order("created_at", desc=True)
                 .order("id", desc=True),
                 _METRICS_ROW_CAP,
@@ -612,64 +463,23 @@ async def get_metrics(days: int = 28, since: str | None = None):
                 _fetch_capped,
                 "user_feedback",
                 "user_id, timestamp",
-                lambda q: q.gte("timestamp", feedback_since)
+                lambda q: q.gte("timestamp", since)
                 .order("timestamp", desc=True)
                 .order("id", desc=True),
                 _METRICS_ROW_CAP,
                 endpoint="metrics",
             ),
-            run_admin_io(_fetch_internal_user_ids),
         )
+        return {
+            "since": since,
+            "recommendations": recs,
+            "feedback": feedback,
+            # 필드 추가만(구 번들은 이 키를 읽지 않는다). 어느 한쪽이라도 상한에 닿으면 True.
+            "truncated": recs_truncated or fb_truncated,
+        }
     except Exception as e:
         logger.error("admin_metrics_fetch_failed", error=str(e))
         raise HTTPException(status_code=500, detail="지표 조회에 실패했습니다.")
-
-    # 구 키 — 예전 번들이 '수락 ÷ 행 수' 로 읽던 행들. 뜻(browse 제외 추천 행)은 그대로 두고 내부 계정만 뺀다.
-    # 결정 판정용 칸(id·user_id·임베드)은 덜어 낸다 — 예전 응답에 없던 사용자 식별자를 늘리지 않는다.
-    legacy_recs = [
-        {key: value for key, value in row.items() if key not in ("id", "user_id", "user_feedback")}
-        for row in recs
-        if not _is_browse(row) and not _is_internal(row, internal_ids)
-    ]
-    legacy_feedback = [
-        row for row in feedback
-        if not _is_internal(row, internal_ids) and _timestamp_at_or_after(row.get("timestamp"), since)
-    ]
-
-    today_rows = [
-        row for row in feedback
-        if not _is_internal(row, internal_ids) and _timestamp_at_or_after(row.get("timestamp"), today_start)
-    ]
-    excluded_feedback = sum(
-        1 for row in feedback
-        if _is_internal(row, internal_ids) and _timestamp_at_or_after(row.get("timestamp"), today_start)
-    )
-    return {
-        "since": since,
-        "recommendations": legacy_recs,
-        "feedback": legacy_feedback,
-        # 필드 추가만(구 번들은 이 키를 읽지 않는다). 어느 한쪽이라도 상한에 닿으면 True.
-        "truncated": recs_truncated or fb_truncated,
-        # ── 새 키(추가만) ───────────────────────────────────────────────────────
-        "acceptance": {**_decision_summary(recs, internal_ids), "since": since, "truncated": recs_truncated},
-        "active_users": {
-            "since": today_start,
-            "users": len({str(row.get("user_id")) for row in today_rows if row.get("user_id")}),
-            "events": len(today_rows),
-            "excluded_internal": excluded_feedback,
-            "truncated": fb_truncated,
-        },
-    }
-
-
-def _timestamp_at_or_after(value, boundary: str) -> bool:
-    """value(ISO) ≥ boundary(ISO). 문자열 비교는 표기(오프셋·소수점)가 섞이면 틀리므로 시각으로 비교한다."""
-    if not value:
-        return False
-    try:
-        return _parse_utc(str(value)) >= _parse_utc(boundary)
-    except (TypeError, ValueError):
-        return False
 
 
 # model-trust 창 상한. 전량이 필요하지만 무한정 받을 수는 없는 조회들이라 상한은 유지하고,
@@ -937,10 +747,10 @@ async def get_model_trust(days: int = 30):
 
 
 # =========================================================================
-# 30일 추이 — 대시보드 '③' 차트와 성과 리포트의 실측 소스 (E3 지표 리얼리티)
-# congestion_logs 일평균 혼잡도(현장 관측만) + 추천 결정(수락·거절)을 KST 일 단위로 집계한다.
-# 반사실('도입 전') 기준선은 측정할 수 없어 제공하지 않는다 — 실측 두 계열만 반환하고, 표본이 없는 날은
-# null 로 둔다. 화면은 표본이 모자라면 '표본 부족' 으로 그린다(운영 화면은 예시 곡선으로 채우지 않는다).
+# 30일 분산 추이 — 대시보드 '③ 분산 효과' 차트의 실측 소스 (E3 지표 리얼리티)
+# congestion_logs 일평균 혼잡도 + recommendations 일별 수락률을 KST 일 단위로 집계한다.
+# 반사실('도입 전') 기준선은 실측이 불가능하므로 제공하지 않는다 — 실측 두 계열만 반환하고,
+# 표본이 빈약한 날은 null 로 두어 프런트가 데모 예시로 폴백/구분 표기하게 한다(정직성 원칙).
 # =========================================================================
 
 # 추이 창의 행 상한. 상한에 닿으면 최신순으로 남기고(오래된 날부터 버린다) truncated=True 로 알린다.
@@ -974,26 +784,19 @@ def _kst_date(ts: str) -> str | None:
 @router.get("/metrics/trend")
 @coalesced_admin_view("admin/metrics/trend")
 async def get_metrics_trend(days: int = 30):
-    """최근 days일(KST 일 단위, 오늘 포함) 현장 관측 혼잡·추천 결정 추이 — 과거→오늘 순 daily 배열.
-
-    avg_congestion·samples 는 현장 관측만 센다 — 관리자 입력(admin_override)·모의(simulated)·시드(seed)·
-    주차 파생 추정(parking_derived)은 뺀다(excluded_sources). decisions·accepted·rejected 는 /metrics 의
-    수락률과 같은 정의(모든 source, 내부 계정 제외)다. rec_total·rec_accepted 는 구 번들용 키다
-    (browse 제외 추천 행 수·그중 수락 행 수, 내부 계정 제외).
-    """
+    """최근 days일(KST 일 단위, 오늘 포함) 혼잡·추천수락 실측 추이 — 과거→오늘 순 daily 배열."""
     days = max(1, min(days, 90))
     today_start, _ = _kst_today_range_utc()
     since = (datetime.fromisoformat(today_start) - timedelta(days=days - 1)).isoformat()
     try:
-        (logs, logs_truncated), (recs, recs_truncated), internal_ids = await asyncio.gather(
+        (logs, logs_truncated), (recs, recs_truncated) = await asyncio.gather(
             run_admin_io(
                 _fetch_capped,
                 "congestion_logs",
-                "congestion_level, timestamp, source",
+                "congestion_level, timestamp",
                 # 상한 절단 시 최근 일자부터 보존(desc). id 는 동률 tiebreak — simulate-peak 이
                 # 수천 행을 **같은 timestamp** 로 넣기 때문에 페이지 경계가 실제로 흔들린다.
-                # 비관측 출처는 쿼리에서도 뺀다 — 모의 발생 몇 번이 상한을 채워 관측을 밀어내지 않게.
-                lambda q: _exclude_non_observation(q.gte("timestamp", since))
+                lambda q: q.gte("timestamp", since)
                 .order("timestamp", desc=True)
                 .order("id", desc=True),
                 _TREND_LOG_CAP,
@@ -1002,15 +805,14 @@ async def get_metrics_trend(days: int = 30):
             run_admin_io(
                 _fetch_capped,
                 "recommendations",
-                # 메인 거절(source='browse')도 결정이라 출처를 거르지 않는다(구 키는 아래에서 browse 를 뺀다).
-                _DECISION_SELECT,
-                lambda q: q.gte("created_at", since)
+                "accepted, created_at",
+                lambda q: q.neq("source", "browse")
+                .gte("created_at", since)
                 .order("created_at", desc=True)
                 .order("id", desc=True),
                 _TREND_REC_CAP,
                 endpoint="metrics/trend",
             ),
-            run_admin_io(_fetch_internal_user_ids),
         )
     except Exception as e:
         logger.error("admin_metrics_trend_failed", error=str(e))
@@ -1018,8 +820,6 @@ async def get_metrics_trend(days: int = 30):
 
     cong: dict[str, dict[str, float]] = {}
     for row in logs:
-        if not _is_observation(row):
-            continue
         day = _kst_date(row.get("timestamp"))
         if not day:
             continue
@@ -1029,51 +829,31 @@ async def get_metrics_trend(days: int = 30):
 
     rec_agg: dict[str, dict[str, int]] = {}
     for row in recs:
-        if _is_internal(row, internal_ids):
-            continue
         day = _kst_date(row.get("created_at"))
         if not day:
             continue
-        acc = rec_agg.setdefault(day, {"total": 0, "accepted_shown": 0, "accepted": 0, "rejected": 0})
-        if not _is_browse(row):
-            acc["total"] += 1
-            if row.get("accepted"):
-                acc["accepted_shown"] += 1
-        decision = _decision_of(row)
-        if decision == "accepted":
+        acc = rec_agg.setdefault(day, {"total": 0, "accepted": 0})
+        acc["total"] += 1
+        if row.get("accepted"):
             acc["accepted"] += 1
-        elif decision == "rejected":
-            acc["rejected"] += 1
 
     first_kst = datetime.fromisoformat(since) + _KST_OFFSET
     daily = []
     for i in range(days):
         day = (first_kst + timedelta(days=i)).strftime("%Y-%m-%d")
         c = cong.get(day)
-        r = rec_agg.get(day) or {"total": 0, "accepted_shown": 0, "accepted": 0, "rejected": 0}
+        r = rec_agg.get(day)
         daily.append({
             "date": day,
-            # 관측 없는 날은 null 센티넬 — 관측 0.0 과 구분(대시보드 히트맵과 동일 규약)
+            # 로그 없는 날은 null 센티넬 — 실측 0.0 과 구분(대시보드 히트맵과 동일 규약)
             "avg_congestion": _js_round(c["sum"] / c["n"], 3) if c and c["n"] else None,
             "samples": int(c["n"]) if c else 0,
-            # 구 키(뜻 그대로) — browse 제외 추천 행 수 · 그중 수락 행 수.
-            "rec_total": r["total"],
-            "rec_accepted": r["accepted_shown"],
-            # 새 키 — 결정 기준. 하루 수락률 = accepted ÷ decisions(표본 수 decisions 와 함께 읽는다).
-            "decisions": r["accepted"] + r["rejected"],
-            "accepted": r["accepted"],
-            "rejected": r["rejected"],
+            "rec_total": r["total"] if r else 0,
+            "rec_accepted": r["accepted"] if r else 0,
         })
 
     # 두 계열 중 하나라도 상한에 닿으면 daily 의 앞쪽(오래된 날)이 실제보다 비어 보인다.
-    return {
-        "days": days,
-        "daily": daily,
-        "truncated": logs_truncated or recs_truncated,
-        # 새 키 — avg_congestion·samples 가 무엇을 셌는지(현장 관측) 응답이 스스로 말한다.
-        "congestion_basis": "observed",
-        "excluded_sources": sorted(NON_OBSERVATION_SOURCES),
-    }
+    return {"days": days, "daily": daily, "truncated": logs_truncated or recs_truncated}
 
 
 # =========================================================================
@@ -1156,161 +936,78 @@ async def get_estimated_report(days: int = 30):
 
 
 # =========================================================================
-# 추천 수락 결과 — 재배치(도착 확인)·예상 대기 차이(모델 추정) 집계 (admin/dashboard 위젯) — P1-1
-# =========================================================================
-# '재배치' = 수락 + 원본 시설이 있고 + 원본 ≠ 목적지 + 도착 확인(recommendation_outcomes.arrival_confirmed_at).
-#   예전에는 수락 행 수였다. 그런데 메인 '바로 갈래요' 는 원본 = 목적지인 행을 남기고(옛 모양은 새 행, 새 모양은
-#   노출 행 갱신 — 둘 다 원본 = 목적지다), 수락만 하고 가지 않은 사람도 셌다 — 둘 다 '혼잡지에서 옮겨 갔다' 의
-#   증거가 아니다. 그래서 수락은 넷으로 나눠 따로 센다(합이 accepted_total — 표본 수):
-#     relocations                 원본 ≠ 목적지 · 도착 확인
-#     accepted_moves_unconfirmed  원본 ≠ 목적지 · 도착 확인 없음
-#     accepted_same_facility      원본 = 목적지(바로 갈래요·유형별 목록에서 고른 곳)
-#     accepted_missing_facility   원본 또는 목적지 id 가 비었다(시설 삭제로 SET NULL 된 행)
-#
-# '예상 대기 차이(모델 추정)' = Σ max(0, 원본 예상대기 − 대안 예상대기) — **재배치 건만**.
-#   예상대기는 혼잡도 × 업종 처리시간 × 시간대 계수(services/spot/wait_time.py)로 추천 생성 시점에 계산해
-#   score_breakdown 에 저장한 값이다. 측정한 대기도, 측정한 절감도 아니다(그래서 '절감' 이라 부르지 않는다).
-#   · wait_model     : 두 예상대기가 저장된 행 — 그 차이를 쓴다.
-#   · congestion_gap : 원본 예상대기가 없는 행 — incentive_relief(원본 혼잡 − 도착 시점 예측 혼잡, 0~1)
-#                      × 15분(업종 기본 처리시간 중앙값)으로 근사한다.
-#   · unavailable    : 둘 다 없는 행 — 더하지 않는다.
-# 구 키(relocations·saved_wait_minutes·measured·estimated)는 이름을 그대로 두고 위 정의를 따른다.
-# 'measured' 는 이름과 달리 측정이 아니라 wait_model 행 수다(구 번들 호환 때문에 이름만 남겼다).
+# 분산 효과 정량화 — 수락된 추천의 '절감 대기시간' 합산 (admin/dashboard 위젯)
+# 산식: Σ max(0, 원본 예상대기 − 대안 도착시점 예상대기)  [수락 건만]
+#  · original_wait_time/wait_time 은 추천 생성 시점에 score_breakdown 으로 저장된다
+#    (recommendations 라우터). 그 시점의 실측 혼잡 기반이라 사후 재계산보다 정직하다.
+#  · original_wait_time 이 없는 레거시 행은 incentive_relief(원본혼잡−도착시점 예측혼잡, 0~1)
+#    × 15분(타입 기본 처리시간 중앙값)으로 보수적으로 근사한다 — 근사 건수는 estimated 로 구분 표기.
 # =========================================================================
 
 _LEGACY_RELIEF_TO_MINUTES = 15.0  # wait_time.DEFAULT_PROCESSING_TIMES 중앙값(카페12·식당25·관광15·문화15)
-# 수락 추천 상한. 예상 대기 차이는 **합계**라 행이 빠지면 그만큼 과소 집계된다. 상한에 닿으면 truncated 로 알린다.
+# 수락 추천 상한. 절감 분(分)은 **합계**라 행이 빠지면 그만큼 과소 집계된다 — 즉 잘리면
+# '분산 효과가 이만큼 있었다' 를 실제보다 작게 말하게 된다. 상한에 닿으면 truncated 로 알린다.
 _IMPACT_REC_CAP = 5000
-# 도착 확인 조회 상한 — 길찾기를 시작한 추천만 행이 생기므로 수락보다 적다(model-trust 와 같은 상한).
-_IMPACT_OUTCOME_CAP = _TRUST_OUTCOME_CAP
-_IMPACT_REC_SELECT = (
-    "id, user_id, accepted, original_facility_id, recommended_facility_id, score_breakdown, created_at"
-)
-
-
-def _as_float(value) -> float | None:
-    """score_breakdown(JSONB) 값의 방어적 float 변환 — 없거나 숫자가 아니면 None."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _impact_summary(rows: list[dict], arrived_ids: set[str], internal_ids: set[str]) -> dict:
-    """수락 행 → 재배치 분류 + 예상 대기 차이. 순수 함수(라우터·테스트가 같이 쓴다)."""
-    counts = {"relocations": 0, "moves_unconfirmed": 0, "same_facility": 0, "missing_facility": 0}
-    basis = {"wait_model": 0, "congestion_gap": 0, "unavailable": 0}
-    wait_diff = 0.0
-    accepted_total = excluded = 0
-    for row in rows:
-        # 쿼리가 accepted=true 로 거른다 — 그래도 명시적 False 는 버린다(필터를 흡수하는 가짜·구 응답 방어).
-        if row.get("accepted") is False:
-            continue
-        if _is_internal(row, internal_ids):
-            excluded += 1
-            continue
-        accepted_total += 1
-        origin, destination = row.get("original_facility_id"), row.get("recommended_facility_id")
-        if not origin or not destination:
-            counts["missing_facility"] += 1
-            continue
-        if str(origin) == str(destination):
-            counts["same_facility"] += 1
-            continue
-        if str(row.get("id")) not in arrived_ids:
-            counts["moves_unconfirmed"] += 1
-            continue
-        counts["relocations"] += 1
-        breakdown = row.get("score_breakdown") if isinstance(row.get("score_breakdown"), dict) else {}
-        original_wait = _as_float(breakdown.get("original_wait_time"))
-        candidate_wait = _as_float(breakdown.get("wait_time"))
-        relief = _as_float(breakdown.get("incentive_relief"))
-        if original_wait is not None and candidate_wait is not None:
-            wait_diff += max(0.0, original_wait - candidate_wait)
-            basis["wait_model"] += 1
-        elif relief is not None:
-            wait_diff += max(0.0, relief) * _LEGACY_RELIEF_TO_MINUTES
-            basis["congestion_gap"] += 1
-        else:
-            basis["unavailable"] += 1
-    return {
-        "accepted_total": accepted_total,
-        "counts": counts,
-        "basis": basis,
-        "wait_diff": round(wait_diff, 1),
-        "excluded_internal": excluded,
-    }
 
 
 @router.get("/impact")
 @coalesced_admin_view("admin/impact")
 async def get_impact(since: str | None = None, days: int = 1):
-    """추천 수락 결과 — 재배치(원본 ≠ 목적지 · 도착 확인) 건수와 그 건들의 예상 대기 차이(모델 추정, 분).
+    """수락 추천 기준 재배치 건수·절감 대기시간(분) 집계.
 
-    수락은 재배치·도착 미확인·같은 장소·시설 정보 없음으로 나눠 따로 싣고(합 = accepted_total), 내부 계정
-    (admin·developer)은 뺀다. since(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일.
+    since(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일 롤링 윈도우.
+    프런트(대시보드)는 KST '오늘 00:00' 을 since 로 넘겨 '오늘' 지표로 쓴다.
     """
     days = max(1, min(days, 90))
-    # 검증 겸 정규화 — 잘못된 문자열이 PostgREST 필터로 그대로 흘러가지 않게 한다.
-    since = _normalize_since(since, days)
+    if since:
+        try:
+            # 검증 겸 정규화 — 잘못된 문자열이 PostgREST 필터로 그대로 흘러가지 않게 한다.
+            since = datetime.fromisoformat(since.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="since 는 ISO8601 형식이어야 합니다.")
+    else:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     try:
-        (rows, recs_truncated), (outcomes, outcomes_truncated), internal_ids = await asyncio.gather(
-            run_admin_io(
-                _fetch_capped,
-                "recommendations",
-                _IMPACT_REC_SELECT,
-                lambda q: q.eq("accepted", True)
-                .gte("created_at", since)
-                .order("created_at", desc=True)
-                .order("id", desc=True),
-                _IMPACT_REC_CAP,
-                endpoint="impact",
-            ),
-            run_admin_io(
-                _fetch_capped,
-                "recommendation_outcomes",
-                "recommendation_id, arrival_confirmed_at",
-                # 결과 행은 추천 뒤에만 생기므로 같은 창(created_at ≥ since)이 창 안 추천의 결과를 전부 덮는다.
-                lambda q: q.gte("created_at", since)
-                .order("created_at", desc=True)
-                .order("recommendation_id", desc=True),  # PK — created_at 동률에서의 tiebreak
-                _IMPACT_OUTCOME_CAP,
-                endpoint="impact",
-            ),
-            run_admin_io(_fetch_internal_user_ids),
+        rows, truncated = await run_admin_io(
+            _fetch_capped,
+            "recommendations",
+            "score_breakdown, created_at",
+            lambda q: q.eq("accepted", True)
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .order("id", desc=True),
+            _IMPACT_REC_CAP,
+            endpoint="impact",
         )
     except Exception as e:
         logger.error("admin_impact_fetch_failed", error=str(e))
         raise HTTPException(status_code=500, detail="분산 효과 집계에 실패했습니다.")
 
-    arrived_ids = {
-        str(row.get("recommendation_id")) for row in outcomes
-        if row.get("recommendation_id") and row.get("arrival_confirmed_at")
-    }
-    summary = _impact_summary(rows, arrived_ids, internal_ids)
-    counts, basis = summary["counts"], summary["basis"]
+    relocations = 0
+    saved_minutes = 0.0
+    measured = 0   # original_wait_time 실측 저장 행
+    estimated = 0  # 레거시 근사(incentive_relief 기반) 행
+    for row in rows:
+        relocations += 1
+        bd = row.get("score_breakdown") or {}
+        original_wait = bd.get("original_wait_time")
+        candidate_wait = bd.get("wait_time")
+        if original_wait is not None and candidate_wait is not None:
+            saved_minutes += max(0.0, float(original_wait) - float(candidate_wait))
+            measured += 1
+        elif bd.get("incentive_relief") is not None:
+            saved_minutes += max(0.0, float(bd["incentive_relief"])) * _LEGACY_RELIEF_TO_MINUTES
+            estimated += 1
+
     return {
         "since": since,
-        # 구 키 — 뜻이 바뀌었다(위 머리 주석): 수락 행 수 → 도착이 확인된 재배치.
-        "relocations": counts["relocations"],
-        # 구 키 — 재배치 건의 예상 대기 차이 합(모델 추정). 측정한 절감이 아니다.
-        "saved_wait_minutes": summary["wait_diff"],
-        # 구 키 — 이름과 달리 '측정' 이 아니다: wait_model 행 수 · congestion_gap 행 수.
-        "measured": basis["wait_model"],
-        "estimated": basis["congestion_gap"],
-        # 필드 추가만(구 번들은 이 키를 읽지 않는다). True 면 위 건수·합계는 하한이다.
-        "truncated": recs_truncated or outcomes_truncated,
-        # ── 새 키(추가만) ───────────────────────────────────────────────────────
-        "accepted_total": summary["accepted_total"],
-        "accepted_moves_unconfirmed": counts["moves_unconfirmed"],
-        "accepted_same_facility": counts["same_facility"],
-        "accepted_missing_facility": counts["missing_facility"],
-        "expected_wait_diff_minutes": summary["wait_diff"],
-        "expected_wait_diff_basis": basis,
-        "excluded_internal": summary["excluded_internal"],
+        "relocations": relocations,
+        "saved_wait_minutes": round(saved_minutes, 1),
+        "measured": measured,
+        "estimated": estimated,
+        # 필드 추가만(구 번들은 이 키를 읽지 않는다). True 면 아래 합계는 하한이다.
+        "truncated": truncated,
     }
 
 
@@ -1406,8 +1103,8 @@ def _fetch_day_logs(start: str, end: str) -> list[dict]:
         # 화면이 말할 수 있어야 하기 때문이다. 주차 파생 추정치(parking_derived)가 섞이면
         # 숫자는 그대로여도 '실측 혼잡' 이 아니게 되고, 그 사실은 값 옆에 있어야 한다.
         "congestion_level, current_count, timestamp, source, facility:facilities(name, type)",
-        # 비관측 출처는 쿼리에서 뺀다 — 모의·시드 행이 상한을 먼저 채우면 그 뒤의 관측이 잘린다.
-        lambda q: _exclude_non_observation(q.gte("timestamp", start).lte("timestamp", end))
+        lambda q: q.gte("timestamp", start)
+        .lte("timestamp", end)
         .order("timestamp", desc=False)
         .order("id", desc=False),  # simulate-peak 이 동일 timestamp 를 대량 생성한다
         _DASHBOARD_LOG_CAP,
@@ -1417,11 +1114,12 @@ def _fetch_day_logs(start: str, end: str) -> list[dict]:
 
 
 def _fetch_day_levels(start: str, end: str) -> list[dict]:
-    """전일 비교용 — congestion_level(+ 관측 판정용 source). 변화율(%) 하나를 만들 뿐이라 상한이 더 낮다."""
+    """전일 비교용 — congestion_level 만. 변화율(%) 하나를 만들 뿐이라 상한이 더 낮다."""
     logs, _truncated = _fetch_capped(
         "congestion_logs",
-        "congestion_level, source",
-        lambda q: _exclude_non_observation(q.gte("timestamp", start).lte("timestamp", end))
+        "congestion_level",
+        lambda q: q.gte("timestamp", start)
+        .lte("timestamp", end)
         .order("timestamp", desc=False)
         .order("id", desc=False),
         _DASHBOARD_YESTERDAY_CAP,
@@ -1447,11 +1145,8 @@ def _recent_congestion_timestamps() -> list[str]:
     try:
         rows, truncated = _fetch_capped(
             "congestion_logs",
-            # source 는 관측 판정용 — 모의·시드 날짜를 '현장 관측이 집계된 가장 최근 날' 로 고르지 않게.
-            # 쿼리에서도 뺀다: 이 조회는 최신순 상한(5,000)이라, 모의 발생 몇 번이면 상한이 모의 행으로 차서
-            # 그 너머의 실제 관측(마지막 관측 시각·폴백일)이 사라진다.
-            "timestamp, source",
-            lambda q: _exclude_non_observation(q).order("timestamp", desc=True).order("id", desc=True),
+            "timestamp",
+            lambda q: q.order("timestamp", desc=True).order("id", desc=True),
             _DASHBOARD_FALLBACK_SCAN_CAP,
             endpoint="dashboard/today",
         )
@@ -1463,7 +1158,7 @@ def _recent_congestion_timestamps() -> list[str]:
         # 훑어 **가장 최근** 자격일을 고르므로, 절단은 '없는 날을 만들어내는' 방향으로는
         # 절대 틀리지 않는다 — 찾을 수 있는 날을 놓치는 쪽으로만 틀린다.
         logger.warning("admin_fallback_scan_truncated", cap=_DASHBOARD_FALLBACK_SCAN_CAP)
-    return [str(r["timestamp"]) for r in rows if r.get("timestamp") and _is_observation(r)]
+    return [str(r["timestamp"]) for r in rows if r.get("timestamp")]
 
 
 def _pick_fallback_day(timestamps: list[str]) -> tuple[str, str] | None:
@@ -1504,19 +1199,9 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
 
     '오늘' 과 '폴백 기준일' 이 **같은 산식**을 쓰도록 라우터 본문에서 뽑아낸 함수다.
     두 벌로 두면 폴백 화면만 조용히 다른 규칙으로 그려진다.
-
-    관측이 아닌 행(NON_OBSERVATION_SOURCES — 관리자 입력·모의·시드·주차 파생 추정)은 평균·이상 건수·
-    히트맵·표본 수에서 뺀다(P0-5 f). 이 집계는 화면에서 배지 없이 '현장 관측' 으로 그려지기 때문이다.
-    응답 키는 늘리지 않는다(이 응답 모양은 화면·리포트·브리핑이 함께 쓰고 키 집합을 테스트가 잠근다) —
-    무엇을 뺐는지는 화면의 지표 설명이 말한다.
     """
-    excluded = sum(1 for row in logs if not _is_observation(row))
-    if excluded:
-        logger.info("admin_dashboard_non_observation_excluded", excluded=excluded)
-    logs = [row for row in logs if _is_observation(row)]
-    prev_logs = [row for row in prev_logs if _is_observation(row)]
-
-    # 이 하루가 **무엇으로 만들어졌는가**. 값과 함께 다녀야 화면이 무엇을 그리는지 말할 수 있다.
+    # 이 하루가 **무엇으로 만들어졌는가**. 값과 함께 다녀야 화면이 '실측 혼잡' 과
+    # '주차 실측 기반 추정(parking_derived)' 을 같은 배지 없이 그리지 않는다.
     # source 를 모르는 옛 행/옛 쿼리는 'unknown' 으로 센다(조용히 버리지 않는다).
     source_composition: dict[str, int] = {}
     for row in logs:
@@ -1535,12 +1220,10 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
             "sourceComposition": source_composition,
         }
 
-    # 1) KPI: 평균 혼잡도 + 이상(>= ANOMALY_LEVEL) 건수 + 전일 대비 변화율
-    #    이상 기준은 추정 집계·안전 경보와 같은 상수 하나다(congestion_estimator_service.ANOMALY_LEVEL).
-    anomaly_level = congestion_estimator_service.ANOMALY_LEVEL
+    # 1) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 + 전일 대비 변화율
     avg = sum(float(row.get("congestion_level") or 0) for row in logs) / len(logs)
     value = _js_round(avg, 2)
-    anomaly_count = sum(1 for row in logs if float(row.get("congestion_level") or 0) >= anomaly_level)
+    anomaly_count = sum(1 for row in logs if float(row.get("congestion_level") or 0) >= 0.9)
     # ── '변화 없음' 과 '표본 없음' 은 다른 사실이다 ──────────────────────────────
     # 예전에는 둘 다 changePercent=0.0 이었다. 그래서 전일 로그가 **한 건도 없는** 날에도
     # 화면은 '0%' 배지를 그렸다 — 측정한 적 없는 비교를 한 것처럼 보이게 만드는 값이다.
@@ -1600,11 +1283,11 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
                 "value": _js_round(acc["sum"] / acc["n"], 2) if acc and acc["n"] else None,
             })
 
-    # 3) 이상 알림: 그날의 >= ANOMALY_LEVEL 피크(시설별 최고 1건), congestionLevel 내림차순 상위 6
+    # 3) 이상 알림: 그날의 >=0.9 피크(시설별 최고 1건), congestionLevel 내림차순 상위 6
     peak: dict[str, dict] = {}
     for row in logs:
         level = float(row.get("congestion_level") or 0)
-        if level < anomaly_level:
+        if level < 0.9:
             continue
         name, _ = _joined_facility(row)
         if not name:
@@ -1737,7 +1420,6 @@ async def get_dashboard_today():
       · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)
       · anomalies = 시설별 >=0.9 피크 상위 6건
     로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).
-    관리자 입력·모의·시드·주차 파생 추정 행은 관측이 아니라서 세지 않는다(NON_OBSERVATION_SOURCES).
 
     ── 신규 키(추가만 한다) ─────────────────────────────────────────────────────
       · sampleCount      = 오늘 구간의 로그 건수(0 과 '4건뿐' 을 구분)
@@ -1796,11 +1478,7 @@ async def get_dashboard_today():
 
     if today["hasLogs"]:
         # 오늘 관측이 있으면 가장 최근 관측도 오늘 안에 있다 — 추가 왕복 없이 손에 든 행에서 뽑는다.
-        # (관측이 아닌 행 — 관리자 입력·모의 등 — 은 '마지막 관측' 이 아니다.)
-        latest_at = max(
-            (str(row["timestamp"]) for row in logs if row.get("timestamp") and _is_observation(row)),
-            default=None,
-        )
+        latest_at = max(str(row["timestamp"]) for row in logs if row.get("timestamp"))
         return {**today, "latestObservedAt": latest_at, "fallback": None, "estimated": await estimate_task}
 
     # ── 오늘 구간이 비었다 ──────────────────────────────────────────────────────

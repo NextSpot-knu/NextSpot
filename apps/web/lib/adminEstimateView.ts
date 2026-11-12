@@ -338,12 +338,9 @@ export function dashboardFallbackExplanation(basis: DashboardBasis): string | nu
  * 추정 적재(관리자 수동)' 를 경로로 적는다. 두 버튼은 대시보드에서 걷어냈다(D6 — 모의 발생은
  * 데모용 합성이고, 수동 적재는 읽을 때 계산하는 추정으로 대체돼 이중 집계가 된다). 없는 버튼을
  * 가리키는 문장을 화면에 두지 않으려고 여기서 바꿔 끼운다.
- *
- * 2026-10-31(P0-5 f): 관리자 수동 입력(admin_override)은 서버가 '실측' 집계에서 뺀다(관측이 아니라 사람이
- * 넣은 값이다) — 그래서 이 문장도 관리자 입력을 현장 관측 경로로 적지 않는다.
  */
 export const DASHBOARD_INGEST_PATHS =
-  '현장 관측은 손님 제보 · 사장 좌석 방송으로 수집합니다(관리자 입력은 실측 집계에 넣지 않습니다). 오늘은 공영주차 실측(경주 ITS)과 관광 통계를 결합한 추정 지표를 ‘추정’ 라벨과 함께 표시하며, 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.';
+  '현장 관측은 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드로 수집합니다. 오늘은 공영주차 실측(경주 ITS)과 관광 통계를 결합한 추정 지표를 ‘추정’ 라벨과 함께 표시하며, 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.';
 
 export function dashboardEmptyNotice(basis: DashboardBasis): CongestionEmptyNotice | null {
   if (isTodayNonMeasured(basis)) return null;

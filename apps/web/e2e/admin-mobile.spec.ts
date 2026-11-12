@@ -50,29 +50,23 @@ const INQUIRIES = [
   { id: 'q3', user_id: 'u3', user_name: '관광객 C', type: '제안', title: '야간 코스도 추천해 주세요', content: '동궁과 월지 야경 코스가 있으면 좋겠어요.', status: 'resolved', created_at: iso(3000), reply_body: '야간 코스를 준비하고 있어요.', replied_at: iso(2000) },
 ];
 
-// 안전 경보 — 최근 30분 관측만으로 판정한 새 응답 모양(P0-4: judgement · 존별 관측 시각 · 출처). 존 카드의 관측 줄
-// ('관측 HH:MM · N분 전 · 손님 제보 2 · 관리자 입력 1')이 390px 에서도 카드 밖으로 밀리지 않는지 함께 본다.
 const SAFETY_STATUS = {
   generatedAt: iso(1),
-  judgement: 'available',
   sampleEmpty: false,
-  thresholds: { alert: 0.9, warn: 0.7 },
-  meta: { zoneMethod: 'grid150m', maxObservationAgeMinutes: 30 },
-  observedFacilities: 15,
-  staleFacilities: 3,
-  latestObservedAt: iso(5),
+  thresholds: { alert: 0.8, warn: 0.6 },
+  meta: { zoneMethod: 'grid' },
   facilityAlerts: [
-    { facilityId: '1000', facilityName: '불국사', facilityType: 'attraction', congestion: 0.92, nextHourCongestion: 0.8, timestamp: iso(5), source: 'user_report', evidenceTier: 'single_report' },
+    { facilityId: '1000', facilityName: '불국사', facilityType: 'attraction', congestion: 0.86, nextHourCongestion: 0.8, timestamp: iso(5) },
   ],
   facilityWarnings: [
-    { facilityId: '1002', facilityName: '첨성대', facilityType: 'attraction', congestion: 0.76, nextHourCongestion: 0.6, timestamp: iso(7), source: 'merchant_report', evidenceTier: 'single_report' },
+    { facilityId: '1002', facilityName: '첨성대', facilityType: 'attraction', congestion: 0.66, nextHourCongestion: 0.6, timestamp: iso(7) },
   ],
   zones: [
-    { zoneId: 'z1', zoneLabel: '불국사 일원', topFacilityId: '1000', avgCongestion: 0.82, maxCongestion: 0.92, facilityCount: 4, level: 'alert', nextHourCongestion: 0.78, observedAt: iso(5), sourceCounts: { user_report: 2, admin_override: 1, merchant_report: 1 } },
-    { zoneId: 'z2', zoneLabel: '대릉원 일원', topFacilityId: '1006', avgCongestion: 0.61, maxCongestion: 0.76, facilityCount: 6, level: 'warn', nextHourCongestion: 0.55, observedAt: iso(12), sourceCounts: { merchant_report: 6 } },
-    { zoneId: 'z3', zoneLabel: '보문단지', topFacilityId: null, avgCongestion: 0.3, maxCongestion: 0.4, facilityCount: 5, level: 'normal', nextHourCongestion: null, observedAt: iso(20), sourceCounts: { user_report: 5 } },
+    { zoneId: 'z1', zoneLabel: '불국사 일원', topFacilityId: '1000', avgCongestion: 0.82, maxCongestion: 0.86, facilityCount: 4, level: 'alert', nextHourCongestion: 0.78 },
+    { zoneId: 'z2', zoneLabel: '대릉원 일원', topFacilityId: '1006', avgCongestion: 0.61, maxCongestion: 0.66, facilityCount: 6, level: 'warn', nextHourCongestion: 0.55 },
+    { zoneId: 'z3', zoneLabel: '보문단지', topFacilityId: null, avgCongestion: 0.3, maxCongestion: 0.4, facilityCount: 5, level: 'normal', nextHourCongestion: null },
   ],
-  summary: { alertZones: 1, warnZones: 1, normalZones: 1, alertFacilities: 1, warnFacilities: 1, observedZones: 3 },
+  summary: { alertZones: 1, warnZones: 1, normalZones: 1, alertFacilities: 1, warnFacilities: 1 },
 };
 
 // 실시간 데이터 리허설(/admin/engine-validation) — 요약 응답에 대상지별 수집 상태(pipeline)를 실어, 새 표와

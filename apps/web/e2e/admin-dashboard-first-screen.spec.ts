@@ -56,15 +56,11 @@ const DASHBOARD_TODAY = {
   },
 };
 
-// /admin/metrics — 새 서버 모양(acceptance·active_users: 결정 기준·내부 계정 제외)과 구 번들용 원본 행을 함께 싣는다.
-// 결정 12건(≥5)이라 수락률 타일은 비율을 그린다(표본 부족 타일은 아래 별도 케이스).
 const METRICS = {
-  since: iso(7 * 24 * 60),
+  since: iso(8 * 24 * 60),
   recommendations: Array.from({ length: 40 }, (_, i) => ({ accepted: i % 4 === 0, created_at: iso(30 + i * 60) })),
   feedback: Array.from({ length: 12 }, (_, i) => ({ user_id: `u${i % 7}`, timestamp: iso(5 + i) })),
   truncated: false,
-  acceptance: { accepted: 3, rejected: 9, decisions: 12, rate: 0.25, shown: 40, excluded_internal: 0, truncated: false },
-  active_users: { users: 7, events: 12, excluded_internal: 0, since: iso(60), truncated: false },
 };
 
 const MODEL_TRUST = {
@@ -292,72 +288,15 @@ test('1536×730 — 단계 바가 위에 붙어 있고, 누르면 ② 정책 개
     await expect(nav.getByRole('button', { name: label })).toHaveAttribute('aria-current', 'step');
   }
 
-  // ② 아래에는 쿠폰 정책, ③ 아래에는 30일 차트 — 관측이 3일 미만이면 운영 화면은 '표본 부족'(P0-3).
-  // 예전에는 '1일차…30일차' 합성 시나리오 곡선을 그렸다 — 그 곡선은 이제 데모(?demo=1) 화면에만 있다.
+  // ② 아래에는 쿠폰 정책, ③ 아래에는 30일 차트 — 실측이 3일 미만이면 실제 날짜가 아닌 '1일차…30일차' 시나리오.
   const policyTop = (await page.locator('#step-policy').boundingBox())!.y;
   const coupon = page.getByText('쿠폰 정책 개입', { exact: true }).first();
   expect((await coupon.boundingBox())!.y).toBeGreaterThan(policyTop);
-  const trendTitle = page.getByRole('heading', { name: '최근 30일 혼잡·추천 수락 추이' });
-  await expect(trendTitle).toBeVisible();
-  expect((await trendTitle.boundingBox())!.y).toBeGreaterThan((await page.locator('#step-effect').boundingBox())!.y);
-  await expect(page.getByText('표본 부족 · 0일 / 필요 3일', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '도입 30일 분산 효과 시나리오' })).toHaveCount(0);
-  await expect(page.locator('text.recharts-cartesian-axis-tick-value', { hasText: /^1일차$/ })).toHaveCount(0);
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// P0-3 · P1-1(2026-10-31) — 운영 화면에 데모 숫자를 두지 않는다 · 표본 수를 함께 적는다
-// ───────────────────────────────────────────────────────────────────────────
-
-test('1536×730 — 결정이 5건 미만이면 수락률 대신 표본 부족과 건수를 적고, 시나리오 값을 그리지 않는다', async ({ page }) => {
-  await page.route(/\/api\/v1\/admin\/metrics\?days=8/, (route) =>
-    json(route, 200, {
-      ...METRICS,
-      acceptance: { accepted: 1, rejected: 2, decisions: 3, rate: 0.3333, shown: 40, excluded_internal: 0, truncated: false },
-      active_users: { users: 2, events: 3, excluded_internal: 1, since: iso(60), truncated: false },
-    }),
-  );
-  await page.setViewportSize({ width: 1536, height: 730 });
-  await openDashboard(page);
-  const kpis = page.locator('#dashboard-kpis');
-  await expect(kpis.getByText('표본 부족', { exact: true })).toBeVisible();
-  await expect(kpis.getByText(/결정 3건 \/ 필요 5건/)).toBeVisible();
-  // 순 사용자 수는 건수라 그대로 — 표본(이용 기록 n건)을 함께 적는다.
-  await expect(kpis.getByText('2명', { exact: true })).toBeVisible();
-  await expect(kpis.getByText('이용 기록 3건', { exact: true })).toBeVisible();
-  await expect(page.locator('main')).not.toContainText('시나리오');
-});
-
-test('1536×730 — 수락률 타일은 결정 기준 비율과 표본 수를 함께 적는다', async ({ page }) => {
-  await page.setViewportSize({ width: 1536, height: 730 });
-  await openDashboard(page);
-  const kpis = page.locator('#dashboard-kpis');
-  await expect(kpis.getByText('25.0%', { exact: true })).toBeVisible();
-  await expect(kpis.getByText('결정 12건 중 3건 수락(거절 9건)', { exact: true })).toBeVisible();
-  // 오늘의 브리핑은 LLM 이 쓴 문장일 때만 'AI 브리핑 · Solar' 배지를 단다(이 스텁은 llmStatus='llm').
-  await expect(page.getByText('AI 브리핑 · Solar', { exact: true })).toBeVisible();
-});
-
-test('1536×730 — 추천 수락 결과는 도착이 확인된 재배치와 나머지 수락을 나눠 적는다', async ({ page }) => {
-  await page.route('**/api/v1/admin/impact**', (route) =>
-    json(route, 200, {
-      since: iso(30 * 24 * 60), relocations: 2, saved_wait_minutes: 21, measured: 1, estimated: 1, truncated: false,
-      accepted_total: 9, accepted_moves_unconfirmed: 4, accepted_same_facility: 3, accepted_missing_facility: 0,
-      expected_wait_diff_minutes: 21, expected_wait_diff_basis: { wait_model: 1, congestion_gap: 1, unavailable: 0 },
-      excluded_internal: 0,
-    }),
-  );
-  await page.setViewportSize({ width: 1536, height: 730 });
-  await openDashboard(page);
-  // 카드 뿌리(bg-hanok-panel)만 — 같은 '2건' 이 다른 카드에 있어도 이 카드 안에서만 찾는다.
-  const card = page.locator('div.bg-hanok-panel', { has: page.getByRole('heading', { name: '추천 수락 결과 (최근 30일)' }) });
-  await card.scrollIntoViewIfNeeded();
-  await expect(card.getByText('재배치 (도착 확인)', { exact: true })).toBeVisible();
-  await expect(card.getByText('2건', { exact: true })).toBeVisible();
-  // 재배치 2건 < 5건 — 예상 대기 차이 합 대신 표본 부족.
-  await expect(card.getByText('표본 부족 · 2건 / 필요 5건', { exact: true })).toBeVisible();
-  await expect(card.getByText(/수락 9건 = 재배치 2 · 도착 미확인 4 · 같은 장소 3/)).toBeVisible();
-  await expect(page.locator('main')).not.toContainText('절감 대기시간');
+  const scenarioTitle = page.getByRole('heading', { name: '도입 30일 분산 효과 시나리오' });
+  await expect(scenarioTitle).toBeVisible();
+  expect((await scenarioTitle.boundingBox())!.y).toBeGreaterThan((await page.locator('#step-effect').boundingBox())!.y);
+  await expect(page.locator('text.recharts-cartesian-axis-tick-value', { hasText: /^1일차$/ }).first()).toBeVisible();
+  await expect(page.locator('text.recharts-cartesian-axis-tick-value', { hasText: /^\d{1,2}\/\d{1,2}$/ })).toHaveCount(0);
 });
 
 test('1536×730 — 머리글에 엔진 상태 칩이 없고, 히트맵은 관광객 지도와 같은 네 등급이다(수집 중 범례 없음)', async ({ page }) => {

@@ -10,7 +10,7 @@
 // 그 사유를 각주로 명시한다. 표본이 부족한 30일 추이는(대시보드와 달리) 데모 데이터로 대체하지 않고
 // '데이터 없음/표본 부족' 상태를 그대로 노출한다 — 의회·평가 제출용 공식 리포트이기 때문이다.
 //
-// 추정은 **실측 칸에 섞지 않는다.** KPI 표·수치 요약·실측 표본일수는 지금까지와 한 글자도 달라지지
+// 추정은 **실측 칸에 섞지 않는다.** KPI 표·자동 총평·실측 표본일수는 지금까지와 한 글자도 달라지지
 // 않는다(전부 /metrics/trend 의 실측만 본다). 추정은 (1) 실측 표본이 0일일 때 혼잡 추이 차트를
 // 별도 계열·별도 색·파선으로 채우고, (2) 그 아래 '참고' 상자에 기간 요약을 싣는다. 둘 다 '추정'
 // 배지와 근거 문장(출처·관측 기간·표본 간격·반경)을 반드시 달고 나간다.
@@ -37,14 +37,7 @@ import {
 } from '@/lib/adminEstimatedSeries';
 import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
-import { MIN_MEASURED_TREND_DAYS, hasMeasuredTrend } from '@/lib/adminTrendThreshold';
-import {
-  MIN_RATE_SAMPLES,
-  dailyAcceptShare,
-  hasEnoughSamples,
-  insufficientSampleLabel,
-  periodAcceptance,
-} from '@/lib/adminLoopMetrics';
+import { hasMeasuredTrend } from '@/lib/adminTrendThreshold';
 
 const REPORT_DAYS = 30;
 
@@ -84,14 +77,10 @@ const SERIES_DASH = { congestion: undefined, accept: '7 4', estimate: '4 3' } as
 // 백엔드 snake_case 필드명을 그대로 받는다.
 interface TrendDay {
   date: string; // 'YYYY-MM-DD' (KST)
-  avg_congestion: number | null; // 현장 관측 없는 날은 null(실측 0과 구분) — 관리자 입력·모의·시드·주차 파생 추정 제외
+  avg_congestion: number | null; // 로그 없는 날은 null(실측 0과 구분)
   samples: number;
-  rec_total: number; // 추천 노출 행(browse 제외, 내부 계정 제외)
+  rec_total: number;
   rec_accepted: number;
-  // 결정 기준(수락 + 거절, 메인 거절 포함, 내부 계정 제외) — 옛 서버는 이 키가 없다.
-  decisions?: number;
-  accepted?: number;
-  rejected?: number;
 }
 interface TrendResponse {
   days: number;
@@ -208,10 +197,10 @@ export default function AdminReportPage() {
       maxCongestion = Math.max(...withSamples.map((d) => d.avg_congestion as number));
     }
     const recTotal = daily.reduce((acc, d) => acc + (d.rec_total || 0), 0);
-    // 수락률은 결정(수락 + 거절) 기준 — 분자·분모가 같은 모집단이다(lib/adminLoopMetrics). 옛 서버면 노출 기준(basis 'shown').
-    const acceptance = periodAcceptance(daily);
+    const recAccepted = daily.reduce((acc, d) => acc + (d.rec_accepted || 0), 0);
+    const acceptRate = recTotal > 0 ? recAccepted / recTotal : null;
     return {
-      totalDays: daily.length, sampleDays, avgCongestion, maxCongestion, recTotal, acceptance,
+      totalDays: daily.length, sampleDays, avgCongestion, maxCongestion, recTotal, recAccepted, acceptRate,
       periodStart: daily[0].date, periodEnd: daily[daily.length - 1].date,
     };
   }, [trend]);
@@ -223,8 +212,7 @@ export default function AdminReportPage() {
       return {
         date: `${Number(m)}/${Number(dd)}`,
         avgCongestion: d.avg_congestion,
-        // 하루 수락률은 그 날 결정이 5건 이상일 때만(1~2건의 0%·100% 점을 추이로 그리지 않는다).
-        acceptShare: dailyAcceptShare(d),
+        acceptShare: d.rec_total > 0 ? Math.round((d.rec_accepted / d.rec_total) * 1000) / 1000 : null,
       };
     });
   }, [trend]);
@@ -255,38 +243,34 @@ export default function AdminReportPage() {
       ? '공영주차 실측(경주 ITS)을 10분 주기로 수집하는 중입니다 — 수집이 누적되면 추정 추이가 표시됩니다.'
       : estimatedSeriesUnavailableNote(estimateRaw);
 
-  // ── 수치 요약 문단(숫자만 — 평가하는 말을 붙이지 않는다) ──────────────
-  // 예전 총평은 두 갈래 모두 긍정 문장('안정 구간을 유지했습니다' / '큰 변동 없이 유지되었습니다')이었다 — 숫자가 무엇이든
-  // 같은 결론을 말하는 문장은 정보가 아니고, 공문서에 인용되면 판단을 대신한다(P0-5 e). 이제 숫자와 표본 수만 적는다.
+  // ── 자동 총평 문단(수치 기반 템플릿 — 지어낸 문장 없음) ──────────────
   const narrative = useMemo(() => {
     if (loading) return null;
-    if (trendError) return '요약을 집계하는 중입니다.';
-    if (!kpi) return '요약을 집계하는 중입니다.';
+    if (trendError) return '총평을 집계하는 중입니다.';
+    if (!kpi) return '총평을 집계하는 중입니다.';
 
     const sentences: string[] = [];
     if (!hasMeasuredTrend(kpi.sampleDays)) {
-      sentences.push(`현장 관측 표본일 ${kpi.sampleDays}일 / ${kpi.totalDays}일(실측 추이 기준 ${MIN_MEASURED_TREND_DAYS}일 미만).`);
+      sentences.push('최근 30일 분산 정책 운영 결과를 공영주차 실측(경주 ITS)과 관광 통계 기반 추정 지표로 집계했습니다.');
       // 값 앞의 '(추정)' 과 뒤의 산출일수를 같은 문장 안에 두어, 한 문장만 인용돼도 오해가 없게 한다.
       if (estimateSummary && estimateSummary.avgCongestion !== null) {
         sentences.push(
-          `같은 기간 (추정) 평균 혼잡도 ${fmtPct(estimateSummary.avgCongestion)}`
-          + `(공영주차 실측(경주 ITS)·관광 통계 기반 추정 산출 ${estimateSummary.observedDays}일 / ${estimateSummary.totalDays}일).`,
+          `같은 기간 (추정) 평균 혼잡도는 ${fmtPct(estimateSummary.avgCongestion)}`
+          + `(추정 산출 ${estimateSummary.observedDays}일 / ${estimateSummary.totalDays}일)입니다.`,
         );
       }
     } else {
+      const stable = kpi.avgCongestion !== null && kpi.maxCongestion !== null
+        && (kpi.maxCongestion - kpi.avgCongestion) > 0.05;
       sentences.push(
-        `현장 관측 표본 ${kpi.sampleDays}일 / ${kpi.totalDays}일 · 평균 혼잡도 ${fmtPct(kpi.avgCongestion)} · 최고 일평균 ${fmtPct(kpi.maxCongestion)}.`,
+        `관측 표본 ${kpi.sampleDays}일 기준 평균 혼잡도는 ${fmtPct(kpi.avgCongestion)}로, 기간 내 최고 ${fmtPct(kpi.maxCongestion)} 대비 `
+        + (stable ? '안정 구간을 유지했습니다.' : '큰 변동 없이 유지되었습니다.'),
       );
     }
-    const acc = kpi.acceptance;
-    const rateText = acc.rate !== null && hasEnoughSamples(acc.total) ? fmtPct(acc.rate) : insufficientSampleLabel(acc.total);
-    if (acc.basis === 'decisions') {
-      sentences.push(
-        `추천 노출 ${kpi.recTotal.toLocaleString()}건 · 결정 ${acc.total.toLocaleString()}건`
-        + `(수락 ${acc.accepted.toLocaleString()} · 거절 ${(acc.rejected ?? 0).toLocaleString()}) · 수락률 ${rateText}.`,
-      );
+    if (kpi.recTotal > 0) {
+      sentences.push(`AI 분산 추천은 ${kpi.recTotal}건 제시되어 ${fmtPct(kpi.acceptRate)}가 수락되었습니다.`);
     } else {
-      sentences.push(`추천 노출 ${acc.total.toLocaleString()}건 중 수락 ${acc.accepted.toLocaleString()}건 · 수락률 ${rateText}.`);
+      sentences.push('AI 분산 추천 수락 지표를 집계하는 중입니다.');
     }
     return sentences.join(' ');
   }, [loading, trendError, kpi, estimateSummary]);
@@ -418,19 +402,19 @@ export default function AdminReportPage() {
               <table className="w-full text-sm border-collapse">
                 <tbody>
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600 w-1/2">평균 혼잡도 (현장 관측 · 표본 가중평균)</td>
+                    <td className="py-2 pr-4 text-gray-600 w-1/2">평균 혼잡도 (표본 가중평균)</td>
                     <td className="py-2 font-bold">
                       <ValueOrState loading={loading} error={trendError} value={kpi ? fmtPct(kpi.avgCongestion) : null} />
                     </td>
                   </tr>
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600">기간 내 최고 일평균 혼잡도 (현장 관측)</td>
+                    <td className="py-2 pr-4 text-gray-600">기간 내 최고 혼잡도</td>
                     <td className="py-2 font-bold">
                       <ValueOrState loading={loading} error={trendError} value={kpi ? fmtPct(kpi.maxCongestion) : null} />
                     </td>
                   </tr>
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600">현장 관측 표본일수</td>
+                    <td className="py-2 pr-4 text-gray-600">실측 표본일수</td>
                     <td className="py-2 font-bold">
                       <ValueOrState
                         loading={loading}
@@ -440,40 +424,21 @@ export default function AdminReportPage() {
                     </td>
                   </tr>
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600">AI 추천 노출 건수</td>
+                    <td className="py-2 pr-4 text-gray-600">AI 분산 추천 노출 건수</td>
                     <td className="py-2 font-bold">
                       <ValueOrState loading={loading} error={trendError} value={kpi ? `${kpi.recTotal.toLocaleString()}건` : null} />
                     </td>
                   </tr>
-                  {/* 수락률의 표본 — 결정(수락 + 거절). 옛 서버는 결정을 모른다(노출 기준으로 계산됐다고 적는다). */}
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600">AI 추천 결정 건수 (수락 + 거절)</td>
+                    <td className="py-2 pr-4 text-gray-600">AI 분산 추천 수락 건수</td>
                     <td className="py-2 font-bold">
-                      <ValueOrState
-                        loading={loading}
-                        error={trendError}
-                        value={kpi
-                          ? kpi.acceptance.basis === 'decisions'
-                            ? `${kpi.acceptance.total.toLocaleString()}건 (수락 ${kpi.acceptance.accepted.toLocaleString()} · 거절 ${(kpi.acceptance.rejected ?? 0).toLocaleString()})`
-                            : `결정 기준 집계 없음 — 노출 ${kpi.acceptance.total.toLocaleString()}건 중 수락 ${kpi.acceptance.accepted.toLocaleString()}건`
-                          : null}
-                      />
+                      <ValueOrState loading={loading} error={trendError} value={kpi ? `${kpi.recAccepted.toLocaleString()}건` : null} />
                     </td>
                   </tr>
                   <tr className="border-b border-gray-200">
-                    <td className="py-2 pr-4 text-gray-600">
-                      AI 추천 수락률 ({kpi?.acceptance.basis === 'shown' ? '수락 ÷ 노출' : '수락 ÷ 결정'} · {MIN_RATE_SAMPLES}건부터)
-                    </td>
+                    <td className="py-2 pr-4 text-gray-600">AI 분산 추천 수락률</td>
                     <td className="py-2 font-bold">
-                      <ValueOrState
-                        loading={loading}
-                        error={trendError}
-                        value={kpi
-                          ? kpi.acceptance.rate !== null && hasEnoughSamples(kpi.acceptance.total)
-                            ? fmtPct(kpi.acceptance.rate)
-                            : insufficientSampleLabel(kpi.acceptance.total)
-                          : null}
-                      />
+                      <ValueOrState loading={loading} error={trendError} value={kpi ? fmtPct(kpi.acceptRate) : null} />
                     </td>
                   </tr>
                 </tbody>
@@ -522,7 +487,7 @@ export default function AdminReportPage() {
                 추정 계열은 색·선 패턴·범례·캡션이 전부 다르고 근거 문장을 달고 나간다. */}
             <TrendLineChart
               title="30일 일평균 혼잡도 추이"
-              seriesName="일평균 혼잡도(현장 관측)"
+              seriesName="일평균 혼잡도(실측)"
               data={chartRows}
               dataKey="avgCongestion"
               color={CHART_COLOR.congestion}
@@ -539,16 +504,15 @@ export default function AdminReportPage() {
               unavailableNote={estimateNote}
             />
             <TrendLineChart
-              title="30일 AI 추천 수락률 추이"
-              seriesName="추천 수락률(결정 기준)"
+              title="30일 AI 분산 추천 수락률 추이"
+              seriesName="추천 수락률(실측)"
               data={chartRows}
               dataKey="acceptShare"
               color={CHART_COLOR.accept}
               dash={SERIES_DASH.accept}
               loading={loading}
               error={trendError}
-              emptyMessage={`결정이 ${MIN_RATE_SAMPLES}건 이상인 날이 없습니다.`}
-              observedLabel={`결정 ${MIN_RATE_SAMPLES}건 이상`}
+              emptyMessage="추천 수락률 추이를 수집 중입니다."
             />
 
             {/* 참고: 30일 **추정** 요약 — 실측 표본일이 문턱(3일) 미만일 때만 낸다.
@@ -593,9 +557,9 @@ export default function AdminReportPage() {
               </section>
             )}
 
-            {/* 수치 요약 문단 — 숫자와 표본 수만(평가하는 말 없음). */}
+            {/* 자동 총평 문단 */}
             <section className="break-inside-avoid">
-              <h2 className="text-base font-bold mb-2">수치 요약</h2>
+              <h2 className="text-base font-bold mb-2">자동 총평</h2>
               <p className="text-sm leading-relaxed bg-gray-50 border border-gray-200 rounded-md p-4">
                 {loading ? '불러오는 중…' : narrative}
               </p>
@@ -604,9 +568,8 @@ export default function AdminReportPage() {
             {/* 하단 각주 */}
             <section className="break-inside-avoid mt-auto pt-6 border-t border-gray-300 text-[11px] text-gray-500 leading-relaxed">
               <p>
-                본 리포트는 NextSpot 로그 자동 집계로 생성되었습니다({fmtNowKo(generatedAt)}).
-                혼잡도는 현장 관측(손님 제보·좌석 방송 등)만 집계하며 관리자 입력·모의·시드·주차 파생 추정은 넣지 않습니다.
-                추천 수락률은 수락 ÷ (수락 + 거절)이고 내부 계정(관리자·개발자)은 제외합니다. 추정치는 실측과 구분해 별도 표기합니다.
+                본 리포트는 NextSpot 실측 로그 자동 집계로 생성되었습니다({fmtNowKo(generatedAt)}).
+                추정치는 실측과 구분해 별도 표기합니다.
               </p>
             </section>
 
@@ -625,7 +588,7 @@ export default function AdminReportPage() {
 // 패널로 대체한다 — 빈 좌표축만 남으면 '전 구간 0%' 로 읽히기 때문이다.
 function TrendLineChart({
   title, seriesName, data, dataKey, color, dash, loading, error, emptyMessage,
-  estimate = null, unavailableNote = null, observedLabel = '관측',
+  estimate = null, unavailableNote = null,
 }: {
   title: string;
   seriesName: string;
@@ -636,8 +599,6 @@ function TrendLineChart({
   loading: boolean;
   error: boolean;
   emptyMessage: string;
-  /** 요약 캡션에서 값이 있는 날을 무엇이라 부를지 — 수락률은 '결정 5건 이상'(그보다 적은 날은 비운다). */
-  observedLabel?: string;
   /** 실측 표본일이 문턱(3일) 미만일 때 그릴 **추정** 계열(부모가 hasMeasuredTrend 로 정한다). null 이면 실측 계열이나 '데이터 없음' 패널이다. */
   estimate?: { rows: ChartRow[]; seriesName: string; basisLine: string; methodNote: string } | null;
   /** 추정도 못 그린 이유(있으면 빈 패널 안에 덧붙인다 — 말하지 않으면 '고장' 으로 읽힌다). */
@@ -840,7 +801,7 @@ function TrendLineChart({
           )}
           {hasData ? (
             <>
-              {showEstimate ? '추정 산출' : observedLabel} {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
+              {showEstimate ? '추정 산출' : '관측'} {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
               {stats.max && ` · 최고 ${fmtPct(stats.max.value)} (${stats.max.date})`}
               {stats.min && ` · 최저 ${fmtPct(stats.min.value)} (${stats.min.date})`}
               {gapNote && ` · ${gapNote}`}

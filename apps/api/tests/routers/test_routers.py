@@ -1364,26 +1364,15 @@ def test_admin_impact_invalid_since_422(client):
 
 
 def test_admin_impact_aggregation(client):
-    # 재배치 3건(수락 · 원본 ≠ 목적지 · 도착 확인 — 2026-10-31 정의):
-    # 실측(original_wait_time) 1건 + 레거시 근사(incentive_relief×15분) 1건 + 데이터 없음 1건
+    # 수락 추천 3건: 실측(original_wait_time) 1건 + 레거시 근사(incentive_relief×15분) 1건 + 데이터 없음 1건
     accepted_rows = [
-        {"id": "r-1", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-1",
-         "created_at": "2026-07-09T01:00:00+00:00",
+        {"created_at": "2026-07-09T01:00:00+00:00",
          "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},   # 절감 15.0분(실측)
-        {"id": "r-2", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-2",
-         "created_at": "2026-07-09T02:00:00+00:00",
+        {"created_at": "2026-07-09T02:00:00+00:00",
          "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},      # 절감 0.4×15=6.0분(근사)
-        {"id": "r-3", "accepted": True, "original_facility_id": "f-hot", "recommended_facility_id": "f-alt-3",
-         "created_at": "2026-07-09T03:00:00+00:00", "score_breakdown": {}},    # 절감 산정 불가 — 건수만 집계
+        {"created_at": "2026-07-09T03:00:00+00:00", "score_breakdown": {}},    # 절감 산정 불가 — 건수만 집계
     ]
-    arrivals = [
-        {"recommendation_id": rid, "created_at": "2026-07-09T04:00:00+00:00",
-         "arrival_confirmed_at": "2026-07-09T04:00:00+00:00"}
-        for rid in ("r-1", "r-2", "r-3")
-    ]
-    with patch("app.routers.admin.supabase_admin", new=FakeSupabase(
-        {"recommendations": accepted_rows, "recommendation_outcomes": arrivals}
-    )):
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"recommendations": accepted_rows})):
         res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
 
     assert res.status_code == 200
@@ -1472,30 +1461,22 @@ def test_admin_metrics_excludes_browse_from_acceptance_denominator(client):
 def test_admin_impact_filters_accepted_and_since(client):
     # 필터 회귀 방지: /impact 의 .eq("accepted",True)·.gte("created_at",since) 가 실제로 동작해
     # accepted=False 행과 since 이전 행이 집계에서 제외되는지 검증한다.
-    # 네 행 모두 '원본 ≠ 목적지 · 도착 확인' 을 갖춰, 필터가 빠지면 재배치로 잘못 세이게 해 둔다.
-    def _moved(rid, accepted, created_at, breakdown):
-        return {"id": rid, "accepted": accepted, "original_facility_id": "f-hot",
-                "recommended_facility_id": f"f-alt-{rid}", "created_at": created_at,
-                "score_breakdown": breakdown}
-
     rows = [
         # 포함(실측): accepted & since 이후 → 절감 15.0분
-        _moved("r-1", True, "2026-07-09T01:00:00+00:00", {"original_wait_time": 20.0, "wait_time": 5.0}),
+        {"accepted": True, "created_at": "2026-07-09T01:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},
         # 포함(근사): accepted & since 이후 → 0.4×15=6.0분
-        _moved("r-2", True, "2026-07-09T02:00:00+00:00", {"incentive_relief": 0.4, "wait_time": 3.0}),
+        {"accepted": True, "created_at": "2026-07-09T02:00:00+00:00",
+         "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},
         # 제외: accepted=False(미수락 추천) — 큰 값이라 잘못 포함되면 즉시 드러난다.
-        _moved("r-3", False, "2026-07-09T04:00:00+00:00", {"original_wait_time": 99.0, "wait_time": 1.0}),
+        {"accepted": False, "created_at": "2026-07-09T04:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 99.0, "wait_time": 1.0}},
         # 제외: since 이전(윈도우 밖) — 역시 큰 값으로 회귀를 노출한다.
-        _moved("r-4", True, "2026-07-08T23:00:00+00:00", {"original_wait_time": 88.0, "wait_time": 1.0}),
-    ]
-    # 결과 행도 같은 창(created_at ≥ since)으로 읽힌다 — 결과는 추천 뒤에 생기므로 모두 창 안이다.
-    arrivals = [
-        {"recommendation_id": rid, "created_at": "2026-07-09T05:00:00+00:00",
-         "arrival_confirmed_at": "2026-07-09T05:00:00+00:00"}
-        for rid in ("r-1", "r-2", "r-3", "r-4")
+        {"accepted": True, "created_at": "2026-07-08T23:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 88.0, "wait_time": 1.0}},
     ]
     with patch("app.routers.admin.supabase_admin",
-               new=FilteringFakeSupabase({"recommendations": rows, "recommendation_outcomes": arrivals})):
+               new=FilteringFakeSupabase({"recommendations": rows})):
         res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
 
     assert res.status_code == 200

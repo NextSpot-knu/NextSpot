@@ -12,18 +12,20 @@
 //                옮겼다(서버 카드의 'AI 예측' 과 같은 곡선 — 두 화면이 다른 예측을 말하지 않게).
 //                앵커가 없으면 서버 값과 정확히 같다. 앵커는 오늘 추정 격자에 섞인 예측 칸에만 붙는다
 //                (추정 행이 있는 시설은 그 시설의 추정에서, 없는 업종은 추정 전체에서 뽑는다).
-//   · '시나리오' — 모델 입력이 아예 없는 KPI(수락률·DAU·재배치·깔때기)의 **데모(?demo=1) 전용** 값.
-//                단일 출처 lib/demoFixtures.ts 의 하루 총량 × 시각 진행률(cumulativeDayShare).
-//                2026-10-31(P0-3): 운영 대시보드는 표본이 모자라도 이 값을 그리지 않는다 — 공문서에 인용될 수
-//                있는 화면에 지어낸 숫자를 두지 않는다. 운영 화면의 그 자리는 '표본 부족 · n건 / 필요 m건'
-//                (lib/adminLoopMetrics.ts)이다.
+//   · '시나리오' — 모델 입력이 아예 없는 KPI(수락률·DAU·재배치·절감 분·깔때기). 단일 출처
+//                lib/demoFixtures.ts 의 하루 총량 × 시각 진행률(cumulativeDayShare) 이라 하루 동안
+//                결정적으로 올라간다(비율은 고정, 건수만 증가).
 //
-// MIN_MEASURED_SAMPLES(5)는 서버(admin.py get_dashboard_today: 로그 5건 미만이면 hasLogs=false)와 같은
-// 하한이다. 추천 고리 지표의 표본 하한(adminLoopMetrics.MIN_RATE_SAMPLES)도 이 수를 쓴다.
+// 전환 규칙(MIN_MEASURED_SAMPLES): 패널 자기 창에 실측 표본이 5건 이상이면 실측, 아니면 가장 높은
+// 비실측 근거(추정 > 예측 > 시나리오)를 **항상 배지와 함께** 보여 준다. 실측이 1~4건이면 그 수를
+// 부제에 적는다('실측 3건 수집 중') — 0건을 지어내지 않고, 4건을 실측으로 팔지도 않는다.
+// 5 는 서버(admin.py get_dashboard_today: 로그 5건 미만이면 hasLogs=false)와 같은 하한이다.
+// 단, 추천 고리 네 패널(수락률·DAU·분산 효과·깔때기)은 같은 사실(추천 → 수락 → 이동 → 평가)을 다른
+// 창으로 세므로 **함께** 전환한다(resolveLoopBasis) — 한 화면에 실측 '0건 수락' 과 시나리오 '179건
+// 수락' 이 나란히 서면 둘 중 하나는 거짓으로 읽힌다(2026-09-26 심사 시점 검증 반영).
 //
 // 이 모듈이 하지 않는 것: 서버 호출·DB 쓰기·React. 조회 실패는 여기까지 오지 않는다 — 실패는
 // 페이지가 '갱신 중' 으로 그린다. 예측은 **데이터의 부재**를 채우지 서버의 부재를 채우지 않는다.
-import { ADMIN_ALERT_LEVEL } from './adminAlertLevels';
 import { DEMO_ADMIN_ALTERNATIVES, DEMO_ADMIN_KPI, DEMO_ADMIN_SCENARIO_DAY } from './demoFixtures';
 import type { CongestionDay } from './dashboardFallback';
 
@@ -53,8 +55,8 @@ export const HEATMAP_TYPE_LABELS: Record<string, string> = {
   culture: '문화시설',
 };
 
-/** 예측 '이상 혼잡' 임계치 — 실측·추정·안전 경보와 같은 상수(lib/adminAlertLevels.ts, 90%). */
-export const PREDICTED_ANOMALY_THRESHOLD = ADMIN_ALERT_LEVEL;
+/** 예측 '이상 혼잡' 임계치 — 실측·추정과 같은 90%. */
+export const PREDICTED_ANOMALY_THRESHOLD = 0.9;
 
 /** KST 요일 라벨(월=0 … 일=6 — 파이썬 datetime.weekday() 와 같은 순서). */
 export const KST_WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
@@ -128,8 +130,10 @@ export const PREDICTED_LEVEL_MAX = 0.95;
 
 /** 히트맵 칸 하나의 근거. */
 export type CellBasis = 'measured' | 'estimate' | 'predicted';
-/** 값 하나의 근거 어휘(배지·CSV·부제가 같은 네 단어를 쓴다). 'scenario' 는 데모 화면에서만 쓴다. */
+/** 값 하나의 근거 어휘(배지·CSV·부제가 같은 네 단어를 쓴다). */
 export type BasisKind = 'measured' | 'estimate' | 'predicted' | 'scenario';
+/** 모델 입력이 없는 KPI(수락률·DAU·재배치·절감 분·깔때기)의 두 갈래. */
+export type KpiBasis = 'measured' | 'scenario';
 
 /** 서버 히트맵 셀(page.tsx · DashboardCharts.tsx 의 HeatmapCell 과 같은 모양). value null = 그 시간 로그 없음. */
 export interface HeatmapCellInput {
@@ -579,8 +583,6 @@ const MOVED_TOTAL = DEMO_ADMIN_ALTERNATIVES.reduce((s, a) => s + a.moved, 0);
 /**
  * 시나리오 KPI — demoFixtures 의 하루 총량 × cumulativeDayShare(now). 비율은 고정, 건수만 오른다.
  * 값의 출처는 오직 demoFixtures 상수다(여기서 숫자를 새로 만들지 않는다).
- * **데모(?demo=1) 화면 전용** — 운영 대시보드(app/admin/dashboard 의 DashboardPage)와 위젯은 부르지 않는다
- * (adminDashboardWiring.test.ts 가 잠근다).
  */
 export function scenarioKpis(now: Date | number): ScenarioKpis {
   const share = cumulativeDayShare(now);
@@ -602,9 +604,51 @@ export function scenarioKpis(now: Date | number): ScenarioKpis {
   };
 }
 
-// ── 근거 어휘·문구 ───────────────────────────────────────────────────────────
-// (예전 resolveKpiBasis·resolveLoopBasis — 표본이 모자라면 추천 고리 네 패널을 시나리오로 바꾸던 판정 — 는
-//  2026-10-31 P0-3 으로 걷어냈다. 운영 화면은 표본이 모자라면 시나리오가 아니라 '표본 부족' 을 그린다.)
+// ── 전환 규칙·문구 ───────────────────────────────────────────────────────────
+
+/** 이 패널의 창에 실측 표본이 MIN_MEASURED_SAMPLES 이상이면 실측, 아니면 시나리오. null/undefined = 모름 → 시나리오. */
+export function resolveKpiBasis(measuredCount: number | null | undefined): KpiBasis {
+  return typeof measuredCount === 'number' && Number.isFinite(measuredCount) && measuredCount >= MIN_MEASURED_SAMPLES
+    ? 'measured'
+    : 'scenario';
+}
+
+/** 추천 고리 패널 하나의 실측 표본 — 창 안 실측 건수, 'failed'(조회 실패 — 화면은 '갱신 중'), 'loading'. */
+export type LoopSamples = number | 'failed' | 'loading';
+
+/**
+ * 추천 고리 네 패널(수락률 = 지난 7일 추천 · DAU = 오늘 피드백 · 분산 효과 = 최근 30일 수락 · 깔때기 = 지난
+ * 30일 노출)의 **공동** 판정. 넷은 같은 사실(추천 → 수락 → 이동 → 평가)을 다른 창으로 센다 — 한 패널은
+ * 실측 '5,000건 중 0건 수락' 인데 옆 패널이 시나리오 '179건 재배치(추천 수락)' 이면 둘 중 하나가 거짓으로
+ * 읽힌다. 그래서 시나리오는 **넷 모두** 5건 미만일 때만 쓴다.
+ *   · 'measured' — 한 패널이라도 실측 5건 이상, 또는 measuredElsewhere(같은 사실을 실측으로 말하는 카드 —
+ *                  오늘의 브리핑이 떠 있다). 5건 미만 패널도 실측 그대로(건수가 함께 보인다) 그린다.
+ *   · 'scenario' — 조회에 성공한 패널이 하나 이상이고 전부 5건 미만.
+ *   · null       — 아직 모른다(로딩 중인 패널이 있고, 5건 이상인 패널은 아직 없다). 화면은 로딩 모양.
+ * 실패한 패널은 판정에서 뺀다 — 그 자리는 '갱신 중' 이라 화면에 실측 숫자가 없다.
+ */
+export function resolveLoopBasis({
+  samples,
+  measuredElsewhere = false,
+}: {
+  samples: readonly LoopSamples[];
+  measuredElsewhere?: boolean;
+}): KpiBasis | null {
+  if (measuredElsewhere) return 'measured';
+  let loaded = 0;
+  let pending = false;
+  for (const s of samples) {
+    if (s === 'loading') {
+      pending = true;
+      continue;
+    }
+    if (typeof s !== 'number' || !Number.isFinite(s)) continue;
+    if (resolveKpiBasis(s) === 'measured') return 'measured';
+    loaded += 1;
+  }
+  if (pending) return null;
+  return loaded > 0 ? 'scenario' : 'measured';
+}
 
 /** 근거 어휘 → 배지 문구. */
 export const BASIS_BADGE: Record<BasisKind, string> = {
