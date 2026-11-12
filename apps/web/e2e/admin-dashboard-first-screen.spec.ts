@@ -190,7 +190,8 @@ test('1536×730 — 첫 화면에 KPI 네 개, 산식은 접혀 있고 추천 �
   const trustBox = await trust.boundingBox();
   const kpiAfterScroll = await kpis.boundingBox();
   expect(trustBox!.y, '추천 신뢰도 패널이 KPI 격자보다 아래에 있다').toBeGreaterThan(kpiAfterScroll!.y + kpiAfterScroll!.height);
-  await expect(page.locator('main a[href="/admin/engine-validation"]')).toBeVisible();
+  // 실시간 데이터 리허설(서울) 바로가기는 developer 전용이다(사용자 결정 1) — admin(공용 심사 계정 포함)에게는 없다.
+  await expect(page.locator('main a[href="/admin/engine-validation"]')).toHaveCount(0);
 
   // 서울 데이터 문구는 경주 관제 화면에 없다.
   await expect(page.locator('main')).not.toContainText('서울');

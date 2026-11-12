@@ -21,3 +21,6 @@ __pycache__/
 tests/
 .git/
 .gitignore
+
+# S4 재생 원본 반출 CSV·추적(로컬 전용) — 이미지에 넣지 않는다(Dockerfile 의 `COPY . .`).
+.replay-data/

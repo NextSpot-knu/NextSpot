@@ -16,6 +16,8 @@
 | 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → Supabase PostgREST `area_demand_snapshots` 최신 행(Supabase 시크릿이 없으면 예전처럼 `GET /api/v1/admin/area-demand-reliability`) | 매시 28분 예약 (`main`에서만, GitHub 스케줄러 best-effort — 실측 3~6시간 간격) |
 | TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만). 목록 호출이 일시 오류로 끝나면(exit 75, 상세 조회 전) 새 러너로 최대 2회 자동 재실행. 실패는 실패한 실행(스케줄 실패 메일·실행 Summary)으로 확인 — 다시 돌릴 때는 Re-run 대신 Run workflow(`auto_retry` 비움) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
+| 서울 지역 격리 감시 | GitHub Actions `region-guard.yml` — `region_isolation_status()`·anon 탐침·`/health` `capabilities.region_isolation`. 깨지면 `region_guard_contain()`(정책 복구) 뒤 서울 행 `is_active=false` | 30분 예약(`main`에서만) + 수동. `REGION_GUARD_AUTO_DEACTIVATE=false` 면 경보만(기본은 비활성화까지 — 사용자 결정 11-01) |
+| 서울 장소 적재 | GitHub Actions `ingest-seoul.yml`(TourAPI 서울 → `facility_zones` 매핑) | 수동만. 입력 `dry_run`(기본 true) · `details_budget`(400) · `clusters` · `map_zones` · `reactivate`. 종료 0 정상 · 75 목록 일시 오류(쓰기 전) · 1 실패 · 3 사전 확인 실패(쓰기 0) · 4 누출 감지(이번 실행 행을 끄고 지움) |
 
 ## 1. Supabase
 
@@ -109,6 +111,7 @@
 | `NEXT_PUBLIC_SITE_URL` | `https://nextspot-nu.vercel.app` (OG 이미지 절대 URL) |
 | `NEXT_PUBLIC_DEMO_CONTROLS` | 운영은 미설정. `1`이면 메인 지도에 시연용 내부 컨트롤 표시 — 데모 프리뷰 배포에서만 |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (선택) | Cloudflare Turnstile **사이트 키**(공개값). 있을 때만 게스트 익명 로그인 전에 Turnstile 을 싣는다 — 없으면 지금과 같다. 비밀 키는 Supabase Auth CAPTCHA 에만(1-2) |
+| `NEXT_PUBLIC_ACTION_LOG_HOSTS` (선택) | 접속·조작 기록(`lib/actionLog` → `public.action_logs`)을 남길 **추가** 호스트 이름(쉼표 구분). 비우면 운영 주소 `nextspot-nu.vercel.app` 에서만 남긴다 — 커스텀 도메인을 붙이면 여기에 넣는다 |
 
 - 관리자·사장님 콘솔용 env는 없다(앱 계정 로그인 + `users.role`). 토큰·비밀번호를 `NEXT_PUBLIC_*`에 넣지 않는다.
 - Kakao 개발자 콘솔 → 플랫폼 → Web 도메인에 Vercel 도메인(커스텀 도메인 포함)을 등록해야 지도가 렌더링된다.
@@ -123,8 +126,10 @@
 | Secret | `TOURAPI_KEY` | ingest(없으면 TourAPI 단계 skip) |
 | Secret | `KAKAO_REST_API_KEY` | ingest(Kakao 장소 보완 · 좌표 대조) |
 | Secret | `LOCALDATA_AUTH_KEY` (선택) | ingest(공공 인허가 변경분 동기화) |
+| Secret | `REGION_PROBE_TOURIST_EMAIL` `REGION_PROBE_TOURIST_PASSWORD` | ingest-seoul(쓰기 전후 누출 탐침용 **일반 관광객** 계정 — 없으면 실제 실행 거부, exit 3). region-guard 는 `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY` 만 쓴다 |
 | Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만. 없으면 `ADMIN_API_TOKEN`) |
 | Variable | `BACKEND_HEALTH_URL` | warmup · uptime · deploy-verify(main 의 API 변경이 그 주소의 `/health` `deploy.commit` 으로 떴는지) · collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만) — API 주소의 단일 정의점(`…/health`). warmup·uptime 은 미설정이면 `https://nextspot-api.onrender.com/health`. 리전 이전 때 이 값만 바꾼다 |
+| Variable | `REGION_GUARD_AUTO_DEACTIVATE` (선택) | region-guard — `false` 면 경보만. 두지 않으면 서울 행 비활성화까지 한다 |
 | Variable | `AREA_DEMAND_COLLECTION_ENABLED=true` | collect-area-demand |
 | Variable | `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` (새 환경만) | area-demand-alert(스냅샷 표가 비어도 통과 — 운영에는 두지 않는다) |
 | Secret | `GYEONGJU_FOOD_API_KEY` (선택) | ingest(경주 메뉴별음식점 보강 — `GYEONGJU_FOOD_ENABLED=true` 일 때만) |
@@ -132,6 +137,8 @@
 | Variable | `GYEONGJU_CITY_PHOTO_ENABLED=true` (선택) | ingest(경주 음식점 보강이 사진 없는 음식점에 경주시 사진을 넣는다 — 웹의 '사진: 경주시' 출처가 배포된 뒤에만 켠다. 꺼져 있어도 걷기는 한다) |
 
 `schedule`은 `main`에서만 발화한다. 다른 브랜치에서는 Actions 탭 → Run workflow.
+
+**서울 격리 롤백 규칙(11-01 S3)**: `/health` 에 `capabilities.region_isolation` 이 없는 커밋으로 API·main 을 되돌리기 전에 SQL Editor 에서 `update public.facilities set is_active=false where region<>'gyeongju';` — 옛 API 는 지역을 모르지만 `is_active` 로는 거른다. region-guard 도 30분 안에 같은 일을 한다. RLS 자체가 깨졌으면(상태 0) 비활성화만으로는 브라우저 조회를 못 막으니 `20261101090000` 을 다시 적용한다. 서울 노출 역할은 코드에 developer 로 고정돼 있어 Render 변수가 없다.
 
 ## 5. 브랜치 전략
 

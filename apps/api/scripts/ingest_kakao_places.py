@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.core.config import settings  # noqa: E402
+from app.core.region import PUBLIC_REGION, apply_region  # noqa: E402
 from app.core.supabase import fetch_all_rows, supabase_admin  # noqa: E402
 from app.services.batch.facility_visibility import is_manually_hidden  # noqa: E402
 from app.services.spot.travel import calculate_haversine_distance  # noqa: E402
@@ -218,6 +219,32 @@ def _merge_features(existing: dict[str, Any] | None, candidate: dict[str, Any]) 
     return features
 
 
+def load_existing_facilities(select_columns: str, *, region: str = PUBLIC_REGION) -> tuple[list[dict[str, Any]], bool]:
+    """대조할 기존 시설 전량과 kakao_place_id 칸 지원 여부.
+
+    Kakao 보완은 경주 격자만 훑는다 — 기존 행도 공개 지역(경주)만 읽는다(SEOUL_TESTBED_PLAN S3). 새 행은
+    region 기본값(경주)으로 들어가고, 좌표 CHECK 가 서울 좌표를 막는다.
+    """
+    try:
+        rows = fetch_all_rows(
+            supabase_admin, "facilities", select_columns,
+            apply_filters=lambda q: apply_region(q, region).order("id"),
+        )
+        return rows, True
+    except Exception:
+        # 별도 스키마 배포가 없어도 features.kakao_place_id로 재실행 중복을 막는다.
+        rows = fetch_all_rows(
+            supabase_admin,
+            "facilities",
+            "id,name,address,phone,type,latitude,longitude,capacity,is_active,features,"
+            "contentid,overview,image_url,operating_hours",
+            apply_filters=lambda q: apply_region(q, region).order("id"),
+        )
+        for row in rows:
+            row["kakao_place_id"] = None
+        return rows, False
+
+
 async def run(*, apply: bool, report_path: Path) -> dict[str, Any]:
     key = settings.KAKAO_REST_API_KEY.strip()
     if not key:
@@ -240,20 +267,7 @@ async def run(*, apply: bool, report_path: Path) -> dict[str, Any]:
         "id,name,address,phone,type,latitude,longitude,capacity,is_active,features,"
         "kakao_place_id,contentid,overview,image_url,operating_hours"
     )
-    supports_kakao_column = True
-    try:
-        existing = fetch_all_rows(supabase_admin, "facilities", select_columns)
-    except Exception:
-        # 별도 스키마 배포가 없어도 features.kakao_place_id로 재실행 중복을 막는다.
-        supports_kakao_column = False
-        existing = fetch_all_rows(
-            supabase_admin,
-            "facilities",
-            "id,name,address,phone,type,latitude,longitude,capacity,is_active,features,"
-            "contentid,overview,image_url,operating_hours",
-        )
-        for row in existing:
-            row["kakao_place_id"] = None
+    existing, supports_kakao_column = load_existing_facilities(select_columns)
     by_place_id = {
         str(row["kakao_place_id"]): row for row in existing if row.get("kakao_place_id")
     }

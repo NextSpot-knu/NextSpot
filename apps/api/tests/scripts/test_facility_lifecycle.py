@@ -221,7 +221,9 @@ class _FilteringFacilitiesTable(_StatefulFacilitiesTable):
 
     def execute(self):
         result = super().execute()
-        rows = [r for r in result.data if all(r.get(f) == v for f, v in self._filters)]
+        # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
+        rows = [r for r in result.data
+                if all(r.get(f, "gyeongju" if f == "region" else None) == v for f, v in self._filters)]
         self._filters = []  # 쿼리 1회분 필터(다음 호출로 새지 않게)
         return _FakeResult(rows)
 

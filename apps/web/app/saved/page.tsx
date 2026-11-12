@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Compass, Star, Trash2 } from 'lucide-react';
@@ -13,6 +13,8 @@ import { submitFeedback } from '@/lib/api-client';
 import { displayWalkingMinutes, type Spot } from '@/lib/recommender';
 import { loadSavedLocal, syncSaved, removeBookmark, clearSavedAll } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { useRegion } from '@/lib/regionContext';
+import { filterSavedForPack } from '@/lib/savedRegion';
 
 // 저장된 카테고리(한국어 라벨) → i18n category 키 매핑(표시용 번역).
 const CATEGORY_LABEL_TO_KEY: Record<string, string> = {
@@ -56,6 +58,9 @@ function isRealRecommendationId(id: string | undefined): id is string {
 export default function SavedPage() {
   const router = useRouter();
   const t = useT();
+  // 지금 지역의 저장만 보인다(lib/savedRegion) — 경주는 경주 저장 전부(오늘과 같다), 내부 검증 지역은 그 지역 저장만.
+  const { pack, isPublic, availableRegions } = useRegion();
+  const internalPacks = useMemo(() => availableRegions.map((region) => region.pack), [availableRegions]);
   const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBookmark, setSelectedBookmark] = useState<BookmarkData | null>(null);
@@ -103,11 +108,11 @@ export default function SavedPage() {
       setIsLoading(true);
       try {
         // 즉시: 로컬 캐시로 먼저 렌더(오프라인/빠른 표시).
-        const localList = loadSavedLocal() as unknown as BookmarkData[];
+        const localList = filterSavedForPack(loadSavedLocal() as unknown as BookmarkData[], pack, internalPacks);
         localList.sort(compareBookmarks);
         setBookmarks(localList);
         // 이후: Supabase 와 동기화해 최신 목록으로 갱신(기기 변경 시 복원 포함).
-        const merged = (await syncSaved()) as unknown as BookmarkData[];
+        const merged = filterSavedForPack((await syncSaved()) as unknown as BookmarkData[], pack, internalPacks);
         merged.sort(compareBookmarks);
         setBookmarks(merged);
       } catch (error) {
@@ -118,7 +123,8 @@ export default function SavedPage() {
     };
 
     fetchBookmarks();
-  }, []);
+    // 지역이 바뀌면 화면이 통째로 다시 마운트된다(lib/regionContext) — 내부 지역 목록이 도착하면 다시 거른다.
+  }, [pack, internalPacks]);
 
   // 저장 해제 → unsaved. '취향에 안 맞는다'는 거절이 아니라 '목록에서 뺀다'는 정리 동작이므로 학습이 없다
   // (백엔드가 벡터를 건드리지 않는다). fire-and-forget — 삭제는 로컬이 정본이라 전송 실패와 무관하게 끝난다.
@@ -150,8 +156,11 @@ export default function SavedPage() {
       action: {
         label: t('saved.clearAction'),
         onClick: () => {
+          const shown = bookmarks;
           setBookmarks([]);
-          void clearSavedAll(); // 로컬 + Supabase 전체 삭제
+          // 내부 검증 지역에서는 보이는 그 지역 저장만 지운다 — 다른 지역(경주) 저장까지 지우지 않는다.
+          if (isPublic) void clearSavedAll(); // 로컬 + Supabase 전체 삭제
+          else for (const b of shown) void removeBookmark(b.id);
           setSelectedBookmark(null);
           toast.success(t('saved.clearedSuccess'));
         },

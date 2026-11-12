@@ -2,7 +2,7 @@
 
 import { CheckCircle2, XCircle, Hourglass, FileText, MinusCircle } from 'lucide-react';
 import {
-  formatMetricValue, formatSample, formatThreshold, statusLabel,
+  formatMetricValue, formatSample, formatThreshold, metricDetailRows, statusLabel,
   type MetricStatus, type OmittedMetric, type ValidationMetric,
 } from '@/lib/engineValidation';
 
@@ -45,6 +45,13 @@ export function MetricTile({ metric }: { metric: ValidationMetric }) {
             <dd className="text-hanok-ink font-semibold tabular-nums">{metric.ours_mae_same_sample.toFixed(3)}</dd>
           </div>
         )}
+        {/* 보강 필드(시간대 평균 기준선 · 우연 일치 보정 · 홀드아웃) — 서버가 보낼 때만 줄이 생긴다. */}
+        {metricDetailRows(metric).map((row) => (
+          <div key={row.label} className="flex justify-between gap-2">
+            <dt className="min-w-0">{row.label}</dt>
+            <dd className="text-hanok-ink font-semibold tabular-nums text-right">{row.value}</dd>
+          </div>
+        ))}
       </dl>
       {metric.reason && <p className="text-xs text-hanok-muted/90 leading-relaxed">{metric.reason}</p>}
       <p className="text-[11px] text-hanok-muted/70 leading-relaxed mt-auto">{metric.definition}</p>

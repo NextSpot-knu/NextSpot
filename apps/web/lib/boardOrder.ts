@@ -202,3 +202,47 @@ export function boardCrowdMembers(
   const tight = Math.max(...known) - Math.min(...known) < UNIFORM_CROWD_SPREAD;
   return levels.map((l) => Number.isFinite(l) && (tight || congestionKey(l, busyAt) === spread.grade));
 }
+
+export interface BoardCrowdView {
+  /** 화면이 쓰는 한 등급 판정(접지 않으면 uniform=false). */
+  spread: BoardCrowdSpread;
+  /** levels 와 같은 순서 — 한 줄이 대신 말해 주는 카드인가. */
+  members: boolean[];
+  /** 경주 한 줄('지금 경주 시내 중심 … · 추정')을 그리는가 — 공개 지역(경주)에서만. */
+  areaLine: boolean;
+  /** 카드들이 함께 말하는 '{h}시 이후 한산' 을 위 한 줄로 옮기는가 — 그 줄이 있을 때만. */
+  liftCalm: boolean;
+  /** 접었을 때 머리글 범례 키(걷는 시간의 출발점) — 경주는 황리단길, 다른 지역은 지역 중심. */
+  legendUniformKey: 'wait.legendUniform' | 'region.waitLegendUniform';
+}
+
+/**
+ * 지역별 '보드 한 줄' 판정. 경주(isPublic)는 boardCrowdSpread·boardCrowdMembers 그대로다(종전과 같다).
+ *
+ * 내부 검증 지역에서는 경주 한 줄('지금 경주 시내 중심 … · 추정')·경주 범례('…황리단길에서 출발한 기준')를 쓰지 않는다.
+ * 카드 칩을 한 줄로 접는 것도 구역 줄('지금 {zone} 일대 …', zoneLineShown)이 그 자리를 대신 말할 때만 한다 —
+ * 구역 줄이 없으면 접지 않아 카드마다 자기 단계를 남긴다(접고 아무 줄도 없으면 혼잡 정보가 화면에서 사라진다).
+ */
+export function boardCrowdView(
+  levels: readonly number[],
+  busyAt: number,
+  { isPublic, zoneLineShown }: { isPublic: boolean; zoneLineShown: boolean },
+): BoardCrowdView {
+  if (!isPublic && !zoneLineShown) {
+    return {
+      spread: { uniform: false, grade: null },
+      members: levels.map(() => false),
+      areaLine: false,
+      liftCalm: false,
+      legendUniformKey: 'region.waitLegendUniform',
+    };
+  }
+  const spread = boardCrowdSpread(levels, busyAt);
+  return {
+    spread,
+    members: boardCrowdMembers(levels, busyAt),
+    areaLine: isPublic && spread.uniform && spread.grade !== null,
+    liftCalm: isPublic,
+    legendUniformKey: isPublic ? 'wait.legendUniform' : 'region.waitLegendUniform',
+  };
+}

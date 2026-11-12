@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
+from app.core.region import PUBLIC_REGION, apply_region  # noqa: E402
 from app.services.batch.facility_visibility import is_manually_hidden  # noqa: E402
 from app.services.batch.localdata import find_duplicate, normalize_record  # noqa: E402
 
@@ -107,11 +108,12 @@ def load_db_context() -> tuple[list[dict], dict[str, dict]]:
     """
     from app.core.supabase import fetch_all_rows, supabase_admin
 
+    # LOCALDATA 는 경주 인허가 자료다 — 대조할 시설도 공개 지역(경주)만 읽는다(SEOUL_TESTBED_PLAN S3).
     facilities = fetch_all_rows(
         supabase_admin,
         "facilities",
         "id,name,address,latitude,longitude,type,features,is_active",
-        apply_filters=lambda q: q.order("id"),
+        apply_filters=lambda q: apply_region(q, PUBLIC_REGION).order("id"),
     )
     refs = fetch_all_rows(
         supabase_admin,

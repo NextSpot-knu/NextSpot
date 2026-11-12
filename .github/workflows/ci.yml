@@ -3,6 +3,7 @@
 # api: ruff → pytest (Python 3.11, Dockerfile 과 동일 버전)
 # schema · docs: RESET_AND_SETUP.sql 이 migrations/ 와 일치하는지 + 문서 트리 규칙(scripts/check-docs.mjs)
 # e2e: Playwright Chromium 390px · 4로케일 — 결정적(실계정·GPS·지도 SDK·외부 네트워크 없이)
+# mobile: apps/mobile(Expo, 루트 작업공간 밖 독립 패키지) — typecheck → 웹 공유 모듈 의존 폐포 검사 → expo-doctor → 안드로이드 번들
 name: CI
 
 on:
@@ -41,6 +42,26 @@ jobs:
       - run: npm run test --workspace=apps/web
       # 정적 export 빌드 — 클라이언트 코드는 env 부재 시 플레이스홀더 폴백을 갖고 있어 키 없이 빌드 가능.
       - run: npm run build --workspace=apps/web
+
+  mobile:
+    name: mobile (typecheck · shared imports · doctor · android bundle)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      # 깨끗한 설치에서 apps/mobile 만 설치한다 — 루트 node_modules 없이 웹 공유 모듈이 풀리는지가 확인 대상이다.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check:shared
+      - run: npx expo-doctor
+      - run: npm run export:android
 
   api:
     name: api (ruff · pytest)

@@ -110,6 +110,8 @@ DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
 DROP TABLE IF EXISTS public.seoul_citydata_snapshots CASCADE;
 -- 익명 이용 기록(제품 분석, FK 없음 — 20261023090000).
 DROP TABLE IF EXISTS public.usage_events CASCADE;
+-- 사용자 행동 기록(FK 없음 — 20261112090000). 수정·삭제·TRUNCATE 를 막는 트리거는 DROP TABLE 을 막지 않는다.
+DROP TABLE IF EXISTS public.action_logs CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
@@ -119,6 +121,12 @@ DROP FUNCTION IF EXISTS public.clear_merchant_photo(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.owns_facility_folder(TEXT) CASCADE;
 -- 익명 이용 기록 집계(20261024100000).
 DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
+-- 사용자 행동 기록(20261112090000) — 서버 도장 · 추가만 가드 트리거 함수와 개발자 전용 읽기 RPC 둘.
+DROP FUNCTION IF EXISTS public.action_logs_stamp() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_guard() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_batch_cap() CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
 DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;
@@ -132,6 +140,13 @@ DROP FUNCTION IF EXISTS public.purge_expired_network_hashes() CASCADE;
 DROP FUNCTION IF EXISTS public.guest_crowd_answer_shadow_metrics(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+-- 시설 지역 격리(20261101090000) — 자식 표 트리거 함수 · 지역 고정 트리거 함수 · 격리 상태 점검 · 감시 봉쇄.
+DROP FUNCTION IF EXISTS public.reject_non_public_region_facility() CASCADE;
+DROP FUNCTION IF EXISTS public.freeze_facility_region() CASCADE;
+DROP FUNCTION IF EXISTS public.region_isolation_status() CASCADE;
+DROP FUNCTION IF EXISTS public.region_guard_contain() CASCADE;
+-- 구역 '평소와 비교' 기준선(20261101091000, 화면 문구 전용).
+DROP FUNCTION IF EXISTS public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;

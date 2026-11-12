@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from app.core.region import PUBLIC_REGION
 from app.core.supabase import supabase_admin
 from app.routers.infrastructures import fetch_active_facilities
 from app.services.batch.tourism_demand_evaluation import (
@@ -24,8 +25,9 @@ from app.services.travel_context import KST
 async def build_report(forecast_date: str) -> dict:
     # Both operations are reads. Keep them sequential because the synchronous
     # Supabase client is shared and concurrent access can serialize internally.
+    # 관광 수요(KTO 집중률)는 경주 지표다 — 공개 지역 시설만 평가한다(SEOUL_TESTBED_PLAN S3).
     facilities = await fetch_active_facilities(
-        supabase_admin, "id,name,type,latitude,longitude,is_active"
+        supabase_admin, "id,name,type,latitude,longitude,is_active", region=PUBLIC_REGION
     )
     forecast_result = await asyncio.to_thread(
         lambda: (

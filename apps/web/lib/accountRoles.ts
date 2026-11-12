@@ -78,6 +78,19 @@ export function canEnterDevConsole(account: Account | null): boolean {
   return account?.role === 'developer';
 }
 
+/**
+ * 내부 검증 지역(공개 지역 경주 밖의 테스트베드)을 볼 수 있는가 — **developer 만**(2026-10-31 사용자 결정).
+ *
+ * admin 은 넣지 않는다: 이 서비스에서 admin 은 외부 기관 관제 역할이고, 심사위원이 함께 쓰는 공용 데모 계정도 admin 이다.
+ * 게스트(익명)는 역할이 무엇이든 넣지 않는다.
+ *
+ * 화면용 힌트일 뿐이다 — 스위처를 그릴지·/internal/regions 를 물어볼지만 정한다. 실제 허락은 서버
+ * (app/core/region.py can_view_internal_regions)가 매 요청 DB 역할로 판정하고, 403 이면 화면은 경주로 돌아간다.
+ */
+export function canSeeInternalRegions(account: Account | null): boolean {
+  return !!account && !account.isAnonymous && account.role === 'developer';
+}
+
 /** 사업자 인증을 신청할 수 있는 상태인가(게스트는 먼저 계정을 만들어야 한다). */
 export function canRequestBusinessVerification(account: Account | null): boolean {
   return !!account && !account.isAnonymous && account.role === 'tourist';

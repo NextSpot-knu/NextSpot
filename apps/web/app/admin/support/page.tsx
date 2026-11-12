@@ -221,6 +221,7 @@ export default function SupportPage() {
           <div className="flex w-full lg:w-auto items-center gap-4 lg:gap-6">
             <div className="relative flex-1 lg:flex-none">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
+              {/* 접속·조작 기록(lib/actionLog): 이 검색어는 문의한 사람의 이름·문의 내용 조각이라 값을 남기지 않는다(칸·길이만). */}
               <input
                 type="text"
                 placeholder="문의 검색 (이름·제목·내용)"
