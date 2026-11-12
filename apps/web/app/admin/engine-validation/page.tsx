@@ -120,7 +120,7 @@ export default function EngineValidationPage() {
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
             <FlaskConical size={22} className="text-gold-deep" />
-            실시간 데이터 리허설 — 서울 실시간 도시데이터
+            엔진 검증 — 서울 실시간 도시데이터
           </h2>
           <span className="text-xs text-hanok-muted hidden md:block">{SEOUL_ATTRIBUTION}</span>
         </header>

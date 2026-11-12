@@ -42,7 +42,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
     // 서울 실시간 파이프라인 상태 + 혼잡 추정기를 서울 실측과 대조한 성적표(SEOUL_TESTBED_PLAN §6 S6 —
     // 옛 이름 '엔진 검증'). 표본이 없어도 들어가서 수집 상태를 확인할 수 있어야 하므로 조건 없이 보인다
     // (심사 기간에만 위 HIDDEN_FROM_MENU 가 감춘다).
-    { name: '실시간 데이터 리허설', path: '/admin/engine-validation', icon: FlaskConical },
+    { name: '엔진 검증', path: '/admin/engine-validation', icon: FlaskConical }, // 재심사(11-12) — 심사 당시 이름. 10-31 S6 이름은 '실시간 데이터 리허설'
     { name: '문의 관리', path: '/admin/support', icon: HelpCircle },
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
     // 개발자 콘솔은 팀 전용이라 developer 에게만 보인다 — 관제 화면(정부기관 관계자)에는
