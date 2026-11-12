@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-11-12 KST main 갱신 예정 — `rejudge` fast-forward(사용자 지시 뒤, 웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
 - **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다.
 - **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
 - **2026-10-24 KST main `9cf767c..49c2067`(PR #22, 웹·스키마·문서) + 표 적용.** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). CI 4잡 green · Vercel 프로덕션 반영. 표는 10-24 Supabase MCP(`apply_migration`, PM 지시)로 적용 + `NOTIFY pgrst` — 확인: RLS on · anon INSERT 201 · anon SELECT 거부(42501) · 목록 밖 이벤트 400 · 보관 예약 `23 18 * * *`(cron 4→5개), 검증 행은 지움. API 무변경.
@@ -58,7 +59,8 @@
 
 ## 우선순위
 
-1. **실서비스 창업 방향(2026-10-31~)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
+0. **관광공모전 전면 재심사(2026-11-12~)** — 심사위원이 웹앱을 직접 쓴다. 재심사 동안 main 은 `rejudge` 브랜치로만 올린다(되돌림 · 버그 수정 · 행동 기록). 모두의 창업 · 실사용 작업은 `yunseong` 에서 잇고 재심사가 끝날 때까지 main 에 올리지 않는다. `DEMO_SCENARIO`·`JUDGE_QA` 가 다시 UI 문구 대조 대상이고 TourAPI 활용은 다시 필수다. 할 일 · 재심사 뒤 원상 복귀는 [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §6·§7.
+1. **실서비스 창업 방향(2026-10-31~, 재심사 동안 yunseong 에서)** — 공모전은 우수상으로 끝났고(11-05 시상), 모두의 창업 2차 **로컬 트랙 1라운드**에 진출했다(다음 관문은 2라운드 지역 예선).
    작업 기준은 '진짜 서비스할 수 있는 앱'이다. 순서는 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) §5(진행 §7),
    경주 통신사 데이터 전에 서울로 실시간 유동인구 시스템을 미리 구축하는 계획은 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(10-31 S0·S1·S2·S5·S6 끝 — **S3·S4 는 사용자가 ultracode 로 직접**. 게스트 답 실시간 전환(D3)은 그림자 모드 2주 측정 뒤).
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
@@ -73,9 +75,12 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **(11-12 재심사 ③ · KST 밤) Render `nextspot-t2ib` — Manual Deploy(main 머리) + `LLM_ENABLED=true`** — main 이 `rejudge` 로 올라간 뒤. 먼저 `UPSTAGE_API_KEY` · Upstage 잔액 · 월 지출 상한을 본다(PR #13 사용량 제한이 아직 병합 전). 배포 전 아래 10-31c ①(`SEOUL_CITYDATA_TARGETS` 옛 값 지우기) · ③(종로 이름). 뒤에 `/health` `deploy.commit` · 일요일 휴무 장소 하나 · 관제 첫 화면 · 게스트 혼잡 제보 · 음성 비서.
+- [ ] **(11-12 재심사 ④) 행동 기록 확인** — SQL Editor 에서 `20261112090000` 파일 끝 확인 쿼리(트리거 5개)와 "마이그레이션 확인" 19·20·21번. main 반영 뒤 개발자 계정으로 운영 사이트를 몇 번 눌러 `/dev/activity` 에 기기 · 계정 · IP 가 맞게 찍히는지, IP 가 어느 헤더로 오는지(`ip_chain`) 본다.
+- [ ] **(11-12 재심사 ⑤) 제출 서류 · 법무** — 서류의 API 주소가 오리건(`nextspot-api.onrender.com`, 10-22 정지 · 503)인지 확인. 개인정보 안내 '접속·조작 기록' 절 법무 검토.
+- [ ] **(11-12 재심사 ⑥) 배치 D 다시** — D3 심사 가게 쿠폰율 · `system_settings` 재심사 주간 아침마다, D6 두 심사 계정 첫 화면, D7 전날 밤 Keep-Warm.
 - [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
 - [ ] **(10-31c ① · API 배포 전) Render `SEOUL_CITYDATA_TARGETS` 정리** — `nextspot-t2ib` 환경변수에 옛 5곳 값이 있으면 **지운다**(코드 기본값 9곳·주기 포함을 쓴다) 또는 새 값으로 바꾼다. 빈 값으로 두면 503 `seoul_targets_missing` 으로 서울 수집이 멈춘다. 표기는 `DEPLOY_AND_ENV.md` §2.
-- [ ] **(10-31c ②) `20261031120000_crowd_zones.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(서울 S1 구역 표) — 확인 `select count(*) from public.zones;` → 9. 적용 전에도 수집은 돌고 정규화 표 이중 저장만 상태에 '표 없음'으로 남는다.
 - [ ] **(10-31c ③ · API 배포 전) 종로 4곳 대상지명 확인** — 이름이 서울 API 와 글자까지 같아야 수집된다. 한 곳에 1회씩(일 한도 4회 사용, 로컬 `apps/api/.env` 필요):
 ```powershell
 cd D:\NextSpot\apps\api; $env:PYTHONUTF8='1'
@@ -91,7 +96,6 @@ async def main():
 asyncio.run(main())"
 ```
   기대: OK 4줄(POI008 · POI066 · POI078 · POI012). `FAIL seoul_area_mismatch` 면 이름이 다르다 → `config.py` 기본값 · `SEOUL_ZONES` · 마이그레이션 시드를 함께 고친다.
-- [ ] **(10-31c ④) `20261031130000_guest_crowd_answer_shadow.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(D3 그림자 모드) — API 배포 직후. 확인은 아래 "마이그레이션 확인" 20번과 그 아래 두 쿼리(`observed_%` 열 · cron 잡 `nextspot-network-hash-retention`). 같은 김에 Render 에 전용 `NETWORK_HASH_SALT`(강한 무작위 값)를 넣는 것을 권한다 — 없으면 `JWT_SECRET` 에서 파생해 동작은 하지만 용도가 다른 비밀에 묶인다.
 - [ ] **(10-31c ⑤) Turnstile 켜기** — Cloudflare Invisible 위젯 → Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + 웹 배포 → Supabase Auth CAPTCHA(Turnstile 비밀 키 — 이곳에만) → 익명 로그인 IP 한도 낮추기(지금 300/h — 10-06 상향, 기본 30/h). **CAPTCHA 는 모든 로그인 경로에 토큰을 싣는 웹(D3 보안 수정)이 main 에 배포된 뒤에만 켠다 — 그 전에 켜면 이메일 로그인·가입·비밀번호 재설정이 막힌다**(Supabase CAPTCHA 는 프로젝트 전체에 걸린다). 켠 뒤 게스트→회원 전환·OAuth 콜백이 되는지 한 번 확인.
 - [ ] **(10-31c ⑥) 개인정보처리방침 + 앱 안 개인정보 안내 — 출시 전 전문가 확인** — 게스트 방문 확인 답에 네트워크 대역 해시를 남긴다(목적: 악용 방지·답 품질, 보관 30일, 원본 IP 는 서버 메모리에만 최대 30분). Turnstile 을 켜면 Cloudflare 를 제3자 처리자로 적는다. 앱 안 안내(`/mypage/privacy` '부정 이용 방지' 절, 4로케일, 갱신일 2026-10-31)는 넣었다 — 법률 검토는 따로 필요하다.
 - [ ] **(10-31c ⑦ · ④ 적용 2주 뒤) 게스트 답 실시간 전환 결정** — `GET /api/v1/admin/metrics/guest-answers?days=14` 의 일치율·공유 네트워크 비율을 보고 정한다. 켜기 전에 운영 로그로 `client_ip`(XFF 마지막 값)가 Render 뒤에서 실제 손님 IP 인지 확인한다(프록시 hop 이 붙으면 전원이 한 IP — "보안 진단" 중 항목과 같은 관측). 켜려면 Render `GUEST_CROWD_ANSWERS_LIVE=true`(재시작) **와** 웹 문구 `visit.guestCongestionNote`(4로케일) 변경을 함께.
@@ -273,7 +277,10 @@ with checks(seq, migration, applied) as (values
       and to_regclass('public.zone_crowd_snapshots') is not null and to_regclass('public.facility_zones') is not null),
   (20, '20261031130000_guest_crowd_answer_shadow', (select count(*)>0 from information_schema.columns
       where table_schema='public' and table_name='recommendation_outcomes' and column_name='observed_answer_mode')
-      and exists (select 1 from cron.job where jobname='nextspot-network-hash-retention'))
+      and exists (select 1 from cron.job where jobname='nextspot-network-hash-retention')),
+  (21, '20261112090000_action_logs', exists (select 1 from pg_indexes where schemaname = 'public'
+                   and indexname = 'uq_action_logs_session_seq')
+      and exists (select 1 from pg_trigger where tgname = 'action_logs_batch_cap'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -285,6 +292,14 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-11-12 — 관광공모전 전면 재심사 안 2 — `rejudge` 브랜치(관제·게스트 제보 되돌림 + 웹 행동 기록)
+- 도구·브랜치: Claude Code / `rejudge`(main `0747801` 에서). `yunseong` 은 모두의 창업 · 실사용을 잇는다
+- 커밋: `04af414`(fe80cda 되돌림, 안전 P0-4 유지) · `5ab3bf4`(게스트 제보 다시 받음) · `01edd15`·`d9c6ad4` 옮김 · 행동 기록 17건 옮김(`9be078b..430d202`) · `3ae0c1b`(엔진 검증 이름) · 문서
+- 한 것: 재심사(심사위원이 직접 사용)에 맞춰 공모전이 끝나서 바꾼 관제 지표 · 게스트 제보 차단을 심사 당시로 되돌리고, 10-31 개선(영업시간 · 정직한 문구 · 서울 수집)은 남겼다. 모든 방문의 화면 이동 · 조작을 계정 · IP 와 함께 1년 추가만 보관하는 `public.action_logs` 와 개발자 전용 `/dev/activity` 를 더했다. DEMO_SCENARIO · JUDGE_QA 는 심사 당시 판 + 재심사 머리말
+- 검증: pytest 3249 passed · ruff · web lint(경고만)/typecheck/test 122/build · e2e 533 passed(6 skipped) · 스키마 파리티 · check-docs
+- 다음·미결: 사용자 main 반영 지시 → 위 배포 순서. 재심사 뒤 `04af414`·`5ab3bf4` revert → yunseong 에 merge(REJUDGE_REVERT §6)
+- 사람 작업: "사람 작업 대기" 11-12 재심사 ③~⑥. 사용자가 11-12 에 끝낸 것 — 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000` 적용(+ 10-31c ②·④ 줄 지움), 익명 로그인 300/h
 
 ## 2026-10-31c — 서울 테스트베드 S1·S2·S5·S6 + 게스트 답 그림자 모드(D3) + 문서 답변
 
@@ -352,26 +367,6 @@ from checks order by seq;
 - 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
 - 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
 - 사람 작업: 표 적용 1회(위).
-
-## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
-
-- 도구·브랜치: Claude Code / `chore/llm-off-1022`(main `9bd5584` 위)
-- 커밋: 이 기록 포함 1건(API·문서)
-- 한 것: PM "당분간 Upstage 꺼놔 — 보여 줄 사람도 없으니". `LLM_ENABLED`(기본 `false`)를 두고 `llm_client.is_enabled()` 가 스위치와 키를 함께 본다. 모든 Upstage 호출이 `chat_text()` → `is_enabled()` 를 지나므로 음성 해석·검색 재작성·조건 해석·사유·브리핑이 전부 기존 키워드·규칙·템플릿 폴백으로 간다(키 없는 운영과 같은 경로). 키는 Render 에 그대로 둔다.
-- 검증: api ruff · pytest(테스트는 `tests/conftest.py` 가 스위치를 켜 기존 LLM 경로 검증을 그대로 유지).
-- 배포: Render 자동 배포가 일어나지 않아 23:53 KST PM Manual Deploy 로 반영(`deploy.commit=a9ecd921cb02` 확인). 자동 배포 원인은 "사람 작업 대기" 첫 줄. PR #13 의 밤 23시 e2e 수정 두 건은 PR #21 로 따로 뗐다.
-- 다음·미결: 다시 켤 때는 Render `nextspot-t2ib` 환경변수 `LLM_ENABLED=true`. `render.yaml` 에는 넣지 않았다 — Blueprint 가 아직 정지된 오리건 서비스(`nextspot-api`)를 가리켜, 그 파일을 고치면 동기화가 그쪽을 건드린다. PR #13(LLM IP 리밋·전역 예산)은 LLM 이 꺼진 동안 급하지 않다 — 그 안의 밤 23시 e2e 수정만 필요하면 따로 뗀다.
-- 사람 작업: 없음.
-
-## 2026-10-22 — main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임 · 오리건 API 정지
-
-- 도구·브랜치: Claude Code / `fix/ci-e2e-1022`(main `b6d428e` 위)
-- 커밋: 이 기록 포함 6건(웹·e2e·문서, API·스키마 무변경)
-- 한 것: main CI e2e 10건 실패(10-19부터 — 마지막 초록은 10-11 `3a61300`)를 정리했다. ① 관제 로그인 '데모로 둘러보기'가 로그인 화면으로 다시 튕기던 버그 — 레이아웃이 살아 있는 채 경로가 바뀌면 새 경로의 첫 렌더가 옛 데모 판정으로 리다이렉트를 걸었다. `app/admin/layout.tsx` 가 그 경로의 데모 판정을 읽은 뒤에만 보낸다. ② 화살표 검사 5건은 10-19 `1adb704` 로 가치 상자 머리에 들어온 '출발 → 도착' 시간 줄까지 보고 있었다 → 가치 문장(`value-sentence`)만 본다. ③ SPOT 상자 밀림 검사는 카드 등장 애니메이션 중에 기준을 쟀다 → 다 자란 뒤, 멈춘 자리끼리 비교. ④ 1366×650 '상세 정보 펼치기' 2px 넘침(10-21 첫 문장 메뉴·이동 시간 뒤) → 짧은 패널 간격 4→3px. ⑤ 휴대폰 미리보기: 출발·도착을 칩 줄 맨 앞으로 올려 한 줄 줄였다(PM 결정) — 390×844 미리보기 221→193px, 360×640 지도 띠 101→129px. e2e 예산은 ≤195px · ≥125px(이전 ≤190 · ≥180, PM 결정).
-- 운영: 오리건 `nextspot-api` 정지(PM, 10-22 저녁 — 503 확인). 정지 뒤 수집 버킷 11:30Z 가 들어온 것을 `area-demand-alert` 수동 실행(age 6.1분)으로 확인 — pg_cron 은 싱가포르로 간다. 싱가포르 `/health` healthy.
-- 검증: 실패했던 e2e 15건(테마·로케일 포함) 로컬 통과 · web lint(0 error)·typecheck·test(110파일). PR #19 CI(리눅스) e2e 518 통과 — 10-20 부터 리눅스 글꼴에서만 72px 로 실패하던 768 태블릿 ja 지도 띠도 미리보기 한 줄 줄임으로 통과.
-- 다음·미결: `render.yaml` 의 오리건 서비스 정의 정리(Blueprint 동기화가 정지된 서비스를 되살리지 않게 — 별도 결정) 
-- 사람 작업: 없음.
 
 ## 기록 규칙
 
