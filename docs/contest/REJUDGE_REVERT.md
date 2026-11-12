@@ -36,7 +36,7 @@
 | # | 무엇 | 언제 · 커밋 | 지금 운영 | 할 일 |
 |---|---|---|---|---|
 | A1 | LLM(Upstage) 전체 끔 | 10-22 `a9ecd92` | 꺼짐 | Render `LLM_ENABLED=true`(§7) |
-| A2 | 게스트(익명) 로그인 한도 300 → 30/h | 11-05 Supabase 콘솔 | 30/h | 재심사 동안 300/h(§7) |
+| A2 | 게스트(익명) 로그인 한도 300 → 30/h | 11-05 Supabase 콘솔 | **300/h(11-12 사용자 되돌림)** | 재심사 뒤 30/h(§6) |
 | A3 | 관제 시나리오 값 제거 · 효과 지표 재정의 · 내부 계정 제외 | 10-31 `fe80cda` | 웹만 반영 | `rejudge` `04af414` 로 되돌림(안전 '판정 불가'는 유지) |
 | A4 | 엔진 검증 화면 developer 전용 | 11-01 `50ed9b8`·`54f0c43` | 미반영(yunseong) | 재심사 동안 yunseong 이 main 에 오르지 않으니 되돌리지 않는다(§6) |
 | A5 | 게스트 혼잡·영업 제보 403 | 10-30 `e8b64ed` | 웹만 반영 | `rejudge` `5ab3bf4` 로 API 가드만 되돌림 |
@@ -241,7 +241,7 @@ main `0747801` 위에 차례로 얹었다. 재심사 동안 main 은 이 브랜�
 |---|---|
 | `04af414` | `fe80cda` 되돌림(A3) — 관제 시나리오 KPI · 도입 전/후 곡선 · 효과·수락률 정의가 심사 당시로. **안전(P0-4) · `internal_accounts.py`(사장님 성적표가 씀)는 남긴다.** 실측 집계 제외(P0-5)도 함께 심사 당시로 돌아갔다 — 같은 함수(`admin.py` 의 집계 · trend · impact)에 P1-1 과 섞여 있어 떼어 내면 회귀 위험이 더 크다. 관리자 입력 · 모의 · 시드 행이 관제 평균에 다시 섞인다 |
 | `5ab3bf4` | `e8b64ed` 의 `/reports/*` 가드만 되돌림(A5) — 게스트 제보를 다시 받는다. IP·시설당 한 계정(30분) · 사용자 쿨다운은 남긴다 |
-| (다음 커밋) | A4 '같이 볼 것' — 관제 메뉴 · 화면 제목 '실시간 데이터 리허설' → 심사 당시 이름 '엔진 검증'. 수집 표 · '사람 작업' 문장은 마이그레이션 · 설정이 빠졌을 때만 뜨므로 배포 순서 1번으로 막는다 |
+| `3ae0c1b` | A4 '같이 볼 것' — 관제 메뉴 · 화면 제목 '실시간 데이터 리허설' → 심사 당시 이름 '엔진 검증'. 수집 표 · '사람 작업' 문장은 마이그레이션 · 설정이 빠졌을 때만 뜨므로 배포 순서 1번으로 막는다 |
 | `6ca8a71` · `274f192` | `01edd15`(supabase 2.33.0 고정) · `d9c6ad4`(테스트 시계 고정) |
 | `9be078b..430d202` 를 옮긴 17개 | 행동 기록(§8) 전부 — DB · 전송 · 보기 · 개인정보 안내 · e2e |
 | 문서 커밋 | 이 문서 · HANDOVER · SYSTEM_MAP |
@@ -251,7 +251,7 @@ main `0747801` 위에 차례로 얹었다. 재심사 동안 main 은 이 브랜�
   - B7 서울 수집 대상은 9곳 그대로(`SEOUL_CITYDATA_TARGETS` 를 두지 않는다). 서울 테스트베드는 실서비스 확장 근거로 남긴다. 대회 문서의 '5곳'과 다르다는 점만 알고 있으면 된다.
   - B9 서울 S3·S4(지역 격리 · 결정 재생)는 yunseong 에만 있다. 재심사 동안 올리지 않는다.
 - **배포 순서**(§7 에 체크 항목)
-  1. Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000` → `NOTIFY pgrst, 'reload schema';`. 새 API 가 이 표들을 쓰므로 **API 보다 먼저**다. 옛 API 와도 함께 돌아간다(추가만 한다).
+  1. Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000` → `NOTIFY pgrst, 'reload schema';` — **11-12 사용자 적용 완료**. 새 API 가 이 표들을 쓰므로 **API 보다 먼저**다. 옛 API 와도 함께 돌아간다(추가만 한다).
   2. main fast-forward(사용자 지시) → Vercel. 웹의 관제 · 게스트 제보는 옛 API(`a9ecd92`)와도 맞는다 — 둘 다 심사 당시 정의다.
   3. KST 밤 Render Manual Deploy(main 머리) + `LLM_ENABLED=true`. 이때 일요일 휴무 수정(B6) · 새 추천 기능(B5)이 API 쪽에서도 켜진다. `deploy-verify` 로 `/health` 커밋을 확인한다.
 
@@ -273,8 +273,8 @@ main `0747801` 위에 차례로 얹었다. 재심사 동안 main 은 이 브랜�
 1. **Render `nextspot-t2ib`** → Environment → `LLM_ENABLED=true` → "Save and deploy"(재빌드 아님 · KST 밤).
    - 먼저 볼 것: `UPSTAGE_API_KEY` 가 남아 있는지, Upstage 콘솔 잔액, 월 지출 상한.
    - 켠 뒤: `/health` 를 보고 음성 비서를 한 번 써 본다.
-2. **Supabase** → Authentication → Rate Limits → anonymous sign-ins **300/h**. 재심사가 끝나면 30 으로 되돌린다.
-3. **Supabase SQL Editor** → `supabase/migrations/20261112090000_action_logs.sql` 적용 → `NOTIFY pgrst, 'reload schema';` → 파일 끝의 확인 쿼리.
+2. ~~**Supabase** → Authentication → Rate Limits → anonymous sign-ins **300/h**~~ — **11-12 완료(사용자)**. 재심사가 끝나면 30 으로 되돌린다.
+3. ~~**Supabase SQL Editor** → `supabase/migrations/20261112090000_action_logs.sql` 적용 → `NOTIFY pgrst, 'reload schema';`~~ — **11-12 완료(사용자)**. anon 키로 표 · RPC 가 있는 것만 확인했다(42501). 파일 끝의 확인 쿼리(트리거 5개)는 SQL Editor 에서 한 번 돌린다.
 4. **main 반영 뒤(사용자 지시)**: 개발자 계정으로 운영 사이트를 몇 번 누른다. `/dev/activity` 에서 본인 기기 · 계정 · IP 가 맞게 찍히는지 본다. IP 가 어느 헤더로 오는지도 `ip_chain` 으로 확인한다.
 5. **심사 대비 배치 D(HANDOVER "사람 작업 대기") 다시**
    - D3 심사 가게(이풍녀 구로쌈밥 · 맥심가옥) `coupon_rate` < 15% · `system_settings`(점검 꺼짐 · 공지 빔) — 재심사 주간 아침마다.
@@ -286,7 +286,7 @@ main `0747801` 위에 차례로 얹었다. 재심사 동안 main 은 이 브랜�
    - 저장소 `README.md` 의 API 링크도 오리건이다.
 7. **GitHub Actions**: `ingest`(매일 04:00 TourAPI) · `warmup` 이 제대로 도는지 본다. TourAPI 호출 이력도 심사에서 볼 수 있다.
 8. **재심사 동안 main 은 `rejudge` 로만 fast-forward.** Vercel 이 main 을 자동 배포하기 때문이다.
-9. **(2안) 마이그레이션 두 개 더** — `20261031120000_crowd_zones` · `20261031130000_guest_crowd_answer_shadow` 를 3번과 같은 때 적용한다. 새 API 배포(10번)보다 먼저다.
+9. ~~**(2안) 마이그레이션 두 개 더** — `20261031120000_crowd_zones` · `20261031130000_guest_crowd_answer_shadow`~~ — **11-12 완료(사용자)**. 새 API 배포(10번)보다 먼저라는 순서도 지켜졌다.
 10. **(2안) Render Manual Deploy** — main 이 `rejudge` 로 올라간 뒤 KST 밤에 main 머리를 배포하고, `/health` 의 `deploy.commit` 을 확인한다. 1번(LLM)과 같은 때 해도 된다. 배포 뒤 일요일 휴무 장소 하나, 관제 첫 화면, 게스트 혼잡 제보를 한 번씩 눌러 본다.
 
 ## 8. 새로 더한 것 — 웹 행동 기록 (심사위원이 실제로 썼는지 확인용)

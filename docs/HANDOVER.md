@@ -80,14 +80,12 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **(11-12 재심사) 운영 반영 안 고르기 + 재심사 전 점검** — [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5(안 1 권장: 운영을 심사 당시 `168f979` + 행동 기록)·§7 점검표. 콘솔 작업: Render `LLM_ENABLED=true`("Save and deploy", Upstage 키·잔액·지출 상한 먼저) · Supabase 익명 로그인 한도 300/h(재심사 동안) · 배치 D(D3·D6·D7) 다시. 제출 서류에 오리건 API 주소가 있는지 확인.
-- [ ] **(11-12) `20261112090000_action_logs.sql` 적용 + `NOTIFY pgrst, 'reload schema';`** — 웹 행동 기록 표·개발자 RPC. 웹이 배포되기 전에 적용해도 된다(그 전엔 아무도 쓰지 않는다). 확인은 아래 "마이그레이션 확인" 23번과 파일 끝 쿼리(트리거 4개 · cron `nextspot-action-logs-retention`). 웹 배포 뒤 개발자 계정으로 운영 사이트를 눌러 보고 `/dev/activity` 에서 본인 IP 가 `ip` 에 맞게 찍히는지(`ip_chain` 원문으로 어느 헤더인지) 본다.
+- [ ] **(11-12 재심사) 안 2 확정 — 운영은 `rejudge` 브랜치(사용자 main 반영 지시 대기)** — [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5 '안 2 실행'·§7. 사용자가 11-12 에 끝낸 것: 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000` 적용, 익명 로그인 300/h. 남은 콘솔: main 반영 뒤 KST 밤 Render Manual Deploy + `LLM_ENABLED=true`(Upstage 키·잔액·지출 상한 먼저) · `20261112090000` 파일 끝 확인 쿼리(트리거 5개) · 배치 D(D3·D6·D7) · 제출 서류의 오리건 API 주소. 상세 목록은 `rejudge` 의 HANDOVER.
 - [ ] **(11-12) 개인정보 안내 '접속·조작 기록' 절 법무 확인** — IP 원본 1년 · 계정 연결 · 검색어·음성 문장 · 추적 거부와 무관 · '평가·심사 포함 이용 확인' 목적(`/mypage/privacy`, 4로케일). 10-31c ⑥ 과 함께 본다.
 
 - [ ] **(11-11) Expo 개발 빌드 다시 만들기 + Z Fold7 확인** — F1 이 네이티브 모듈 `expo-notifications` 를 더했다. `eas build --profile development --platform android` 로 새 개발 빌드를 깔고 `npx expo start --dev-client`. 확인 목록은 `MOBILE_WEB_PARITY.md` §8.2 + 묶음 보고(첫 탭에만 알림 권한 창, 예약됨 유지·재부팅, 시트 빠른 열고 닫기, 안드로이드 유리 흐림 D14 시험, 탭 막대 뒤로 키·콜드 딥링크, 지도 패딩·기본 핀·내 위치 점 탭, 첫 실행 OAuth 복귀). 재빌드 전 앱은 알림 버튼만 숨는다.
 - [ ] **모두의 창업 선정 취소·환수 조항 서면 확인(2026-10-31 추가 · 로컬 트랙 1라운드에도 적용)** — 2차 공고(중기부 제2026-511호) 공통 유의사항: 정부·지자체 주관 타 공모전 수상 이력이 공개돼 있거나 이미 상용화(서비스)된 아이디어는 선정 취소·상금 환수될 수 있다. 1라운드가 곧 '아이디어 선정'이라 최악이면 선정 취소 + 창업활동자금 200만 원 환수다. 신청(~9/17)·1R 발표(10/16) 때는 수상 이력이 없었다는 점이 유리하지만 조항에 기준일이 없다. 관광공모전 출품·수상 사실과 공개 웹 상태를 먼저 밝히고 대경권 로컬 트랙 운영기관·소상공인시장진흥공단(1357)에 서면으로 묻는다. 답 전에는 현장 베타를 미룬다. 같은 김에 로컬 트랙 2R 지역 예선 제출물·마감(미확인 — 12/1 은 일반/기술 트랙 제3자 정리)과, 2R 진출 시 협약 기간 내 사업자등록 의무도 확인한다(`PRODUCT_EVALUATION_PLAN.md` '최신 소식').
 - [ ] **(10-31c ① · API 배포 전) Render `SEOUL_CITYDATA_TARGETS` 정리** — `nextspot-t2ib` 환경변수에 옛 5곳 값이 있으면 **지운다**(코드 기본값 9곳·주기 포함을 쓴다) 또는 새 값으로 바꾼다. 빈 값으로 두면 503 `seoul_targets_missing` 으로 서울 수집이 멈춘다. 표기는 `DEPLOY_AND_ENV.md` §2.
-- [ ] **(10-31c ②) `20261031120000_crowd_zones.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(서울 S1 구역 표) — 확인 `select count(*) from public.zones;` → 9. 적용 전에도 수집은 돌고 정규화 표 이중 저장만 상태에 '표 없음'으로 남는다.
 - [ ] **(10-31c ③ · API 배포 전) 종로 4곳 대상지명 확인** — 이름이 서울 API 와 글자까지 같아야 수집된다. 한 곳에 1회씩(일 한도 4회 사용, 로컬 `apps/api/.env` 필요):
 ```powershell
 cd D:\NextSpot\apps\api; $env:PYTHONUTF8='1'
@@ -103,7 +101,6 @@ async def main():
 asyncio.run(main())"
 ```
   기대: OK 4줄(POI008 · POI066 · POI078 · POI012). `FAIL seoul_area_mismatch` 면 이름이 다르다 → `config.py` 기본값 · `SEOUL_ZONES` · 마이그레이션 시드를 함께 고친다.
-- [ ] **(10-31c ④) `20261031130000_guest_crowd_answer_shadow.sql` 적용 + `NOTIFY pgrst, 'reload schema';`**(D3 그림자 모드) — API 배포 직후. 확인은 아래 "마이그레이션 확인" 20번과 그 아래 두 쿼리(`observed_%` 열 · cron 잡 `nextspot-network-hash-retention`). 같은 김에 Render 에 전용 `NETWORK_HASH_SALT`(강한 무작위 값)를 넣는 것을 권한다 — 없으면 `JWT_SECRET` 에서 파생해 동작은 하지만 용도가 다른 비밀에 묶인다.
 - [ ] **(10-31c ⑤) Turnstile 켜기** — Cloudflare Invisible 위젯 → Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + 웹 배포 → Supabase Auth CAPTCHA(Turnstile 비밀 키 — 이곳에만) → 익명 로그인 IP 한도 낮추기(지금 300/h — 10-06 상향, 기본 30/h). **CAPTCHA 는 모든 로그인 경로에 토큰을 싣는 웹(D3 보안 수정)이 main 에 배포된 뒤에만 켠다 — 그 전에 켜면 이메일 로그인·가입·비밀번호 재설정이 막힌다**(Supabase CAPTCHA 는 프로젝트 전체에 걸린다). 켠 뒤 게스트→회원 전환·OAuth 콜백이 되는지 한 번 확인. **⚠ 보류 확정(11-02 사용자 — 모바일 앱 계획 A7): 켜지 않는다. 켜면 네이티브 앱의 익명·이메일 로그인이 막힌다(Turnstile 은 네이티브 SDK 가 없다). 익명 로그인 한도는 30/h 로 낮췄다(사용자 A7', 11-05 적용).**
 - [ ] **(10-31c ⑥) 개인정보처리방침 + 앱 안 개인정보 안내 — 출시 전 전문가 확인** — 게스트 방문 확인 답에 네트워크 대역 해시를 남긴다(목적: 악용 방지·답 품질, 보관 30일, 원본 IP 는 서버 메모리에만 최대 30분). Turnstile 을 켜면 Cloudflare 를 제3자 처리자로 적는다. 앱 안 안내(`/mypage/privacy` '부정 이용 방지' 절, 4로케일, 갱신일 2026-10-31)는 넣었다 — 법률 검토는 따로 필요하다.
 - [ ] **(10-31c ⑦ · ④ 적용 2주 뒤) 게스트 답 실시간 전환 결정** — `GET /api/v1/admin/metrics/guest-answers?days=14` 의 일치율·공유 네트워크 비율을 보고 정한다. 켜기 전에 운영 로그로 `client_ip`(XFF 마지막 값)가 Render 뒤에서 실제 손님 IP 인지 확인한다(프록시 hop 이 붙으면 전원이 한 IP — "보안 진단" 중 항목과 같은 관측). 켜려면 Render `GUEST_CROWD_ANSWERS_LIVE=true`(재시작) **와** 웹 문구 `visit.guestCongestionNote`(4로케일) 변경을 함께.
@@ -317,6 +314,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-12b — 재심사 안 2 확정 · `rejudge` 브랜치(main `0747801` + 되돌림 + 행동 기록)
+
+- 도구·브랜치: Claude Code / `rejudge`(worktree) · `yunseong`
+- 커밋: `rejudge` = `04af414`(fe80cda 되돌림, 안전 P0-4 유지) · `5ab3bf4`(게스트 제보 다시 받음) · `01edd15`·`d9c6ad4`·행동 기록 17건 옮김 · `3ae0c1b`(엔진 검증 이름) · `b6b9b58`(문서). `yunseong` = REJUDGE_REVERT 갱신
+- 한 것: 사용자 "2안으로 가자 — 만든 게 아깝다, 서울 테스트베드는 남기자". 운영은 main 에서 갈라진 `rejudge` 로만 올리고, `yunseong` 은 모두의 창업·실사용을 그대로 잇는다(되돌림 커밋이 안 들어감 → A4 되돌림 불필요). 재심사 뒤 두 되돌림을 revert 하고 yunseong 에 merge(REJUDGE_REVERT §6). 태그 `pre-rejudge-main` = `0747801`
+- 검증(`rejudge`): pytest 3249 · ruff · web lint/typecheck/test 122/build · e2e 533 passed(6 skipped) · 스키마 파리티 · check-docs
+- 다음·미결: 사용자 main 반영 지시 → Vercel → KST 밤 Render. 관제 실측 집계 제외(P0-5)도 P1-1 과 섞여 함께 심사 당시로 돌아갔다
+- 사람 작업: 위 "(11-12 재심사) 안 2 확정" 한 줄
+
 ## 2026-11-12 — 관광공모전 전면 재심사: 되돌릴 목록 문서 · 웹 접속·조작 기록(심사위원 이용 확인)
 
 - 도구·브랜치: Claude Code(조사 3 · 구현 3 · 검토 2 · 수정 1 에이전트) / `yunseong`
@@ -365,14 +371,6 @@ from checks order by seq;
 - 검증: check-docs · mobile tsc · 테스트 68 · expo-doctor 19/21(실패 2 = exp.host·RN Directory 접속 차단, 네트워크 — CI mobile 잡에서 본다).
 - 다음·미결: `feat/twa` → main PR(팀장 승인). 그 뒤 Play 앱 서명 지문으로 `apps/web/public/.well-known/assetlinks.json`(PR) → 릴리스 서명·AAB·Play 업로드. 디버그 APK 는 assetlinks 가 없어 주소창이 보이는 게 정상.
 - 사람 작업: "사람 작업 대기" 11-10 ①~③(EAS 새 키 빌드 · Maps 키 앱 제한 · 옛 Expo 빌드 지우기).
-
-## 2026-11-09b — 모바일 앱 웹 판(디자이너용) · EAS Hosting `https://nextspot.expo.app` · 시트 반영 preview APK
-
-- 도구·브랜치: Claude Code(i7, 구현 2 · 독립 검토 1) / `yunseong` · 커밋 `fc99dcd`·`dbe498f`·`3a38113` + 이 기록.
-- 한 것: Appetize 무료(월 30분·세션 3분)로는 디자이너가 오래 못 써서 웹 판을 만들었다. ① 웹 지도 = 카카오 JS SDK(`features/map/NextSpotMap.web.tsx`·`kakaoWeb.ts`, 키 `EXPO_PUBLIC_KAKAO_MAP_KEY` — 웹 앱과 같은 값) ② 웹 실행 수리 — `web.output` `single`(하이드레이션 #418 제거), expo-sqlite 저장소 설치를 네이티브 전용 파일로, 데스크톱은 430px 가운데 기둥, `Alert`→`window.confirm`, 카카오맵 길안내 https 직행, 위치 거부 배너 ③ 검토 Med 1(실패한 SDK 태그 재사용) 수정 `3a38113`. EAS Hosting 운영 배포(`dist` → `eas deploy --prod`). preview APK `0e946bf4`(시트 반영, `8021caf`).
-- 검증: mobile tsc · 테스트 68 · check:shared · expo-doctor · export(웹·안드로이드). Playwright 412×915·1440×900 흐름 전부 + 8분 켜 두기(오류 0). 검토 → 네이티브 회귀 없음, High 0.
-- 다음·미결: 웹은 시트 본문 마우스 끌기가 안 된다(손잡이·휠은 됨). 개발 모드 접근성 prop 경고 다수(운영 빌드엔 없음). 웹 재배포 = `apps/mobile` 에서 `npx expo export --platform web` → `npx eas-cli deploy --prod`.
-- 사람 작업: 카카오 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가 — **11-10 사용자가 끝냄**(아래 11-10b 에서 확인).
 
 ## 기록 규칙
 
