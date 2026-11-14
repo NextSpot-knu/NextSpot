@@ -100,6 +100,16 @@ export default function TasteRadar() {
     ? tasteBadge(taste.source, taste.vector, { uniform: UNIFORM_VECTOR, onboarding: deriveOnboardingVector() }, hasTasteFeedback())
     : null;
 
+  // 차트 입력과 글 설명을 한 곳에서 — recharts 가 그리는 SVG 는 보조기기에 빈 그림이라 8축 값이 하나도 안 들렸다.
+  // 축 이름·값은 이미 4로케일 사전·숫자라 새 키 없이 "취향 프로필: 음식점 72, 카페 40, …" 으로 읽힌다.
+  const points = taste
+    ? AXIS_KEYS.map((key, i) => ({
+        label: t(key),
+        value: Math.round(Math.max(0, Math.min(1, taste.vector[i] ?? 0)) * 100),
+      }))
+    : [];
+  const chartDescription = `${t('taste.radarName')}: ${points.map((p) => `${p.label} ${p.value}`).join(', ')}`;
+
   return (
     <div data-testid="taste-radar" className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
       {/* 섹션 헤더 + 벡터 출처 배지 */}
@@ -127,14 +137,11 @@ export default function TasteRadar() {
         </div>
       ) : (
         <>
-          {/* 8축 레이더 차트 (벡터 0~1 → 0~100 스케일) */}
-          <div className="h-[240px] w-full">
+          {/* 8축 레이더 차트 (벡터 0~1 → 0~100 스케일). role="img" — 위 chartDescription 이 그림의 글 대체다. */}
+          <div className="h-[240px] w-full" role="img" aria-label={chartDescription}>
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart
-                data={AXIS_KEYS.map((key, i) => ({
-                  label: t(key),
-                  value: Math.round(Math.max(0, Math.min(1, taste.vector[i] ?? 0)) * 100),
-                }))}
+                data={points}
                 outerRadius="72%"
               >
                 {/* 축 글자·격자는 테마 토큰으로 — 하드코딩한 밝은 테마 색은 어두운 카드(18~06시 자동)에서 거의 안 보였다. */}
