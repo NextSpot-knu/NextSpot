@@ -110,7 +110,8 @@ export function GoldenHourBadge({
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-jade/10 border-jade/30 text-jade whitespace-nowrap">
-        🕐 {t('golden.badge', { start: String(start), end: String(end) })}
+        {/* 장식 이모지 — 스크린리더가 "한 시 시계" 를 먼저 읽고 나서야 '가기 좋은 시간' 이 들렸다. */}
+        <span aria-hidden>🕐</span> {t('golden.badge', { start: String(start), end: String(end) })}
       </span>
       {/* Notification API 미지원 환경(일부 iOS Safari 등)에서는 눌러도 되지 않는 버튼을 보여주지 않는다. */}
       {notificationSupported() && (
