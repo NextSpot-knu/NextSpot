@@ -3,7 +3,7 @@
 // 지금 경주 날씨 — 알약 하나(계획 B3: 날씨·첫 방문은 모든 폭에서 알약 두 개짜리 한 줄). 누르면 6시간 예보와
 // '실내만' 조건이 알약 아래에 떠서 펼쳐진다(아래 줄을 밀지 않는다). 키 낮은 휴대폰(높이 720 미만)에서는 검색줄 옆에
 // 서므로 '지금 경주' 를 빼고 아이콘 · 기온만 보인다(접근 이름은 그대로).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Umbrella } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -29,6 +29,7 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
   const [data, setData] = useState<WeatherResponse | null>(null);
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
   // 펼친 판을 화면 안으로 — 알약 왼쪽 끝에 붙이되, 화면 오른쪽(16px 여백)을 넘으면 그만큼 왼쪽으로 민다. 키 낮은 휴대폰은
   // 알약이 검색창 오른쪽 옆에 서서 288px 판이 화면 밖으로 잘렸다(리뷰 10-07 — 6시간 예보 중 4칸만 보였다).
   const [popoverLeft, setPopoverLeft] = useState(0);
@@ -53,8 +54,17 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
     const close = (event: PointerEvent) => {
       if (boxRef.current && !boxRef.current.contains(event.target as Node)) setExpanded(false);
     };
+    // Esc 로도 닫는다 — 같은 홈 화면의 다른 시트(한산한 곳·축제·제보)는 모두 Esc 를 받는데 이 판만 바깥 탭뿐이라,
+    // 키보드로 알약을 열면 포커스를 알약에 둔 채 Enter 로 다시 접는 길밖에 없었다.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
     window.addEventListener('pointerdown', close);
-    return () => window.removeEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [expanded]);
 
   if (!data?.current || data.source !== 'kma') return null;
@@ -69,6 +79,7 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
         type="button"
         onClick={toggle}
         aria-expanded={expanded}
+        aria-controls={popoverId}
         aria-label={`${full} · ${summary}`}
         title={summary}
         className="liquid-glass flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[12px] font-bold text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
@@ -82,9 +93,10 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
         {expanded ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
       </button>
       {expanded && (
-        <section style={{ left: popoverLeft }} className="absolute top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-white px-3.5 pb-3 pt-2.5 shadow-[0_10px_30px_rgba(43,35,32,0.18)]">
+        <section id={popoverId} style={{ left: popoverLeft }} className="absolute top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-white px-3.5 pb-3 pt-2.5 shadow-[0_10px_30px_rgba(43,35,32,0.18)]">
           <p className="text-[12px] font-semibold text-muk">{summary}</p>
-          <div className="mt-2 grid grid-cols-6 gap-1" aria-label={t('weather.sixHour')}>
+          {/* role="group": aria-label 은 역할 없는 div 에서는 무시된다 — '6시간 예보' 이름이 보조기기에 안 닿았다. */}
+          <div className="mt-2 grid grid-cols-6 gap-1" role="group" aria-label={t('weather.sixHour')}>
             {data.forecasts.slice(0, 6).map((forecast) => (
               <div key={forecast.at} className="text-center text-[10px] text-muk-soft">
                 <div>{hourOf(forecast.at)}</div><div className="my-0.5 text-base" aria-hidden>{iconOf(forecast)}</div><div className="font-semibold text-muk">{Math.round(forecast.temperatureC)}°</div>
