@@ -12,7 +12,9 @@ import { useT } from '@/lib/i18n/I18nProvider';
 export function DemoBadge() {
   const t = useT();
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-2.5">
+    // role="status": 배지는 '이 화면은 실측이 아니다' 를 말하는 유일한 표지인데 보조기기에는 아무 알림이 없었다 —
+    // 눈으로는 상단 고정 배지가 보이지만 음성으로는 실제 콘솔과 데모가 같았다. 마운트 때 한 번 읽힌다.
+    <div role="status" className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-2.5">
       <div className="pointer-events-auto flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full border border-gold/50 bg-muk/90 px-3.5 py-1.5 text-white shadow-lg backdrop-blur">
         <Eye size={14} className="flex-shrink-0 text-gold" aria-hidden="true" />
         <span className="text-[13px] font-bold leading-5">{t('demo.badge')}</span>
