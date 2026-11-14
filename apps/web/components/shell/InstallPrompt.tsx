@@ -105,6 +105,15 @@ export function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosSheet, setShowIosSheet] = useState(false);
 
+  // iOS 안내 시트는 Esc 로도 닫는다 — 홈의 다른 시트(한산한 곳·축제·제보)와 같은 규칙. 배경 버튼은 tabIndex -1 이라
+  // 키보드로는 닫기 버튼까지 탭으로 가야 했다.
+  useEffect(() => {
+    if (!showIosSheet) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowIosSheet(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showIosSheet]);
+
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
