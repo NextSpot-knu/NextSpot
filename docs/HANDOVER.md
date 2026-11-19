@@ -6,7 +6,8 @@
 
 ## 배포 상태
 
-- **2026-11-12 KST main 갱신 예정 — `rejudge` fast-forward(사용자 지시 뒤, 웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
+- **2026-11-19 KST main `0747801..e745993`(`rejudge` fast-forward, 사용자 지시) + 이어서 PR #13 이식 · 테스트 수정(아래 2026-11-19).** Vercel 웹 자동 배포 — 라이브 확인은 사람. Render 는 아직 `a9ecd92` — Manual Deploy 대기("사람 작업 대기" 재심사 ③).
+- **2026-11-12 KST main 갱신 계획 — `rejudge` fast-forward(웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
 - **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다.
 - **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
 - **2026-10-24 KST main `9cf767c..49c2067`(PR #22, 웹·스키마·문서) + 표 적용.** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). CI 4잡 green · Vercel 프로덕션 반영. 표는 10-24 Supabase MCP(`apply_migration`, PM 지시)로 적용 + `NOTIFY pgrst` — 확인: RLS on · anon INSERT 201 · anon SELECT 거부(42501) · 목록 밖 이벤트 400 · 보관 예약 `23 18 * * *`(cron 4→5개), 검증 행은 지움. API 무변경.
@@ -66,7 +67,7 @@
    세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 main 반영은 KST 밤에만.
 2. **사람 작업 대기** 처리 — 특히 오늘 밤 배포 전 10-31c 작업(Render 서울 대상지 변수·종로 이름 확인·마이그레이션 2개), `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
 3. **심사 화면 3차 남은 PM 결정** — 웹 수정(PR #14)은 10-09 main 반영. 남은 것은 순위·데이터 쪽 결정(아래 2026-10-09 "다음·미결").
-4. **PR #13 `fix/llm-rate-limits-1009` 병합** — "알려진 이슈" ③ 의 구현 + 밤 e2e 수정. CI green(`c678db4`), KST 밤 PM 병합만 남음("사람 작업 대기" 맨 위).
+4. ~~PR #13 병합~~ — 11-19 `rejudge` 에 API·웹 커밋 둘을 옮겼다(e2e 수정은 PR #21 로 이미 main). 운영 반영은 Render Manual Deploy 때.
 5. 심사 뒤: "알려진 이슈" ①·② 결정 · 보안 진단 상·중 항목 · `ingest.yml` 리포트 artifact 보존 ·
    `apps/web/lib`·`apps/api/app/services` 점진 이동(`AGENTS.md` "새 파일은 어디에") ·
    [`archive/IMPROVEMENT_PLAN.md`](./archive/IMPROVEMENT_PLAN.md) "2026-08-21 갱신" 절 미완 항목 재확인.
@@ -75,7 +76,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **(11-12 재심사 ③ · KST 밤) Render `nextspot-t2ib` — Manual Deploy(main 머리) + `LLM_ENABLED=true`** — main 이 `rejudge` 로 올라간 뒤. 먼저 `UPSTAGE_API_KEY` · Upstage 잔액 · 월 지출 상한을 본다(PR #13 사용량 제한이 아직 병합 전). 배포 전 아래 10-31c ①(`SEOUL_CITYDATA_TARGETS` 옛 값 지우기) · ③(종로 이름). 뒤에 `/health` `deploy.commit` · 일요일 휴무 장소 하나 · 관제 첫 화면 · 게스트 혼잡 제보 · 음성 비서.
+- [ ] **(11-12 재심사 ③ · KST 밤) Render `nextspot-t2ib` — Manual Deploy(main 머리) + `LLM_ENABLED=true`** — main 이 `rejudge` 로 올라간 뒤. 먼저 `UPSTAGE_API_KEY` · Upstage 잔액 · 월 지출 상한을 본다(PR #13 사용량 제한은 11-19 `rejudge` 에 이식 — 이 배포로 켜진다. 전역 상한 `LLM_DAILY_BUDGET` 기본 2000회/일). 배포 전 아래 10-31c ①(`SEOUL_CITYDATA_TARGETS` 옛 값 지우기) · ③(종로 이름). 뒤에 `/health` `deploy.commit` · 일요일 휴무 장소 하나 · 관제 첫 화면 · 게스트 혼잡 제보 · 음성 비서.
 - [ ] **(11-12 재심사 ④) 행동 기록 확인** — SQL Editor 에서 `20261112090000` 파일 끝 확인 쿼리(트리거 5개)와 "마이그레이션 확인" 19·20·21번. main 반영 뒤 개발자 계정으로 운영 사이트를 몇 번 눌러 `/dev/activity` 에 기기 · 계정 · IP 가 맞게 찍히는지, IP 가 어느 헤더로 오는지(`ip_chain`) 본다.
 - [ ] **(11-12 재심사 ⑤) 제출 서류 · 법무** — 서류의 API 주소가 오리건(`nextspot-api.onrender.com`, 10-22 정지 · 503)인지 확인. 개인정보 안내 '접속·조작 기록' 절 법무 검토.
 - [ ] **(11-12 재심사 ⑥) 배치 D 다시** — D3 심사 가게 쿠폰율 · `system_settings` 재심사 주간 아침마다, D6 두 심사 계정 첫 화면, D7 전날 밤 Keep-Warm.
@@ -103,7 +104,6 @@ asyncio.run(main())"
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
-- [ ] **PR #13 병합(KST 밤 · API 재시작)** — [`#13`](https://github.com/NextSpot-knu/NextSpot/pull/13) head `c678db4`, CI 4잡 green · 충돌 없음(10-10 확인). GitHub 에서 **'Create a merge commit'**(가지에 'update branch' 병합 커밋이 있어 rebase 는 거절될 수 있다). 에이전트의 병합 호출은 권한 분류기가 '프로덕션 배포'로 막는다(10-10) — PM 이 누르거나 "merge #13" + 권한 규칙. 되돌림: 웹 Vercel `dpl_Fy1mTVx5F8vRcV9V3w1KzozpbDpk`, API 는 #13 커밋 revert. 병합 뒤: main CI · 싱가포르 `/health` · `/travel-context/parse` 한 번.
 - [ ] **심사 대비 배치 D(아래 2026-10-06) — D1 끝(2026-10-06 사용자 설정: Supabase Auth Rate Limits 익명 로그인 30 → **300/h per IP**, `DEPLOY_AND_ENV.md` 1-2)**: D2 끝(10-07 사용자 '계속' = 권장안 그대로 — ① 유지 ② 승인 ③ 34회 수용 ④ 데이터만 — ④ 숨기기 SQL 은 10-08 ~19:25 KST PM 적용, 아래 2026-10-09) — 당시 결정 4가지: ① 밤의 첫 화면 자동 칩 전환(계획 밖) 유지/끄기 ② 앞면 취향 일치율 규칙(60% 이상·후보마다 다를 때만, 50% 문턱 질문과 함께) ③ 차가운 심사 여정 Render 호출 수(계획 12회 — 잰 값은 아래) 수용 여부와 배포 직후 밤 5세션 스모크 ④ 관광지 1위가 교육청 체험관·상점가·먹자골목인 것(데이터·순위 — 21번 미룸, 데이터만 재분류 / 관광지 후보에서 제외 / I28 열린 관광지 단계 중 택1) · D3 심사 가게(이풍녀 구로쌈밥·맥심가옥) `coupon_rate` < 15% 와 `system_settings`(점검 꺼짐·공지 빔) 읽기 확인 — 심사 예상 주 아침마다 · D4 월정교 시드 연결만(PM_STEPS 6·7) · D5 반려동물 API 활용신청(🐾 원할 때) · D6 배포 뒤 `openapi@naver.com`·`openapi@gmail.com` 로그인 첫 화면 확인 · D7(선택) 심사일 전날 밤 API Keep-Warm 수동 1회.
 - [ ] **P2a shadow 게이트** — Render `AREA_DEMAND_SOURCE=shadow` 는 **2026-09-30 01:37 KST 가동**(사용자 설정, `/health`: ready·rows 5,352·lots 4·failures 0·동기화 31초). **10-01 01:37 이후**(재시작 1회 포함) 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
@@ -292,6 +292,16 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-11-19 — main 을 `rejudge` 로 · PR #13(LLM 호출 제한) 이식 · 리뷰 없는 main 반영 규칙
+
+- 한 일:
+  - 팀 합의로 main 반영은 PR·팀장 리뷰 없이 올리는 사람이 직접 fast-forward(`AGENTS.md`, `e745993` — yunseong 에도 `207efdf`).
+  - 사용자 지시로 main `0747801..e745993`(`rejudge`). yunseong 은 재심사 문제 5가지(관제 KPI·엔진 검증 403·게스트 제보·S3 배포 순서·격리 롤백 위험)로 올리지 않았다.
+  - PR #13(henryseo711) `f4a377d`·`c70cba8` 을 `rejudge` 로 cherry-pick — 비인증·게스트 LLM 경로 IP 리밋(`/travel-context/parse` 분당 30·LLM 5, `/preferences/parse` 20·5) + 전역 일일 LLM 예산 `LLM_DAILY_BUDGET`(기본 2000). 충돌 4곳: `llm_client.py` 머리말(`LLM_ENABLED` 와 예산 둘 다), `search.py`·`rate_limit.py` 는 main 의 `core/client_ip.py` 하나만 쓰게(PR 판의 복제 `client_ip` 삭제), DEPLOY_AND_ENV 는 main 줄에 `LLM_DAILY_BUDGET` 추가, HANDOVER 는 main 판.
+  - `3ae0c1b` 가 놓친 `lib/engineValidation.test.ts` 정적 검사를 '엔진 검증'으로 — 11-19 main 의 `npm run test` 가 이것 하나로 실패하고 있었다.
+- 검증: api ruff · pytest 3280 통과 · web lint 0 error · typecheck · test · build · e2e `journey-loop`·`voice-controls` 12 통과 · check-docs.
+- 다음·미결: Render Manual Deploy(이 커밋들 포함) + `LLM_ENABLED=true` — Upstage 키 유효(사용자 확인), 잔액·월 상한은 팀장 확인 대기. PR #13 은 GitHub 에서 닫아도 된다(이식 끝).
 
 ## 2026-11-12 — 관광공모전 전면 재심사 안 2 — `rejudge` 브랜치(관제·게스트 제보 되돌림 + 웹 행동 기록)
 - 도구·브랜치: Claude Code / `rejudge`(main `0747801` 에서). `yunseong` 은 모두의 창업 · 실사용을 잇는다
