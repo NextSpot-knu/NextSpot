@@ -220,12 +220,13 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 // 메뉴에서 들어갈 수 있어야 하고, 출처 표기(공공누리 1유형)와 한 곳 주의가 화면에 있어야 한다.
 {
   const sidebar = readFileSync(join(WEB, 'components/AdminSidebar.tsx'), 'utf8');
-  assert.match(sidebar, /'실시간 데이터 리허설', path: '\/admin\/engine-validation'/);
+  // 재심사(11-12) 동안은 심사 당시 이름 '엔진 검증'(rejudge 3ae0c1b). 재심사 뒤 '실시간 데이터 리허설'로 되돌린다.
+  assert.match(sidebar, /'엔진 검증', path: '\/admin\/engine-validation'/);
   const page = readFileSync(join(WEB, 'app/admin/engine-validation/page.tsx'), 'utf8');
   assert.match(page, /SEOUL_ATTRIBUTION/);
   assert.match(page, /sampleCaveat/);
   assert.match(page, /summaryPath/);
-  assert.match(page, /실시간 데이터 리허설 — 서울 실시간 도시데이터/);
+  assert.match(page, /엔진 검증 — 서울 실시간 도시데이터/);
   assert.match(page, /RehearsalStatusPanel/);
   assert.match(page, /DecisionQualityPanel/);
   assert.doesNotMatch(page, /가동 중/, '수집 상태를 고정 문구로 단정하지 않는다');
