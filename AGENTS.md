@@ -129,6 +129,7 @@ node scripts/check-docs.mjs             # 문서 트리 규칙 (3초)
 
 - `main` = 프로덕션(Vercel·Render 자동 배포 + cron 발화 조건). 각자 브랜치에서 작업 → 게이트 통과 →
   fast-forward `git push origin <내-브랜치>:main`.
+  PR·팀장 리뷰는 거치지 않는다(2026-11-19 팀 합의 — 팀장 검토 부담). 올릴 사람이 게이트 통과를 확인하고 직접 fast-forward 한다.
 - 커밋 메시지: `type(scope): 한 줄`(한국어). type은 `feat fix perf refactor test docs chore ci`, scope는
   `web api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
   본문에는 "무엇"보다 **"왜"**를 쓴다. 작성자는 사람 본인의 git identity, AI는 `Co-Authored-By` 트레일러.
