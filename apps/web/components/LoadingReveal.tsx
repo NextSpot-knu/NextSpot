@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { useRegion } from "@/lib/regionContext";
 
 // "shared" 는 /course 의 공유 링크 복원 로딩(읽기 전용) 갈래다 — 같은 화면이라 여기서 함께 다룬다.
 type Variant = "waiting" | "course" | "shared";
@@ -87,6 +88,12 @@ function useNarrationStep() {
 function NarrationHeader({ variant }: { variant: Variant }) {
   const t = useT();
   const step = useNarrationStep();
+  const { isPublic, regionName } = useRegion();
+  // 내부 검증 지역(서울)에서는 '경주'가 박힌 첫 문장 대신 지역 이름을 넣은 문장을 쓴다(경주는 그대로).
+  const line =
+    !isPublic && variant === "waiting" && step === 0
+      ? t("region.loadingStep1", { region: regionName })
+      : t(`loadingReveal.${variant}.step${step + 1}`);
   return (
     <section
       className="relative overflow-hidden rounded-2xl border border-gold/25 bg-white/90 px-5 py-5 shadow-[0_8px_30px_rgba(43,35,32,0.08)]"
@@ -107,7 +114,7 @@ function NarrationHeader({ variant }: { variant: Variant }) {
           <p className="text-sm font-bold text-muk leading-snug">{t(`loadingReveal.${variant}.title`)}</p>
           {/* key={step} 로 문장이 넘어갈 때마다 짧은 페이드를 다시 태운다. */}
           <p key={step} className="ns-line-in mt-0.5 text-xs text-muk-soft leading-snug">
-            {t(`loadingReveal.${variant}.step${step + 1}`)}
+            {line}
           </p>
         </div>
       </div>

@@ -1,0 +1,5 @@
+{
+  "ios": {
+    "NSLocationWhenInUseUsageDescription": "NextSpot 使用您的位置来推荐附近人少的地方，并计算步行所需时间。例如，显示从您当前位置步行10分钟内可到达的空闲地点。"
+  }
+}

@@ -22,6 +22,7 @@ import {
   type FacilityCongestion,
 } from '@/lib/adminMetricState';
 import { getCongestionEstimates } from '@/lib/api-client';
+import { logSearchTyping } from '@/lib/actionLog';
 import { parseCongestionEstimate } from '@/lib/congestionEstimate';
 import { ttlPromiseCache } from '@/lib/ttlPromiseCache';
 import { HEATMAP_GRADE_CLASS } from '@/lib/adminHeatmapScale';
@@ -468,8 +469,9 @@ export default function InfrastructurePage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
+                data-log-value="search"
                 value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); logSearchTyping(e.target.value, 'admin-infrastructure'); }}
                 placeholder="장소 검색 (이름·유형)"
                 title="이름 또는 유형으로 검색"
                 className="pl-10 pr-8 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full lg:w-64"

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Navigation, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { getActiveTrip, getVisitHistory, markTripArrived, recordActiveTrip, type ActiveTrip } from '@/lib/visits';
+import { getActiveTrip, getVisitHistory, markTripArrived, recordActiveTrip, visitMatchesRegion, visitRegion, type ActiveTrip } from '@/lib/visits';
+import { useRegion } from '@/lib/regionContext';
 import { loadTravelContext, type PlaceCategory, type RequiredAttribute, type TravelContext } from '@/lib/travelContext';
 import { parseTravelContext, recommendByType } from '@/lib/api-client';
 import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
@@ -28,6 +29,8 @@ function hasCondition(value: Partial<TravelContext> | null): boolean {
 
 export default function ActiveJourneyCard({ location }: { location: { lat: number; lng: number } }) {
   const t = useT();
+  // 지역(S3) — 지금 지역에서 시작한 여정만 그린다. 다른 지역의 여정은 지우지 않고 그 지역으로 돌아갈 때까지 둔다.
+  const { regionId } = useRegion();
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [busy, setBusy] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
@@ -42,7 +45,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const lastReplanContextRef = useRef<Partial<TravelContext> | undefined>(undefined);
   useEffect(() => {
     const sync = () => {
-      const active = getActiveTrip();
+      const found = getActiveTrip();
+      const active = found && visitMatchesRegion(found, regionId) ? found : null;
       setTrip(active?.status === 'navigating' ? active : null);
       if (active?.status === 'navigating') track('trip_resumed', { facility_type: active.type });
     };
@@ -56,12 +60,12 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('nextspot:trip-navigating', sync);
     };
-  }, []);
+  }, [regionId]);
   if (!trip || trip.status === 'arrived') return null;
 
   const arrived = () => {
     haptic('success');
-    queueRecommendationOutcome(trip.recommendationId, 'arrival_confirmed');
+    queueRecommendationOutcome(trip.recommendationId, 'arrival_confirmed', { region: visitRegion(trip) });
     markTripArrived();
     track('arrival_confirmed', { facility_type: trip.type });
     window.dispatchEvent(new Event('nextspot:trip-arrived'));
@@ -179,6 +183,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
 
   return (
     <motion.aside
+      data-testid="active-journey"
       initial={{ opacity: 0, y: -12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={sheetSpring}
@@ -258,7 +263,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           navigation_mode: trip.navigationMode ?? 'walk',
           walk_minutes: trip.walkMinutes ?? null,
         });
-        queueRecommendationOutcome(trip.recommendationId, 'navigation_started');
+        queueRecommendationOutcome(trip.recommendationId, 'navigation_started', { region: visitRegion(trip) });
       }} className="toss-pressable mt-2 w-full text-xs text-gold-deep font-bold flex justify-center items-center gap-1"><Navigation size={12} />{t(trip.navigationMode === 'car' ? 'trip.resumeDriving' : 'trip.resumeDirections')}</button>
     </motion.aside>
   );

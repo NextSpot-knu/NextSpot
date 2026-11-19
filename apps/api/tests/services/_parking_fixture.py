@@ -233,7 +233,8 @@ class _FakeQuery:
     def _keep(self, row: dict[str, Any]) -> bool:
         for op, column, value in self.filters:
             if op == "eq":
-                if row.get(column, "gyeongju_its" if column == "source" else None) != value:
+                default = {"source": "gyeongju_its", "region": "gyeongju"}.get(column)  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
+                if row.get(column, default) != value:
                     return False
             elif op == "gt" and self.db.ignore_keyset:
                 continue

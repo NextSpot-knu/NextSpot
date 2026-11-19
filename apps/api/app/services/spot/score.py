@@ -5,7 +5,16 @@ from app.services.spot.preference import calculate_preference_similarity
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
 from app.services.spot.industry_baseline import get_industry_baseline_congestion
-from app.services.congestion_evidence import estimate_applies_to_arrival, rankable_measured_level
+from app.core.region import PUBLIC_REGION
+from app.services.congestion_evidence import (
+    ZONE_EVIDENCE_TIER,
+    estimate_applies_to_arrival,
+    rankable_measured_level,
+    zone_arrival_level,
+    zone_evidence_is_partial,
+)
+from app.services.crowd.zone_evidence import TOP_BAND
+from app.services.spot.ranking import CROWDED_EVIDENCE_CUTOFF
 from app.services.travel_context import KST
 from app.services.area_demand_service import get_area_demand_signal
 from app.services.predict_service import get_model_info, predict_congestion_detailed
@@ -45,6 +54,15 @@ async def calculate_spot_score(
     travel_time_override: float | None = None,
     travel_distance_override: float | None = None,
     travel_source: str | None = None,
+    # ── 서울 S3(docs/SEOUL_TESTBED_PLAN.md) — 기본값이면 종전과 한 글자도 다르지 않게 돈다 ──
+    # 요청의 지역. 공개 지역(경주)이 아니면 경주 전용 입력(주변 수요·경주 학습 모델·업종 로그 기준선)을 쓰지 않는다.
+    # 근거 dict 에서 유추하지 않고 **호출부가 명시**한다(라우터가 요청 첫머리에 정한 값).
+    region: str = PUBLIC_REGION,
+    # 실제 벽시계. 구역 관측·예측 발행의 나이를 잰다(depart_time 은 가정 시각·코스 누적 출발일 수 있다).
+    # None 이면 지금(UTC).
+    evidence_now: datetime | None = None,
+    # 출발지(원본 시설)의 구역 근거. 주면 재배치 기여의 기준선을 '같은 도착 시각의 출발지' 로 잡는다.
+    origin_zone_evidence: dict | None = None,
 ) -> SPOTScoreResult:
     """
     사용자 정보, 원본 시설 혼잡도, 후보 대안 시설 정보 및 사용자 현재 위치를 입력받아
@@ -98,25 +116,49 @@ async def calculate_spot_score(
     # 로컬/다른 타임존 호스트에서 datetime.now()가 흔들리지 않도록 명시적으로 UTC를 사용한다.
     # depart_time 이 오면 '그 출발 시각 + 이 구간 이동시간' = 코스의 누적 도착 시각(2~3번째 정류지 정합).
     # 없으면 지금 출발 기준(단일 대안 추천). 이 arrival 은 아래 wait_time·재배치기여에 함께 쓰인다.
-    base_time = depart_time or datetime.now(timezone.utc)
+    # evidence_now(벽시계)를 받았으면 '지금 출발' 도 그 순간이다 — 라우터가 근거를 만든 시각과 도착 시각의 기준이
+    # 갈라지지 않게 한다. 경주 호출은 evidence_now 를 넘기지 않으므로 종전과 같다.
+    base_time = depart_time or evidence_now or datetime.now(timezone.utc)
     arrival_dt = base_time + timedelta(minutes=travel_time_min)
     arrival_hour = arrival_dt.hour
     arrival_dow = arrival_dt.weekday()
     # predict_congestion 은 동기 함수(로컬 sklearn 추론)이므로, async 컨텍스트의 이벤트 루프를
     # 막지 않도록 워커 스레드로 오프로드한다.
     measured_congestion = rankable_measured_level(congestion_evidence, now=base_time)
+    # 공개 지역(경주)이 아니면 경주 전용 입력을 쓰지 않는다 — 명시 인자로만 정한다(근거 dict 에서 유추하지 않는다).
+    is_public_region = region == PUBLIC_REGION
+
+    # 3-0. 구역 근거(서울 S3). 신뢰 실측 문(rankable_measured_level)은 그대로 두고, 구역 근거만 **도착 시각**의
+    # 혼잡(지금 관측 vs 공급원 예측 중 시간상 가까운 쪽, 여러 구역이면 최댓값)으로 measured_rules 에 들어간다.
+    # 경주 근거에는 evidence_tier 가 zone_measured 인 것이 없으므로 이 블록은 경주에서 아무것도 하지 않는다.
+    is_zone_evidence = (
+        measured_congestion is None
+        and (congestion_evidence or {}).get("evidence_tier") == ZONE_EVIDENCE_TIER
+    )
+    zone_arrival = None
+    zone_wall_now = None
+    if is_zone_evidence:
+        zone_wall_now = evidence_now or datetime.now(timezone.utc)
+        zone_arrival = zone_arrival_level(congestion_evidence, arrival_dt, wall_now=zone_wall_now)
+        if zone_arrival is not None:
+            measured_congestion = zone_arrival.level
+
     if measured_congestion is not None:
         predicted_congestion, prediction_source = measured_congestion, "measured"
-    else:
+    elif is_public_region:
         predicted_congestion, prediction_source = await asyncio.to_thread(
             predict_congestion_detailed,
             candidate_facility["type"],
             arrival_hour,
             arrival_dow,
         )
+    else:
+        # 경주에서 학습한 모델은 다른 지역의 순위를 만들지 않는다(학습 여부와 무관).
+        predicted_congestion, prediction_source = None, "unavailable"
 
     model_info = get_model_info()
-    area_demand = await get_area_demand_signal(candidate_facility, arrival_dt)
+    # 주변 수요(경주 공영주차·관광 통계)는 경주 전용 신호다.
+    area_demand = await get_area_demand_signal(candidate_facility, arrival_dt) if is_public_region else None
     scoring_mode = (
         "measured_rules" if measured_congestion is not None
         else (
@@ -178,7 +220,8 @@ async def calculate_spot_score(
     # 종전 동작 그대로다(industry_baseline.py 주석 참조).
     baseline_congestion = None
     baseline_wait = None
-    if scoring_mode == "degraded_rules":
+    if scoring_mode == "degraded_rules" and is_public_region:
+        # 업종 기준선은 경주 혼잡 로그의 모집단이다 — 다른 지역 후보에 얹지 않는다.
         baseline_congestion = await get_industry_baseline_congestion(candidate_facility["type"])
         if baseline_congestion is not None:
             baseline_wait = await calculate_predicted_wait_time(
@@ -215,6 +258,12 @@ async def calculate_spot_score(
                 ranking_congestion = max(0.0, min(1.0, float(estimate["level"])))
             except (KeyError, TypeError, ValueError):
                 ranking_congestion = None
+    # 구역 근거: 도착 시각 단계가 그 눈금의 가장 붐비는 단계(seoul_congest_4 의 '붐빔')면 '이미 붐빈다' 로
+    # 본다 — 기존 컷오프 강등(spot/ranking.py)을 그대로 타게 값만 컷오프 이상으로 올린다(시간비용은 그대로).
+    if zone_arrival is not None and predicted_congestion is not None:
+        top_band = TOP_BAND.get(str(zone_arrival.level_scale or ""))
+        if top_band is not None and zone_arrival.band == top_band:
+            ranking_congestion = max(predicted_congestion, CROWDED_EVIDENCE_CUTOFF)
 
     total_time = travel_time_min + (ranking_wait or 0.0) + area_penalty + (baseline_wait or 0.0)
     time_cost = min(1.0, total_time / 60.0)
@@ -229,9 +278,16 @@ async def calculate_spot_score(
         relief_term = None
         incentive = INCENTIVE_COUPON_SHARE * coupon_term
     else:
+        relief_origin = original_congestion_level
+        if zone_arrival is not None and origin_zone_evidence is not None:
+            # 구역 근거의 재배치 기여는 '같은 도착 시각의 출발지' 와 비교한다 — 머물렀다면 그 시각에 출발지가
+            # 얼마나 붐볐을지(반사실). 같은 구역이면 정확히 0 이다. 출발지가 그 시각을 말할 수 없으면 종전 기준선.
+            origin_arrival = zone_arrival_level(origin_zone_evidence, arrival_dt, wall_now=zone_wall_now)
+            if origin_arrival is not None:
+                relief_origin = origin_arrival.level
         relief_term = (
-            max(0.0, min(1.0, original_congestion_level - predicted_congestion))
-            if original_congestion_level is not None else None
+            max(0.0, min(1.0, relief_origin - predicted_congestion))
+            if relief_origin is not None else None
         )
         relief_value = relief_term or 0.0
         incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1.0 - INCENTIVE_COUPON_SHARE) * relief_value
@@ -246,51 +302,76 @@ async def calculate_spot_score(
     normalized_score = (spot_score + W2) / (W1 + W2 + W3)
     final_score = round(max(0.0, min(1.0, normalized_score)), 3)
 
-    return SPOTScoreResult(
-        score=final_score,
-        breakdown={
-            "preference": round(preference_sim, 3),
-            "tourapi_related_rank": candidate_facility.get("tourapi_related_rank"),
-            "tourapi_related_prior": round(related_prior, 4) if related_prior is not None else None,
-            "wait_time": predicted_wait,
-            "travel_time": travel_time_min,
-            "travel_distance_m": travel_distance_m,
-            "travel_source": travel_source or "estimated",
-            "ranking_wait_time": ranking_wait,
-            # 정렬이 '이미 붐비는 것이 확인된 후보' 를 가려내는 데 쓰는 혼잡도(spot/ranking.py 의
-            # CROWDED_EVIDENCE_CUTOFF). 실측이면 실측, 모델이면 예측(= 시간비용을 만든 값),
-            # area_stats_rules 면 화면의 '추정'(위 4-2 — 시간비용에는 들어가지 않는다).
-            # **추가만** 하는 키다. 웹 recToSpot 이 그대로 읽어 compareSpot 이 같은 강등을 한다.
-            "ranking_congestion": ranking_congestion,
-            # 업종 모집단 기준선(근거 없는 후보 전용). **이 시설의 대기가 아니다** — 그래서
-            # wait_time/ranking_wait_time 과 섞지 않고 별도 키로 둔다. 기준선이 없으면 None.
-            "industry_baseline_congestion": (
-                round(baseline_congestion, 3) if baseline_congestion is not None else None
-            ),
-            "industry_baseline_wait_time": baseline_wait,
-            "congestion_input_source": prediction_source,
-            "incentive": round(incentive, 3),
-            # 인센티브 구성 성분(추천 사유·시뮬레이터 설명용): 쿠폰강도 / 수요 재배치 기여
-            "incentive_coupon": round(coupon_term, 3),
-            "incentive_relief": round(relief_term, 3) if relief_term is not None else None,
-            # 행사 혼잡 보정(A4) — 프런트 배지·투명성 표기용. 보정 없으면 0 / None.
-            "event_boost": round(event_boost, 3),
-            "event_title": event_title,
-            # 관광공사 30일 일별 상대 전망. None이면 미승인/미매칭이며 실시간 실측으로 표시하면 안 된다.
-            "tourapi_concentration_prior": round(tourapi_prior, 3) if tourapi_prior is not None else None,
-            # 공영주차·관광 통계 기반의 '주변 지역 수요'. 매장 내부 혼잡/대기시간과 분리한다.
-            "area_demand_level": (area_demand or {}).get("level"),
-            "area_demand_mode": (area_demand or {}).get("mode"),
-            "area_demand_confidence": (area_demand or {}).get("confidence"),
-            "area_demand_sources": (area_demand or {}).get("sources", []),
-            "area_demand_observed_at": (area_demand or {}).get("observed_at"),
-            "area_demand_radius_m": (area_demand or {}).get("radius_m"),
-            "area_demand_components": (area_demand or {}).get("components", {}),
-            "area_demand_parking_evidence": (area_demand or {}).get("parking_evidence"),
-            "area_demand_tourism_evidence": (area_demand or {}).get("tourism_evidence"),
-            "area_demand_penalty_minutes": round(area_penalty, 2),
-            "scoring_mode": scoring_mode,
-            "model_version": model_info.get("version"),
-            "prediction_source": prediction_source,
-        }
-    )
+    breakdown = {
+        "preference": round(preference_sim, 3),
+        "tourapi_related_rank": candidate_facility.get("tourapi_related_rank"),
+        "tourapi_related_prior": round(related_prior, 4) if related_prior is not None else None,
+        "wait_time": predicted_wait,
+        "travel_time": travel_time_min,
+        "travel_distance_m": travel_distance_m,
+        "travel_source": travel_source or "estimated",
+        "ranking_wait_time": ranking_wait,
+        # 정렬이 '이미 붐비는 것이 확인된 후보' 를 가려내는 데 쓰는 혼잡도(spot/ranking.py 의
+        # CROWDED_EVIDENCE_CUTOFF). 실측이면 실측, 모델이면 예측(= 시간비용을 만든 값),
+        # area_stats_rules 면 화면의 '추정'(위 4-2 — 시간비용에는 들어가지 않는다).
+        # **추가만** 하는 키다. 웹 recToSpot 이 그대로 읽어 compareSpot 이 같은 강등을 한다.
+        "ranking_congestion": ranking_congestion,
+        # 업종 모집단 기준선(근거 없는 후보 전용). **이 시설의 대기가 아니다** — 그래서
+        # wait_time/ranking_wait_time 과 섞지 않고 별도 키로 둔다. 기준선이 없으면 None.
+        "industry_baseline_congestion": (
+            round(baseline_congestion, 3) if baseline_congestion is not None else None
+        ),
+        "industry_baseline_wait_time": baseline_wait,
+        "congestion_input_source": prediction_source,
+        "incentive": round(incentive, 3),
+        # 인센티브 구성 성분(추천 사유·시뮬레이터 설명용): 쿠폰강도 / 수요 재배치 기여
+        "incentive_coupon": round(coupon_term, 3),
+        "incentive_relief": round(relief_term, 3) if relief_term is not None else None,
+        # 행사 혼잡 보정(A4) — 프런트 배지·투명성 표기용. 보정 없으면 0 / None.
+        "event_boost": round(event_boost, 3),
+        "event_title": event_title,
+        # 관광공사 30일 일별 상대 전망. None이면 미승인/미매칭이며 실시간 실측으로 표시하면 안 된다.
+        "tourapi_concentration_prior": round(tourapi_prior, 3) if tourapi_prior is not None else None,
+        # 공영주차·관광 통계 기반의 '주변 지역 수요'. 매장 내부 혼잡/대기시간과 분리한다.
+        "area_demand_level": (area_demand or {}).get("level"),
+        "area_demand_mode": (area_demand or {}).get("mode"),
+        "area_demand_confidence": (area_demand or {}).get("confidence"),
+        "area_demand_sources": (area_demand or {}).get("sources", []),
+        "area_demand_observed_at": (area_demand or {}).get("observed_at"),
+        "area_demand_radius_m": (area_demand or {}).get("radius_m"),
+        "area_demand_components": (area_demand or {}).get("components", {}),
+        "area_demand_parking_evidence": (area_demand or {}).get("parking_evidence"),
+        "area_demand_tourism_evidence": (area_demand or {}).get("tourism_evidence"),
+        "area_demand_penalty_minutes": round(area_penalty, 2),
+        "scoring_mode": scoring_mode,
+        # 경주 모델은 다른 지역 점수에 쓰이지 않는다 — 버전을 붙이면 쓴 것처럼 읽힌다.
+        "model_version": model_info.get("version") if is_public_region else None,
+        "prediction_source": prediction_source,
+    }
+    if is_zone_evidence:
+        # 구역 근거 후보에만 **추가**되는 키(경주 breakdown 의 키 집합은 그대로다).
+        breakdown.update(_zone_breakdown(congestion_evidence, zone_arrival))
+    return SPOTScoreResult(score=final_score, breakdown=breakdown)
+
+
+def _zone_breakdown(evidence: dict, arrival) -> dict:
+    """구역 근거 설명 키. 도착 시각을 말할 수 없으면(낡은 관측) basis·도착 단계는 None 이고 고른 구역의 관측만 싣는다."""
+    zones = {str(z.get("id")): z for z in (evidence.get("zones") or []) if isinstance(z, dict)}
+    zone_id = arrival.zone_id if arrival is not None else evidence.get("zone_id")
+    zone = zones.get(str(zone_id)) or {}
+    partial = zone_evidence_is_partial(evidence)
+    return {
+        "congestion_arrival_basis": arrival.basis if arrival is not None else None,
+        "zone_id": zone_id,
+        "zone_name": zone.get("name"),
+        "zone_level_band": zone.get("level_band"),
+        "zone_arrival_level_band": arrival.band if arrival is not None else None,
+        "zone_observed_at": zone.get("observed_at"),
+        "zone_forecast_target_at": arrival.forecast_target_at if arrival is not None else None,
+        "zone_usual_comparison": zone.get("usual_comparison"),
+        # 이 구역 관측이 '지금'(30분 안)인가 — 아니면 화면은 지금 단계로 말하지 않는다(마지막 관측으로만).
+        # 매핑된 구역 일부가 비어 있거나(zone_partial) 30분을 넘긴 구역이 하나라도 있으면 시설의 '지금' 을 말하지 않는다.
+        "zone_is_current": bool(zone.get("is_current")) and not partial
+        and all(bool(z.get("is_current")) for z in zones.values()),
+        "zone_partial": partial,
+    }

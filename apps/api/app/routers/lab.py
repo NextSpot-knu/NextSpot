@@ -21,9 +21,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.region import resolve_request_region
 from app.core.supabase import supabase_admin, get_current_user
 from app.routers.recommendations import (
     VECTOR_ACTION_PENALIZE,
@@ -255,6 +256,7 @@ async def count_pending(current_user: dict = Depends(get_current_user)):
 async def answer_reason(
     feedback_id: str,
     req: ReasonRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """거절 사유를 확정한다 — answered 로 전환하고, long_term 사유일 때만 벡터를 -5% 정확히 1회.
@@ -284,7 +286,9 @@ async def answer_reason(
     if result["should_learn_vector"]:
         # 학습 슬롯은 이미 선점됐다 — 여기서 실제로 벡터를 움직인다(행당 생애 1회).
         # 시설 카테고리 벡터가 필요해 추천 이력을 다시 읽는다(소유권도 함께 재확인).
-        _rec, facility = await resolve_feedback_target(row["recommendation_id"], current_user)
+        # 추천 시설은 요청 지역 안에서만 찾는다(헤더 없으면 I/O 없이 경주 — S3). 서울 추천은 개발자 본인 것뿐이다.
+        region = await resolve_request_region(request, current_user)
+        _rec, facility = await resolve_feedback_target(row["recommendation_id"], current_user, region=region)
         updated_vector = await apply_feedback_vector_learning(
             user_id=user_id, facility=facility, vector_action=VECTOR_ACTION_PENALIZE
         )
@@ -313,6 +317,7 @@ async def answer_reason(
 async def classify_reason(
     feedback_id: str,
     req: ClassifyReasonRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """자유 텍스트 거절 사유를 LLM 으로 기존 카테고리에 매핑하고, 성공하면 **기존 사유 적용 경로를 그대로** 탄다.
@@ -369,7 +374,9 @@ async def classify_reason(
 
     updated_vector = False
     if result["should_learn_vector"]:
-        _rec, facility = await resolve_feedback_target(row["recommendation_id"], current_user)
+        # 추천 시설은 요청 지역 안에서만 찾는다(헤더 없으면 I/O 없이 경주 — S3). 서울 추천은 개발자 본인 것뿐이다.
+        region = await resolve_request_region(request, current_user)
+        _rec, facility = await resolve_feedback_target(row["recommendation_id"], current_user, region=region)
         updated_vector = await apply_feedback_vector_learning(
             user_id=user_id, facility=facility, vector_action=VECTOR_ACTION_PENALIZE
         )

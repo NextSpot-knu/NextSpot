@@ -43,6 +43,11 @@ import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, sessionAreaDemandCu
 import { areaDemandDisclosure } from "@/lib/areaDemandPresentation";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { REGION } from "@/lib/region";
+import { useRegion, useRegionGeo } from "@/lib/regionContext";
+import { regionCacheKey } from "@/lib/regionPacks";
+import { getInternalRegionZones } from "@/lib/api-client";
+import { nearestCurrentZone, zoneBandAt, type AreaNowZone } from "@/lib/areaNow";
+import { zoneBandGrade, zoneBandKey } from "@/lib/zoneEvidence";
 import { fitWholeLines } from "@/lib/wholeLines";
 import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
@@ -72,7 +77,7 @@ import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { SwipeDots } from "@/components/waiting/SwipeDots";
 import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
-import { boardCrowdMembers, boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
+import { boardCrowdView, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
 import { splitHeadlineValue } from "@/lib/headlineSplit";
 // '혼잡' 경계는 운영자 설정(지도·대안·코스와 같은 눈금) — 이 보드만 0.75 로 등급을 매기면 같은 곳이 화면마다 다른 등급이 된다.
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
@@ -103,7 +108,8 @@ const BOARD_FILLS_WEAKER_TIERS = false;
 // 백그라운드로 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신
 // 최근 결과를 유지한다(백엔드 지연·재시작 창에서 심사위원이 빈손을 보지 않게).
 // v2: 카드가 대기 추정에 쓰는 필드(capacity·rankingWait·baselineWait)가 늘어 옛 캐시는 버린다.
-const BOARD_CACHE_KEY = "nextspot_waiting_board_v2";
+// 내부 검증 지역은 같은 이름에 지역 접미사를 붙인 키를 쓴다(lib/regionPacks regionCacheKey — 경주는 이 키 그대로).
+const BOARD_CACHE_BASE_KEY = "nextspot_waiting_board_v2";
 const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** 작은 사진(48px)에는 출처 줄을 달 자리가 없다 — 출처를 따로 적어야 하는 Wikimedia·경주시 사진은 빼고 TourAPI 사진만
@@ -642,6 +648,10 @@ export default function WaitingBoardPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
   const busyAt = useBusyThreshold();
+  // 지금 지역(S3) — 경주는 GYEONGJU_PACK(REGION 값 그대로)이라 이 화면의 요청·캐시 키·문구가 오늘과 같다.
+  // 지역이 바뀌면 화면이 통째로 다시 마운트되므로(lib/regionContext) 마운트 1회 캡처가 그대로 맞다.
+  const { pack, isPublic } = useRegion();
+  const BOARD_CACHE_KEY = regionCacheKey(BOARD_CACHE_BASE_KEY, pack.id);
 
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -675,7 +685,7 @@ export default function WaitingBoardPage() {
   useEffect(() => { localeRef.current = locale; }, [locale]);
 
   // main 과 동일한 기본 좌표 폴백(경주 황리단길 중심) — 지역 단일 소스(REGION)에서 가져온다.
-  const userLocation = { lat: REGION.center.lat, lng: REGION.center.lng };
+  const userLocation = { lat: pack.center.lat, lng: pack.center.lng };
 
   // ── 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)를 위한 보조 피드 ──────────────
   // 추천 응답의 breakdown.waitTime 은 프로덕션에서 거의 항상 null 이라(검증 모델 미가동)
@@ -727,6 +737,8 @@ export default function WaitingBoardPage() {
   const areaCurve = curveForBase(areaCurves, baseKey);
 
   useEffect(() => {
+    // 추정 피드는 경주 공영주차·관광 통계로 만든 값이다 — 그 기능이 꺼진 지역(내부 검증 지역)에서는 묻지 않는다.
+    if (!pack.features.estimates) return;
     let alive = true;
     void (async () => {
       try {
@@ -743,11 +755,28 @@ export default function WaitingBoardPage() {
       } catch { /* 추정 피드 없음 — 아래 폴백(권역 수요·상대지수)으로 계산한다 */ }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [pack.features.estimates]);
+
+  // 내부 검증 지역의 '지금 이 일대' — 지역 중심에서 가장 가까운 지금 구역(lib/areaNow nearestCurrentZone). 경주는 묻지 않는다.
+  const [areaZone, setAreaZone] = useState<AreaNowZone | null>(null);
+  // 묶음 객체가 아니라 id · 중심 값에 건다 — 재확인에서 장소 수만 바뀌어도 구역을 다시 묻지 않게(useRegionGeo).
+  const geo = useRegionGeo();
+  const zoneLayer = pack.features.zoneLayer;
+  useEffect(() => {
+    if (!zoneLayer) return;
+    let alive = true;
+    void getInternalRegionZones(geo.id, { timeoutMs: 8000 })
+      .then((res) => {
+        if (alive) setAreaZone(nearestCurrentZone(Array.isArray(res?.zones) ? res.zones : [], geo.center));
+      })
+      .catch(() => { /* 구역 정보 없음 — 한 줄을 그리지 않는다 */ });
+    return () => { alive = false; };
+  }, [zoneLayer, geo]);
 
   useEffect(() => {
     // 저장된 프리셋을 읽기 전의 'now' 로는 묻지 않는다(위 presetHydrated 주석).
-    if (!presetHydrated) return;
+    // 권역 수요 전망은 경주 공영주차 데이터라, 그 기능이 꺼진 지역(내부 검증 지역)에서는 묻지 않는다(내장 곡선만 쓴다).
+    if (!presetHydrated || !pack.features.areaDemandForecast) return;
     let alive = true;
     const controller = new AbortController();
     void (async () => {
@@ -761,7 +790,7 @@ export default function WaitingBoardPage() {
       setAreaCurves((prev) => mergeAreaCurve(prev, baseKey, curve));
     })();
     return () => { alive = false; controller.abort(); };
-  }, [baseAtMs, baseKey, presetHydrated]);
+  }, [baseAtMs, baseKey, presetHydrated, pack.features.areaDemandForecast]);
 
   // 카드 한 장의 세 숫자. 렌더 중 여러 번 불리므로 순수 계산만 한다(네트워크 없음).
   const waitOf = useCallback(
@@ -821,15 +850,15 @@ export default function WaitingBoardPage() {
       setSectors(cached.sectors);
       setLoading(false); // 이후 fetchBoard 가 백그라운드로 갱신
     } catch { /* 캐시 손상·저장소 차단 — 평소 로딩 경로 그대로 */ }
-  }, []);
+  }, [BOARD_CACHE_KEY]);
 
   // 누른 장소의 좌표·종류로 대안을 묻는다(I25) — 그 장소 둘레의 같은 종류를, 그 장소에서 걷는 시간으로.
   // 예전에는 어느 카드든 지역 중심 좌표만 넘겨 첨성대를 눌러도 피자집을 눌러도 같은 대안이 나왔다.
   const goToDetail = useCallback(
     (row: BoardRow) => {
-      router.push(buildRecommendHref(row));
+      router.push(buildRecommendHref(row, { pack }));
     },
-    [router]
+    [router, pack]
   );
 
   // continued: 같은 run 의 자동 재시도만 넘긴다. 없으면 새 run 을 열고 이전 run 을 끊는다.
@@ -1059,13 +1088,34 @@ export default function WaitingBoardPage() {
       gradedCalmHours.push(!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) ? est.calmHour : null);
     }
   }
-  const crowdSpread = boardCrowdSpread(uniformLevels, busyAt);
-  const crowdMembers = boardCrowdMembers(uniformLevels, busyAt);
+  // 줄의 점 색은 말하는 단계와 같은 등급색이다(카드 · 코스 칩과 같은 표 — lib/zoneEvidence zoneBandGrade). 한 관측을
+  // 한 단어 · 한 색으로(DESIGN_PRINCIPLES 7) — '혼잡' 옆에 한산 색 점을 두지 않는다.
+  const areaZoneView = (() => {
+    if (!areaZone) return null;
+    const band = assumedPreset === "now" ? areaZone.levelBand : baseAtMs === null ? null : zoneBandAt(areaZone, baseAtMs);
+    const key = zoneBandKey(band);
+    const grade = zoneBandGrade(band);
+    if (!key || !grade) return null;
+    const text = assumedPreset === "now"
+      ? t("region.areaNow", { zone: areaZone.zoneName, label: t(key) })
+      : t("region.areaAt", {
+          zone: areaZone.zoneName,
+          time: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now"),
+          label: t(key),
+        });
+    return { text, grade };
+  })();
+  const areaZoneLine = areaZoneView?.text ?? null;
+  // 내부 검증 지역은 경주 한 줄·경주 범례를 쓰지 않고, 구역 줄이 있을 때만 카드 칩을 접는다(lib/boardOrder boardCrowdView).
+  // 경주(isPublic)는 boardCrowdSpread·boardCrowdMembers 그대로다.
+  const boardCrowd = boardCrowdView(uniformLevels, busyAt, { isPublic, zoneLineShown: !isPublic && areaZoneLine !== null });
+  const crowdSpread = boardCrowd.spread;
+  const crowdMembers = boardCrowd.members;
   const uniformRows = new Set(gradedRows.filter((_, i) => crowdMembers[i]));
   const uniformCalmHours = gradedCalmHours.filter((_, i) => crowdMembers[i]);
   // 한 줄을 따르는 카드가 모두 같은 '{h}시 이후 한산' 을 말하면 그 한 줄도 위로 옮긴다.
   const sharedCalmHour =
-    crowdSpread.uniform && uniformCalmHours.length > 0 && uniformCalmHours.every((h) => h !== null && h === uniformCalmHours[0])
+    boardCrowd.liftCalm && crowdSpread.uniform && uniformCalmHours.length > 0 && uniformCalmHours.every((h) => h !== null && h === uniformCalmHours[0])
       ? uniformCalmHours[0]
       : null;
   const displayOf = (row: BoardRow): CardDisplay => {
@@ -1117,7 +1167,7 @@ export default function WaitingBoardPage() {
             {/* 카드가 무엇을 보여주는지 한 줄로 먼저 말한다 — 판단 근거를 숨기지 않는 것이 이 보드의 계약. */}
             <p className="text-[11px] text-muk-soft/90 leading-relaxed">
               {crowdSpread.uniform
-                ? t("wait.legendUniform")
+                ? t(boardCrowd.legendUniformKey)
                 : showsAnyCalmLine ? t("wait.legend") : t("wait.legendArrival")}
             </p>
           </div>
@@ -1166,7 +1216,8 @@ export default function WaitingBoardPage() {
         </p>
 
         {/* 보드 전체가 한 등급이면 그 등급을 여기서 한 번만 말한다(I03) — 카드에는 걷는 시간이 남는다. */}
-        {crowdSpread.uniform && crowdSpread.grade && (
+        {/* 경주 문구다 — 내부 검증 지역에서는 그리지 않고 아래 구역 줄이 대신 말한다(boardCrowd.areaLine). */}
+        {boardCrowd.areaLine && crowdSpread.grade && (
           <p data-testid="waiting-area-line" className="flex items-center gap-2 px-1 text-sm font-bold text-muk">
             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${crowdKeyDot(crowdSpread.grade)}`} aria-hidden />
             <span>
@@ -1179,6 +1230,15 @@ export default function WaitingBoardPage() {
                   })}
               {sharedCalmHour !== null && ` · ${t("wait.calmAt", { h: sharedCalmHour })}`}
             </span>
+          </p>
+        )}
+
+        {/* 내부 검증 지역: 지역 중심에서 가장 가까운 지금 구역의 단계(구역 실측). 가정 시각이면 그 시각 ±30분의 구역 예보만 —
+            없으면 지금 단계로 대신 말하지 않고 줄을 그리지 않는다. 경주에는 areaZone 이 없다. */}
+        {!isPublic && areaZoneView && (
+          <p data-testid="waiting-zone-line" data-grade={areaZoneView.grade} className="flex items-center gap-2 px-1 text-sm font-bold text-muk">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${crowdKeyDot(areaZoneView.grade)}`} aria-hidden />
+            <span>{areaZoneLine}</span>
           </p>
         )}
 

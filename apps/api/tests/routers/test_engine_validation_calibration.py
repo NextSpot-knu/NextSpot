@@ -11,10 +11,16 @@ from fastapi.testclient import TestClient
 
 from app.routers import engine_validation_calibration as router_module
 from app.services import congestion_calibration_service as cal
-from tests.conftest import admin_headers
+from tests.conftest import role_headers
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
 
 NOW = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
 _ROW_CAP = 1000
+_REAL_BUILD_REPORT = cal.build_report
 
 
 class _Response:
@@ -112,6 +118,13 @@ def _install(monkeypatch, *, seoul=(), gyeongju=None, error=None):
     tables = {cal.TABLE: list(seoul), **(gyeongju or {"area_demand_snapshots": [], "area_demand_snapshot_lots": []})}
     monkeypatch.setattr(cal, "supabase_admin", _Client(tables, error))
     cal.reset_caches()
+    # 라우터는 build_report(days) 를 실제 현재 시각으로 부른다. 표본은 고정 NOW 로 만들었으니 날짜가 지나면
+    # 실제 시계의 28일 창 밖으로 밀려 결과가 바뀐다(2026-11-02 에 rank_gate 가 'insufficient' 로 깨졌다).
+    # 라우트 경로도 NOW 로 고정한다 — 직접 now= 를 넘기는 호출은 그대로다.
+    monkeypatch.setattr(
+        cal, "build_report",
+        lambda days=cal.DEFAULT_WINDOW_DAYS, *, now=None: _REAL_BUILD_REPORT(days, now=now or NOW),
+    )
 
 
 def _client():
@@ -129,7 +142,7 @@ def test_requires_admin():
 
 def test_days_is_bounded():
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration?days=29", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration?days=29", headers=developer_headers()
     )
     assert response.status_code == 422
 
@@ -142,7 +155,7 @@ def test_missing_table_is_not_migrated_not_500(monkeypatch):
         "{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}"
     ))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
 
     assert response.status_code == 200
@@ -157,7 +170,7 @@ def test_missing_column_is_not_mistaken_for_a_missing_table(monkeypatch):
         "{'code': '42703', 'message': 'column seoul_citydata_snapshots.parking_level does not exist'}"
     ))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
 
     assert response.status_code == 503
@@ -214,7 +227,7 @@ def test_window_larger_than_postgrest_cap_is_paged(monkeypatch):
 def test_unexpected_failure_is_503(monkeypatch):
     _install(monkeypatch, error=RuntimeError("connection reset"))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration", headers=developer_headers()
     )
     assert response.status_code == 503
 
@@ -225,14 +238,16 @@ def test_unexpected_failure_is_503(monkeypatch):
 def test_endpoint_returns_the_agreed_contract(monkeypatch):
     _install(monkeypatch, seoul=_seoul_rows(days=6, per_day=40), gyeongju=_gyeongju_tables(100))
     response = _client().get(
-        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=admin_headers()
+        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=developer_headers()
     )
 
     assert response.status_code == 200
     body = response.json()
+    # S4: 순위 관문(보고 전용)이 최상위 키 하나로 붙었다 — 여전히 정확한 집합이다. requirement 는 그대로다
+    # (관문 기준은 rank_gate 안에 산다).
     assert set(body) == {
         "state", "applied", "places", "window_days", "generated_at", "sample", "requirement",
-        "curve", "quality", "hour_shape", "gyeongju_effect", "reason",
+        "curve", "quality", "hour_shape", "gyeongju_effect", "reason", "rank_gate",
     }
     assert body["places"] == ["명동 관광특구", "동대문 관광특구"]
     assert body["window_days"] == 28
@@ -250,3 +265,36 @@ def test_endpoint_returns_the_agreed_contract(monkeypatch):
     assert set(body["hour_shape"]["seoul"][0]) >= {"hour", "weekday_mean", "weekend_mean", "n"}
     assert set(body["gyeongju_effect"]) == {"samples", "median_shift"}
     assert set(body["gyeongju_effect"]["samples"][0]) == {"raw", "calibrated"}
+    gate = body["rank_gate"]
+    assert set(gate) == {
+        "status", "enforced", "holdout_spearman", "pooled_spearman", "holdout_sites", "anomaly_rho",
+        "anomaly_rho_se", "anomaly_rho_ci_low", "anomaly_ci_method",
+        "min_anomaly_rho", "anomaly_slot_minutes", "min_holdout_spearman",
+        "mae_constant", "mae_calibrated", "beats_constant", "holdout_samples", "holdout_days",
+        "min_holdout_samples", "min_holdout_days", "definition", "reason",
+    }
+    # 6일 창 → 홀드아웃 2일 < 5일. 적용(applied=True)과 무관하게 관문은 판정하지 않는다 — 보고 전용이다.
+    assert gate["enforced"] is False and gate["status"] == "insufficient"
+    assert body["applied"] is True
+
+
+def test_rank_gate_is_null_when_there_is_nothing_to_judge(monkeypatch):
+    _install(monkeypatch, error=Exception(
+        "{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}"
+    ))
+    assert cal.build_report(28, now=NOW)["rank_gate"] is None
+
+    _install(monkeypatch, seoul=[])
+    assert cal.build_report(28, now=NOW)["rank_gate"] is None
+
+
+def test_rank_gate_judges_a_long_enough_window(monkeypatch):
+    _install(monkeypatch, seoul=_seoul_rows(days=15, per_day=40))
+    response = _client().get(
+        "/api/v1/admin/engine-validation/seoul/calibration?days=28", headers=developer_headers()
+    )
+
+    assert response.status_code == 200
+    gate = response.json()["rank_gate"]
+    assert gate["status"] == "pass" and gate["holdout_days"] == 5
+    assert gate["holdout_spearman"] == 1.0 and gate["beats_constant"] is True

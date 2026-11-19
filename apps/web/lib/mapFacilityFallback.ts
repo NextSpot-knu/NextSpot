@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAllPages } from '@/lib/adminLoadState';
 import { chunk } from '@/lib/adminMetricState';
+import { GYEONGJU_PACK, type RegionPack } from '@/lib/regionPacks';
 
 /**
  * /main 지도의 비상 경로 — 백엔드 `/api/v1/infrastructures` 가 실패하거나 4초를 넘길 때만 돈다.
@@ -78,10 +79,24 @@ export function cleanGalleryImages(value: unknown): string[] | null {
   return urls.length > 0 ? urls : null;
 }
 
+/** 이 지역에서 Supabase 직접 읽기 폴백이 꺼져 있다(내부 검증 지역 — 브라우저는 공개 지역 행만 읽힌다). */
+export class MapFallbackDisabledError extends Error {
+  constructor(regionId: string) {
+    super(`map supabase fallback disabled for region ${regionId}`);
+    this.name = 'MapFallbackDisabledError';
+  }
+}
+
+/**
+ * @param pack 지역 묶음 — 기본은 경주(오늘과 같다). Supabase 직접 읽기 폴백이 꺼진 지역(내부 검증 지역)이면 아무것도
+ *   읽지 않고 MapFallbackDisabledError 를 던진다(호출부의 기존 catch 가 '다시 시도' 안내를 맡는다).
+ */
 export async function loadMapFacilitiesFromSupabase(
   client: SupabaseClient,
   bounds: MapBounds,
+  pack: Pick<RegionPack, 'id' | 'features'> = GYEONGJU_PACK,
 ): Promise<MapFacilityFallbackResult> {
+  if (!pack.features.supabaseFallback) throw new MapFallbackDisabledError(pack.id);
   // 시설 실패는 throw — 호출부의 기존 catch 가 '캐시도 없을 때만 다시 시도 안내' 를 맡는다.
   const rows = await fetchAllPages<MapFallbackFacilityRow>(
     async (from, to) => {

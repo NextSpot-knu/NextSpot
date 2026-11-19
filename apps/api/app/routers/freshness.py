@@ -17,6 +17,7 @@ import structlog
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import supabase_admin
 
 logger = structlog.get_logger()
@@ -55,14 +56,14 @@ async def get_freshness():
 
     # ② 폴백: TourAPI 적재분(contentid 있는 행)의 updated_at 최대값 — 정확한 배치 시각은 아니라 'estimate'.
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("facilities")
-            .select("updated_at")
-            .not_.is_("contentid", "null")
-            .order("updated_at", desc=True)
-            .limit(1)
-            .execute
-        )
+        # 공개 화면의 신선도 — 경주 적재분만 본다(서울 적재가 '마지막 동기화' 를 당기지 않게).
+        def _read_latest(with_region: bool):
+            query = supabase_admin.table("facilities").select("updated_at")
+            if with_region:
+                query = apply_region(query, PUBLIC_REGION)
+            return query.not_.is_("contentid", "null").order("updated_at", desc=True).limit(1).execute()
+
+        res = await arun_region_scoped(_read_latest, region=PUBLIC_REGION)
         if res.data and res.data[0].get("updated_at"):
             return FreshnessResponse(
                 last_tourapi_sync=res.data[0]["updated_at"],

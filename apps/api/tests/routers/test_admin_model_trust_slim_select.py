@@ -37,7 +37,7 @@ class _Query:
     def eq(self, *_a, **_k):
         return self
 
-    gte = order = limit = eq
+    gte = order = limit = is_ = eq
 
     def range(self, start, end):
         self._range = (start, end)
@@ -184,3 +184,277 @@ def test_rejected_json_path_select_falls_back_to_whole_snapshot(client):
     body = res.json()
     body.pop("since", None)
     assert body == expected
+
+
+# ── 경주가 아닌 추천(개발자의 서울 테스트베드)은 관제 숫자에 섞이지 않는다 ────────────────────────────
+
+
+class _FilteringQuery(_Query):
+    """eq · is_ · gte 를 실제로 적용한다(`열->>키` JSON 경로 포함). 나머지는 _Query 와 같다.
+
+    방문 결과 → 추천 임베드(`recommendation:recommendations!inner(id)`)와 그 칸의 필터(`recommendation.열->>키`)도
+    흉내 낸다 — !inner 라 필터에 걸린 자식이면 행째 빠진다. 기록: 표·select·필터(fake.queries).
+    """
+
+    def __init__(self, rows, selects, table, fake=None):
+        super().__init__(rows, selects, table)
+        self._filters: list[tuple[str, str, object]] = []
+        self._columns = "*"
+        self._fake = fake
+        self._orders: list[str] = []
+        if fake is not None:
+            fake.queries.append(self)
+
+    @staticmethod
+    def _cell(row, column):
+        if "->>" in column:
+            head, key = column.split("->>", 1)
+            value = row.get(head)
+            return value.get(key) if isinstance(value, dict) else None
+        return row.get(column)
+
+    def select(self, columns):
+        self._columns = columns
+        return super().select(columns)
+
+    def eq(self, column, value):
+        self._filters.append(("eq", column, value))
+        return self
+
+    def is_(self, column, value):
+        self._filters.append(("is", column, value))
+        return self
+
+    def gte(self, column, value):
+        self._filters.append(("gte", column, value))
+        return self
+
+    def order(self, column, **_k):
+        self._orders.append(column)
+        return self
+
+    limit = _Query.eq
+
+    def _embedded(self) -> bool:
+        return self._table == "recommendation_outcomes" and "recommendations!inner" in self._columns
+
+    def execute(self):
+        kept = []
+        recs = {r.get("id"): r for r in (self._fake.tables.get("recommendations", []) if self._fake else [])}
+        for source in self._rows:
+            row = dict(source)
+            if self._embedded():
+                child = recs.get(row.get("recommendation_id"))
+                if child is None:
+                    continue
+                row["recommendation"] = child
+            ok = True
+            for op, column, value in self._filters:
+                target = row
+                if column.startswith("recommendation.") and self._embedded():
+                    target, column = row["recommendation"], column.split(".", 1)[1]
+                cell = self._cell(target, column)
+                if op == "eq" and cell != value:
+                    ok = False
+                if op == "is" and value == "null" and cell is not None:
+                    ok = False
+                if op == "gte" and cell is not None and str(cell) < str(value):
+                    ok = False  # 시각이 없는 행(테스트 단순화)은 남긴다 — 걸린 필터는 queries 로 따로 본다
+            if ok:
+                if self._embedded():
+                    row["recommendation"] = {"id": row["recommendation"].get("id")}
+                kept.append(row)
+        if self._range is not None:
+            kept = kept[self._range[0]:self._range[1] + 1]
+        return _Resp(kept[:1000])
+
+
+class _FilteringFake(_Fake):
+    def __init__(self, tables):
+        super().__init__(tables)
+        self.queries: list[_FilteringQuery] = []
+
+    def table(self, name):
+        return _FilteringQuery(self.tables.get(name, []), self.selects, name, fake=self)
+
+
+def _trust(client, recs, outcomes):
+    fake = _FilteringFake({"recommendations": recs, "model_registry": [], "recommendation_outcomes": outcomes,
+                           "congestion_logs": [], "facilities": []})
+    with patch("app.routers.admin.supabase_admin", new=fake), \
+            patch("app.services.predict_service.get_model_info", return_value=dict(_MODEL_INFO)):
+        res = client.get("/api/v1/admin/model-trust?days=30", headers=admin_headers())
+    assert res.status_code == 200, res.text
+    body = res.json()
+    body.pop("since", None)
+    return body
+
+
+def test_internal_region_recommendations_and_outcomes_do_not_move_gyeongju_numbers(client):
+    now = datetime.now(timezone.utc)
+    snaps = _snapshots(now)
+    gyeongju = [{"id": f"g{i}", "created_at": now.isoformat(), "source": "spot", "recommendation_snapshot": s}
+                for i, s in enumerate(snaps)]
+    gj_outcomes = [{"recommendation_id": "g0", "arrival_confirmed_at": now.isoformat(), "rating": "up"}]
+    seoul_snap = {"rank": 1, "scoring_mode": "measured_rules", "region": "seoul",
+                  "congestion": {"level": 0.125, "source": "measured", "timestamp": now.isoformat(),
+                                 "evidence_tier": "zone_measured"},
+                  "tourapi_facts": {"operating_hours": "09:00-18:00"}, "open_status_at_arrival": "closed_confirmed"}
+    seoul = [{"id": f"s{i}", "created_at": now.isoformat(), "source": "spot", "recommendation_snapshot": dict(seoul_snap)}
+             for i in range(4)]
+    seoul_outcomes = [{"recommendation_id": f"s{i}", "arrival_confirmed_at": now.isoformat(), "rating": "up"}
+                      for i in range(4)]
+
+    baseline = _trust(client, gyeongju, gj_outcomes)
+    mixed = _trust(client, gyeongju + seoul, gj_outcomes + seoul_outcomes)
+
+    assert mixed == baseline
+    assert mixed["funnel"]["exposures"] == len(gyeongju)
+    assert mixed["funnel"]["arrivals"] == 1
+    assert "measured_rules" not in mixed["guardrails"]["scoring_modes"]
+
+
+def test_internal_region_rows_are_dropped_on_the_whole_snapshot_fallback_too(client):
+    now = datetime.now(timezone.utc)
+    gyeongju = [{"id": f"g{i}", "created_at": now.isoformat(), "source": "spot", "recommendation_snapshot": s}
+                for i, s in enumerate(_snapshots(now))]
+    seoul = [{"id": "s0", "created_at": now.isoformat(),
+              "recommendation_snapshot": {"rank": 1, "scoring_mode": "measured_rules", "region": "seoul"}}]
+    expected = _trust(client, gyeongju, [])
+
+    class _RejectingFiltering(_FilteringFake):
+        def table(self, name):
+            query = super().table(name)
+            original_select = query.select
+
+            def select(columns):
+                if "->" in columns:
+                    raise RuntimeError("PGRST100 failed to parse select parameter")
+                return original_select(columns)
+
+            query.select = select
+            return query
+
+    fake = _RejectingFiltering({"recommendations": gyeongju + seoul, "model_registry": [],
+                                "recommendation_outcomes": [], "congestion_logs": [], "facilities": []})
+    with patch("app.routers.admin.supabase_admin", new=fake), \
+            patch("app.services.predict_service.get_model_info", return_value=dict(_MODEL_INFO)):
+        res = client.get("/api/v1/admin/model-trust?days=30", headers=admin_headers())
+    body = res.json()
+    body.pop("since", None)
+    assert body == expected
+
+
+def _seoul_and_gyeongju(now):
+    gyeongju = [{"id": f"g{i}", "created_at": now.isoformat(), "source": "spot", "recommendation_snapshot": s}
+                for i, s in enumerate(_snapshots(now))]
+    seoul = [{"id": f"s{i}", "created_at": now.isoformat(), "source": "spot",
+              "recommendation_snapshot": {"rank": 1, "scoring_mode": "measured_rules", "region": "seoul"}}
+             for i in range(3)]
+    gj_outcomes = [{"recommendation_id": "g0", "created_at": now.isoformat(),
+                    "arrival_confirmed_at": now.isoformat(), "rating": "up"}]
+    seoul_outcomes = [{"recommendation_id": f"s{i}", "created_at": now.isoformat(),
+                       "arrival_confirmed_at": now.isoformat(), "rating": "up"} for i in range(3)]
+    return gyeongju, seoul, gj_outcomes, seoul_outcomes
+
+
+def _run(client, fake):
+    with patch("app.routers.admin.supabase_admin", new=fake), \
+            patch("app.services.predict_service.get_model_info", return_value=dict(_MODEL_INFO)):
+        res = client.get("/api/v1/admin/model-trust?days=30", headers=admin_headers())
+    assert res.status_code == 200, res.text
+    body = res.json()
+    body.pop("since", None)
+    return body
+
+
+def test_internal_region_outcomes_are_excluded_in_the_outcome_query_without_an_unbounded_id_scan(client):
+    """서울 방문 결과는 방문 결과 조회 **안에서** 빠진다(추천 임베드의 지역 표시). 기간 없는 추천 id 전수 조회는 없다."""
+    now = datetime.now(timezone.utc)
+    gyeongju, seoul, gj_outcomes, seoul_outcomes = _seoul_and_gyeongju(now)
+    baseline = _trust(client, gyeongju, gj_outcomes)
+    fake = _FilteringFake({"recommendations": gyeongju + seoul, "model_registry": [],
+                           "recommendation_outcomes": gj_outcomes + seoul_outcomes,
+                           "congestion_logs": [], "facilities": []})
+    body = _run(client, fake)
+    assert body == baseline
+    assert body["funnel"]["arrivals"] == 1
+    outcome_queries = [q for q in fake.queries if q._table == "recommendation_outcomes"]
+    assert outcome_queries and all("recommendations!inner" in q._columns for q in outcome_queries)
+    assert all(("is", "recommendation.recommendation_snapshot->>region", "null") in q._filters
+               for q in outcome_queries)
+    # 추천 표 읽기는 모두 기간(created_at ≥ since) 안이다 — 서울 id 를 기간 없이 훑는 조회가 없다.
+    rec_queries = [q for q in fake.queries if q._table == "recommendations"]
+    assert rec_queries and all(any(op == "gte" and col == "created_at" for op, col, _ in q._filters)
+                               for q in rec_queries)
+
+
+def test_rejected_outcome_embed_falls_back_to_a_time_bounded_id_exclusion(client):
+    """임베드 필터가 거부되면(운영 PostgREST 가 모르는 모양) 예전 방식으로 물러서되, 서울 id 조회는 지표 기간에 묶인다."""
+    now = datetime.now(timezone.utc)
+    gyeongju, seoul, gj_outcomes, seoul_outcomes = _seoul_and_gyeongju(now)
+    baseline = _trust(client, gyeongju, gj_outcomes)
+
+    class _RejectingEmbed(_FilteringFake):
+        def table(self, name):
+            query = super().table(name)
+            original_select = query.select
+
+            def select(columns):
+                if "!inner" in columns:
+                    raise RuntimeError("PGRST100 failed to parse filter")
+                return original_select(columns)
+
+            query.select = select
+            return query
+
+    fake = _RejectingEmbed({"recommendations": gyeongju + seoul, "model_registry": [],
+                            "recommendation_outcomes": gj_outcomes + seoul_outcomes,
+                            "congestion_logs": [], "facilities": []})
+    body = _run(client, fake)
+    assert body == baseline
+    id_queries = [q for q in fake.queries if q._table == "recommendations" and q._columns == "id"]
+    assert id_queries, "물러선 경로는 서울 추천 id 로 방문 결과를 뺀다"
+    for q in id_queries:
+        assert any(op == "gte" and col == "created_at" for op, col, _ in q._filters)
+        assert q._orders and q._orders[0] == "created_at"
+
+
+def test_fallback_fails_closed_when_the_seoul_id_query_also_fails(client):
+    """임베드도, 서울 id 조회도 거부되면 서울 방문 결과를 셀 수 없다 — 방문 결과 지표를 비우고 절단(truncated)으로 알린다."""
+    now = datetime.now(timezone.utc)
+    gyeongju, seoul, gj_outcomes, seoul_outcomes = _seoul_and_gyeongju(now)
+
+    class _RejectingRegionFilters(_FilteringFake):
+        def table(self, name):
+            query = super().table(name)
+            original_select, original_eq = query.select, query.eq
+
+            def select(columns):
+                if "!inner" in columns:
+                    raise RuntimeError("PGRST100 failed to parse filter")
+                return original_select(columns)
+
+            def eq(column, value):
+                if "->>" in column:
+                    query._fail = True
+                return original_eq(column, value)
+
+            original_execute = query.execute
+
+            def execute():
+                if getattr(query, "_fail", False):
+                    raise RuntimeError("statement timeout")
+                return original_execute()
+
+            query.select, query.eq, query.execute = select, eq, execute
+            return query
+
+    fake = _RejectingRegionFilters({"recommendations": gyeongju + seoul, "model_registry": [],
+                                    "recommendation_outcomes": gj_outcomes + seoul_outcomes,
+                                    "congestion_logs": [], "facilities": []})
+    body = _run(client, fake)
+    funnel = body["funnel"]
+    assert funnel["arrivals"] == 0 and funnel["positive_ratings"] == 0  # 서울 방문 결과(3건)를 세지 않는다
+    assert body["truncated"] is True
+    assert "metrics_truncated" in body["guardrails"]["warnings"]

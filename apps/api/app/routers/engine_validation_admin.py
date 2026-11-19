@@ -16,8 +16,9 @@
     ready         한 지표 이상 판정할 수 있다(통과·미달 여부와 무관)
 
 위 `state` 는 지표(추정기 성적표)의 상태다. 화면 맨 위 '실시간 데이터 리허설'(SEOUL_TESTBED_PLAN §6 S6)은
-따로 `pipeline`(대상지별 주기·마지막 버킷·채움률·호출 예산·정규화 표)과 `decision_quality`(S4 전에는
-not_evaluated)를 읽는다 — 둘 다 **덧붙인 필드**이고 기존 필드는 그대로다.
+따로 `pipeline`(대상지별 주기·마지막 버킷·채움률·호출 예산·정규화 표)과 `decision_quality`(S4 재생 요약 — 커밋된
+`crowd/data/decision_quality/<cluster>.json` 을 `crowd/decision_quality.py` 가 읽는다. 없으면 not_evaluated)를 읽는다 —
+둘 다 **덧붙인 필드**이고 기존 필드는 그대로다.
 
 테이블 부재는 **200 + not_migrated** 로 준다. 배포 순서(API 먼저·마이그레이션 나중)에 따라 흔히 거치는
 정상 단계라 서버 장애(5xx)로 보이면 안 된다. 그 밖의 조회 실패는 503 `engine_validation_unavailable`.
@@ -32,12 +33,13 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.authz import ROLE_ADMIN, require_role
+from app.core.authz import ROLE_DEVELOPER, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import engine_validation_metrics as metrics
 from app.services import seoul_alternatives_service as alternatives
 from app.services import seoul_citydata_service as seoul
 from app.services import seoul_collection_status as status_rules
+from app.services.crowd import decision_quality as quality
 from app.services.crowd import seoul_provider as crowd_seoul
 from app.services.crowd import store as crowd_store
 from app.core.admin_coalesce import coalesced_admin_view
@@ -47,7 +49,9 @@ logger = structlog.get_logger()
 router = APIRouter(
     prefix="/api/v1/admin/engine-validation",
     tags=["admin"],
-    dependencies=[Depends(require_role(ROLE_ADMIN))],
+    # 서울 데이터(대상지·측정 단계·인원·대안·구역 관측)는 developer 전용이다(2026-10-31 사용자 결정 1) — admin(외부 기관 관제 ·
+    # 공용 심사 계정)은 403. require_role 은 developer 를 언제나 통과시키므로 허용 목록은 developer 하나다.
+    dependencies=[Depends(require_role(ROLE_DEVELOPER))],
 )
 
 TABLE = "seoul_citydata_snapshots"
@@ -137,7 +141,8 @@ def _envelope(state: str, *, days: int, now: datetime, since: datetime) -> dict[
         "collection": None,
         "places": [],
         "pipeline": None,
-        "decision_quality": dict(DECISION_QUALITY),
+        # 커밋된 S4 재생 요약(없으면 DECISION_QUALITY 와 같은 not_evaluated). 틀린 파일은 invalid_summary — 5xx 아님.
+        "decision_quality": quality.load_decision_quality(),
     }
 
 
@@ -164,16 +169,9 @@ SNAPSHOT_MIGRATION_STEP = (
     "NOTIFY pgrst, 'reload schema'; 를 실행한다(사람 작업)."
 )
 
-# 결정 품질(G2 · V3)은 S4 재생 평가가 만든다. 아직 없다 — 숫자 자리를 비워 두지 않고 상태로만 말한다.
-DECISION_QUALITY: dict[str, Any] = {
-    "state": "not_evaluated",
-    "stage": "S4",
-    "criterion": (
-        "V3 — 추천지가 도착 시 1단계 이상 덜 붐빌 확률이 '가장 가까운 곳' 기준선보다 10%p 이상 높고, "
-        "일 블록 부트스트랩 95% 신뢰구간 하한 > 0"
-    ),
-    "result": None,
-}
+# 결정 품질(G2 · V3)은 S4 재생 평가가 만든다. 요약 파일이 없을 때의 응답 — 숫자 자리를 비워 두지 않고 상태로만
+# 말한다. 정본은 `crowd/decision_quality.NOT_EVALUATED` 이고 여기 이름은 예전 import 를 위해 남긴다.
+DECISION_QUALITY: dict[str, Any] = quality.NOT_EVALUATED
 
 
 def _load_target_latest(area_nm: str) -> datetime | None:

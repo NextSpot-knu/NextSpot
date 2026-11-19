@@ -54,7 +54,8 @@ class _CappedTable:
         return self
 
     def eq(self, column, value):
-        self._rows = [r for r in self._rows if r.get(column) == value]
+        # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
+        self._rows = [r for r in self._rows if r.get(column, "gyeongju" if column == "region" else None) == value]
         return self
 
     def order(self, column, **_k):

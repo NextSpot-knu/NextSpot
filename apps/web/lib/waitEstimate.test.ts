@@ -214,7 +214,8 @@ for (const input of [
   assert.match(page, /waitHeadlineKey\(headlineOf\(/, '동점 판정이 카드 문구와 다른 값을 본다');
   assert.match(page, /const h = headlineOf\(est, row, estimateLevel, busyAt\);/, '카드 문구가 waitHeadlineOf 를 거치지 않는다');
   // 등급은 운영자 '혼잡' 경계로 — 보드 한 줄·카드·동점 판정이 같은 눈금을 쓴다(지도·대안·코스와 같다).
-  assert.match(page, /boardCrowdSpread\(uniformLevels, busyAt\)/, '보드 한 줄이 운영자 혼잡 경계를 쓰지 않는다');
+  // (지역별 판정 boardCrowdView 가 경주에서 boardCrowdSpread(levels, busyAt) 를 그대로 부른다 — lib/boardOrder.test.ts)
+  assert.match(page, /boardCrowdView\(uniformLevels, busyAt, /, '보드 한 줄이 운영자 혼잡 경계를 쓰지 않는다');
   // 세션이 없을 때 로더 뒤 재시도는 5초를 넘기지 않는다 — 여러 번 거절된 탭에서 2~5분 동안 '다시 시도' 없는 로더가 돌았다.
   assert.match(
     page,

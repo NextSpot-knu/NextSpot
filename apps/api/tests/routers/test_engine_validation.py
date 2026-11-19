@@ -1,4 +1,4 @@
-"""서울 검증 수집 라우터 — 가드(기계/관리자)·오류 코드·키 비노출.
+"""서울 검증 수집 라우터 — 가드(기계/developer)·오류 코드·키 비노출.
 
 main.py 등록은 이 파일의 범위 밖이라 라우터만 올린 로컬 FastAPI 앱으로 검사한다.
 """
@@ -8,11 +8,17 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.conftest import admin_headers, make_test_jwt
+from tests.conftest import make_test_jwt, role_headers
 
 from app.core.config import settings
 from app.routers import engine_validation
 from app.services import seoul_citydata_service as seoul
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
+
 
 COLLECT = "/api/v1/engine-validation/seoul/collect"
 STATUS = "/api/v1/engine-validation/seoul/status"
@@ -56,13 +62,13 @@ def test_collect_rejects_tourist():
     assert _client().post(COLLECT, headers=headers).status_code == 403
 
 
-def test_collect_accepts_pg_cron_header_service_token_and_admin(monkeypatch):
+def test_collect_accepts_pg_cron_header_service_token_and_developer(monkeypatch):
     async def collect():
         return _ok_result()
 
     monkeypatch.setattr(seoul, "collect_seoul_citydata", collect)
     client = _client()
-    for headers in (_machine(), {"X-Service-Token": settings.MACHINE_API_TOKEN}, admin_headers()):
+    for headers in (_machine(), {"X-Service-Token": settings.MACHINE_API_TOKEN}, developer_headers()):
         response = client.post(COLLECT, headers=headers)
         assert response.status_code == 200, headers
         assert response.json()["targets"][0]["area_cd"] == "POI055"
@@ -133,7 +139,7 @@ def test_status_reports_key_presence_only(monkeypatch):
         return {name: {"area_nm": name, "area_cd": "POI055", "bucket_at": "2026-09-20T05:40:00+00:00"} for name in targets}
 
     monkeypatch.setattr(seoul, "latest_rows", latest)
-    response = _client().get(STATUS, headers=admin_headers())
+    response = _client().get(STATUS, headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert body["key_configured"] is True
@@ -148,6 +154,6 @@ def test_status_missing_table_is_409(monkeypatch):
         raise seoul.SeoulSnapshotPersistenceError("migration_not_applied")
 
     monkeypatch.setattr(seoul, "latest_rows", latest)
-    response = _client().get(STATUS, headers=admin_headers())
+    response = _client().get(STATUS, headers=developer_headers())
     assert response.status_code == 409
     assert response.json()["detail"] == "migration_not_applied"

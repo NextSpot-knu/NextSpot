@@ -579,13 +579,13 @@ class FakeStore:
             column, values = query.in_filter
             rows = [r for r in rows if r.get(column) in values]
         for column, value in query.filters.items():
-            rows = [r for r in rows if r.get(column) == value]
+            rows = [r for r in rows if r.get(column, "gyeongju" if column == "region" else None) == value]  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
         return SimpleNamespace(data=[dict(r) for r in rows])
 
     def _match(self, query):
         rows = self.rows
         for column, value in query.filters.items():
-            rows = [r for r in rows if str(r.get(column)) == str(value)]
+            rows = [r for r in rows if str(r.get(column, "gyeongju" if column == "region" else None)) == str(value)]
         return rows
 
     def _requests(self, query):

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REGION } from '@/lib/region';
-import { apiClient } from './api-client';
+import { apiClient, getInternalRegionInfrastructures } from './api-client';
+import { useRegion } from './regionContext';
+import type { RegionPack } from './regionPacks';
 
 /**
  * 혼잡 알림(인앱 옵트인) 훅 — 정적 export 데모용.
@@ -127,7 +129,16 @@ export interface UseCongestionAlerts {
   disable: () => void;
 }
 
-export function useCongestionAlerts(): UseCongestionAlerts {
+/**
+ * @param packOverride 지역 묶음. 주지 않으면 지금 지역(useRegion — 프로바이더 밖이면 경주). 경주는 오늘과 같은 공개
+ *   /infrastructures 를 같은 REGION.bounds 로 묻고, 내부 지역은 내부 계정 전용 경로(/internal/regions/{id}/infrastructures)를
+ *   그 지역 경계로 묻는다 — 공개 경로는 경주 행만 주므로 내부 지역 저장 장소의 혼잡이 거기에는 없다.
+ */
+export function useCongestionAlerts(packOverride?: RegionPack): UseCongestionAlerts {
+  const regionPack = useRegion().pack;
+  const pack = packOverride ?? regionPack;
+  const internalRegionId = pack.features.supabaseFallback ? null : pack.id;
+  const internalBounds = pack.bounds;
   const [enabled, setEnabled] = useState(false);
   const [permission, setPermission] = useState<AlertPermission>('default');
   const [lastCheckFailed, setLastCheckFailed] = useState(false);
@@ -166,7 +177,14 @@ export function useCongestionAlerts(): UseCongestionAlerts {
       // bbox 만 해도 542곳). 3분마다 그걸 반복하면 화면에 쓰지도 않는 수백 KB 가 계속 오간다.
       // 서비스 지역은 경주 황리단길 하나이고 저장 장소도 그 안에 있으므로, 메인 화면과
       // 같은 REGION.bounds 를 그대로 걸어 받아 올 범위를 좁힌다(동작은 그대로).
-      const items = await apiClient.get('/api/v1/infrastructures', {
+      const items = internalRegionId
+        ? (await getInternalRegionInfrastructures(internalRegionId, {
+            minLat: internalBounds.minLat,
+            maxLat: internalBounds.maxLat,
+            minLng: internalBounds.minLng,
+            maxLng: internalBounds.maxLng,
+          })).items
+        : await apiClient.get('/api/v1/infrastructures', {
         params: {
           minLat: String(REGION.bounds.minLat),
           maxLat: String(REGION.bounds.maxLat),
@@ -234,7 +252,7 @@ export function useCongestionAlerts(): UseCongestionAlerts {
     } finally {
       runningRef.current = false;
     }
-  }, []);
+  }, [internalRegionId, internalBounds]);
 
   // enabled + 권한 granted 일 때만 폴링 시작(즉시 1회 + 주기)
   useEffect(() => {

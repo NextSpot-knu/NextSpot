@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   boardCrowdMembers,
   boardCrowdSpread,
+  boardCrowdView,
   calmRankOf,
   medianLevel,
   orderByWaitThenPhoto,
@@ -227,5 +228,32 @@ assert.equal(medianLevel([0.3, 0.1, 0.2]), 0.2);
 assert.equal(medianLevel([0.1, 0.4, 0.2, 0.3]), 0.25);
 assert.equal(medianLevel([]), null);
 assert.equal(medianLevel([Number.NaN]), null);
+
+// --- 지역별 한 줄(내부 검증 지역 — 2026-10-31) -------------------------------------------------------
+// 경주 한 줄('지금 경주 시내 중심 … · 추정', '…황리단길에서 출발한 기준')은 경주 문구다. 내부 검증 지역에서는 그 줄을 그리지 않고,
+// 카드 칩을 한 줄로 접는 것도 그 자리를 구역 줄('지금 {zone} 일대 …')이 대신 말할 때만 한다 — 아니면 칩이 그대로 남는다.
+{
+  const uniformBoard = [0.375, 0.375, 0.375, 0.375];
+  // 경주: 종전과 같다.
+  const gyeongju = boardCrowdView(uniformBoard, 0.75, { isPublic: true, zoneLineShown: false });
+  assert.deepEqual(gyeongju.spread, boardCrowdSpread(uniformBoard, 0.75));
+  assert.deepEqual(gyeongju.members, boardCrowdMembers(uniformBoard, 0.75));
+  assert.equal(gyeongju.areaLine, true);
+  assert.equal(gyeongju.liftCalm, true);
+  assert.equal(gyeongju.legendUniformKey, 'wait.legendUniform');
+  const gyeongjuMixed = boardCrowdView([0.1, 0.9, 0.5], 0.75, { isPublic: true, zoneLineShown: false });
+  assert.equal(gyeongjuMixed.areaLine, false);
+  // 서울 + 구역 줄 있음: 칩은 접되 경주 한 줄·경주 범례는 쓰지 않는다.
+  const seoul = boardCrowdView(uniformBoard, 0.75, { isPublic: false, zoneLineShown: true });
+  assert.equal(seoul.spread.uniform, true);
+  assert.equal(seoul.areaLine, false, '서울 보드에 경주 한 줄이 선다');
+  assert.equal(seoul.liftCalm, false, '한산 시각을 그리지 않는 줄로 옮긴다');
+  assert.equal(seoul.legendUniformKey, 'region.waitLegendUniform');
+  // 서울 + 구역 줄 없음: 접지 않는다 — 카드마다 자기 단계를 말한다(혼잡 정보가 화면에서 사라지지 않는다).
+  const seoulNoZone = boardCrowdView(uniformBoard, 0.75, { isPublic: false, zoneLineShown: false });
+  assert.deepEqual(seoulNoZone.spread, { uniform: false, grade: null });
+  assert.deepEqual(seoulNoZone.members, [false, false, false, false]);
+  assert.equal(seoulNoZone.areaLine, false);
+}
 
 console.log('boardOrder: ok');

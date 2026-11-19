@@ -86,6 +86,10 @@ class _Query:
     def _matches(self, row: dict) -> bool:
         for kind, col, val in self._filters:
             actual = row.get(col)
+            if "." in col:  # S3: 임베드 칸 필터(recommended_facility.region) — 픽스처 임베드에 region 이 없으면 경주
+                head, _, sub = col.partition(".")
+                child = row.get(head) or {}
+                actual = child.get(sub, "gyeongju" if sub == "region" else None)
             if kind == "eq" and actual != val:
                 return False
             if kind == "in" and actual not in val:

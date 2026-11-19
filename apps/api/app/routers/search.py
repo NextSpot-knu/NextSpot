@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.client_ip import client_ip
+from app.core.region import PUBLIC_REGION, apply_region, is_missing_region_column, run_region_scoped
 from app.core.supabase import supabase_admin
 from app.services import kakao_place_search_service, llm_client, reference_snapshot, search_rewrite_service
 from app.services.tourapi import client as tourapi
@@ -471,22 +472,72 @@ def _upsert_facility(row: dict) -> None:
 
     1차: on_conflict='contentid' upsert. 실패 시(부분 유니크 인덱스를 거부하는 버전 등)
     2차: SELECT 후 신규는 INSERT, 기존은 UPDATE 로 폴백한다.
+    관제 적재는 공개 지역(경주) 행만 다룬다 — 다른 지역 행이 가진 contentid 는 승인 전에 422 로 끊는다
+    (_contentid_outside_public_region). 폴백의 읽기·갱신도 경주 행에만 건다(S3).
     """
     contentid = row["contentid"]
     try:
         supabase_admin.table("facilities").upsert(row, on_conflict="contentid").execute()
         return
     except Exception as e:
+        if _region_rejected(e):
+            raise
         logger.warning("ingest_approve_upsert_fallback", contentid=contentid, error=str(e))
 
-    existing = (
-        supabase_admin.table("facilities").select("contentid").eq("contentid", contentid).limit(1).execute()
-    )
-    if existing.data:
+    def _existing(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select("contentid").eq("contentid", contentid)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
+    if run_region_scoped(_existing, region=PUBLIC_REGION):
         payload = {k: v for k, v in row.items() if k != "contentid"}
-        supabase_admin.table("facilities").update(payload).eq("contentid", contentid).execute()
+
+        def _update(with_region: bool):
+            query = supabase_admin.table("facilities").update(payload).eq("contentid", contentid)
+            if with_region:
+                query = apply_region(query, PUBLIC_REGION)
+            return query.execute().data or []
+
+        run_region_scoped(_update, region=PUBLIC_REGION)
     else:
         supabase_admin.table("facilities").insert(row).execute()
+
+
+# 지역 격리 DB 가드(마이그레이션 20261101090000)의 거절 표식 — 서울 좌표 CHECK(23514)·지역 고정 트리거(P0001).
+_REGION_REJECTIONS = (
+    "facility_region_not_public",
+    "facility_region_immutable",
+    "facilities_seoul_coords_need_seoul_region",
+    "facilities_seoul_region_needs_seoul_coords",
+    "facilities_region_known",
+)
+
+
+def _region_rejected(exc: Exception) -> bool:
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return any(marker in text for marker in _REGION_REJECTIONS)
+
+
+def _region_not_public_error() -> HTTPException:
+    """공개 지역 밖이라 적재할 수 없다 — 이미 서울 행이 가진 contentid 든, 서울 좌표의 새 장소든 같은 응답."""
+    return HTTPException(status_code=422, detail="공개 지역(경주) 밖의 장소라 적재할 수 없습니다. (region_not_public)")
+
+
+def _contentid_outside_public_region(contentid: str) -> bool:
+    """그 contentid 를 공개 지역 **밖의** 행(서울 — 개발자 전용)이 이미 가졌는가. 쿼리에서 지역을 건다(neq)."""
+    try:
+        rows = (
+            supabase_admin.table("facilities").select("id, region").eq("contentid", contentid)
+            .neq("region", PUBLIC_REGION).limit(1).execute().data or []
+        )
+    except Exception as exc:  # noqa: BLE001
+        if is_missing_region_column(exc):  # 컬럼 전이면 모든 행이 경주다
+            return False
+        raise
+    # 지역은 쿼리(neq)가 거른다. 돌아온 행이 실제로 다른 지역 값을 실었는지도 본다 — region 을 고른 조회라
+    # 운영에서는 늘 실려 온다(값이 없으면 판정 근거가 없어 막지 않는다. 쓰기는 좌표 CHECK·지역 고정 트리거가 지킨다).
+    return any(row.get("region") not in (None, PUBLIC_REGION) for row in rows)
 
 
 @router.post("/ingest-requests/approve", dependencies=[Depends(require_role(ROLE_ADMIN))])
@@ -510,11 +561,29 @@ async def approve_ingest_request(req: IngestApproveRequest):
         # 이미 승인됨 — TourAPI 재조회 없이 멱등 응답(중복 승인 클릭 방지).
         return {"success": True, "contentid": contentid, "name": request_row.get("name"), "already_approved": True}
 
+    # TourAPI 보강은 **먼저** 한다 — 아래 검사에 걸리는 contentid 도 걸리지 않는 서울 장소(좌표 CHECK 거절)와 같은
+    # 비용을 치른다. 검사를 앞에 두면 응답 시간 차이로 '개발자 전용 서울 묶음에 들었는가' 를 떠볼 수 있다.
     row = await _enrich_and_transform(contentid)
+
+    # 다른 지역(서울 — 개발자 전용) 행이 이미 가진 contentid 는 관제 적재가 덮지 않는다 — 어떤 쓰기보다도 먼저
+    # 422 로 끊는다(S3). 요청은 대기 상태로 남는다.
+    try:
+        outside = await asyncio.to_thread(_contentid_outside_public_region, contentid)
+    except Exception as e:
+        logger.error("ingest_approve_region_check_failed", contentid=contentid, error=str(e))
+        raise HTTPException(status_code=500, detail="시설 적재에 실패했습니다. 요청은 대기 상태로 유지됩니다.")
+    if outside:
+        # 응답은 좌표 CHECK 거절(아래)과 **같다** — 상태·문구가 다르면 관리자(심사 계정 포함)가 contentid 마다
+        # '개발자 전용 서울 묶음에 들었는가' 를 떠볼 수 있다. 구분은 서버 로그에만 남긴다.
+        logger.info("ingest_approve_rejected_held_outside_region", contentid=contentid, request_id=req.id)
+        raise _region_not_public_error()
 
     try:
         await asyncio.to_thread(_upsert_facility, row)
     except Exception as e:
+        if _region_rejected(e):
+            # 서울 좌표의 장소 — 공개 지역 밖이라 관제 적재 대상이 아니다(입력 문제 → 422).
+            raise _region_not_public_error() from None
         logger.error("ingest_approve_facilities_write_failed", contentid=contentid, error=str(e))
         raise HTTPException(status_code=500, detail="시설 적재에 실패했습니다. 요청은 대기 상태로 유지됩니다.")
     reference_snapshot.mark_dirty("facilities")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.

@@ -35,7 +35,10 @@ import { displayWalkingMinutes } from "@/lib/recommender";
 import { isCityPhotoUrl, isWikimediaUrl, photoCandidates } from "@/lib/photoCredit";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual } from "@/lib/placeVisual";
-import { REGION, isWithinRegion } from "@/lib/region";
+import { useRegion, useRegionGeo } from "@/lib/regionContext";
+import { getActiveRegion, isPublicRegion } from "@/lib/regionRuntime";
+import { isWithinBounds, regionCacheKey } from "@/lib/regionPacks";
+import { zoneBandGrade, zoneEvidenceFromCourseStop, zoneEvidenceLines, zoneKeyGrade, zoneLevelGrade, type ZoneEvidence } from "@/lib/zoneEvidence";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ErrorState } from "@/components/ErrorState";
@@ -72,6 +75,8 @@ interface CourseStop {
     imageUrl?: string | null;
     galleryImages?: string[] | null;
     features?: Record<string, unknown> | null;
+    // 내부 검증 지역의 구역 혼잡(서버 courses.py 가 구역 근거일 때만 싣는다 — 경주에는 없다).
+    zoneCrowd?: Record<string, unknown> | null;
   };
   arrivalOffsetMin: number;
   predictedCongestion: number | null;
@@ -145,7 +150,8 @@ const MAX_SEQUENCE = 3;
 // 스테일-우선 캐시 — 마지막 성공 계획을 로컬에 보관해 재방문 시 **즉시** 그리고, 백그라운드로
 // 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신 최근 계획을 유지한다
 // (/waiting BOARD_CACHE_KEY 와 같은 패턴 — 백엔드 지연·재시작 창에서 심사위원이 빈손을 보지 않게).
-const COURSE_CACHE_KEY = "nextspot_course_plan_v1";
+// 내부 검증 지역은 같은 이름에 지역 접미사를 붙인 키를 쓴다(lib/regionPacks regionCacheKey — 경주는 이 키 그대로).
+const COURSE_CACHE_BASE_KEY = "nextspot_course_plan_v1";
 const COURSE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 // 계획을 바꾸는 입력의 서명 — 여행 컨텍스트(취향·조건·방문 이력) + 순서/종류 필터 + 자리 고정을
@@ -184,6 +190,22 @@ function congestion(level: number, busyAt: number): { key: CongestionKey; cls: s
   return { key, cls: CONGESTION_CLASS[key] };
 }
 
+/**
+ * 정류지 · 대안의 도착 혼잡 등급. 경주는 congestion(level, busyAt) 그대로다(운영자 '혼잡' 경계).
+ * 내부 검증 지역의 수준은 구역 단계 중앙값이라 **구역 단계 경계**로 옮긴다(lib/zoneEvidence zoneLevelGrade) — 정류지에
+ * 구역 도착 단계(zoneCrowd.arrivalBand)가 있으면 그것이 먼저다(정류장 칩과 같은 값). 막대 · 대안 줄 · 칩이 같은 단어를 쓴다.
+ */
+function stopCongestion(
+  level: number,
+  busyAt: number,
+  isPublic: boolean,
+  zoneCrowd?: Record<string, unknown> | null,
+): { key: CongestionKey; cls: string } {
+  if (isPublic) return congestion(level, busyAt);
+  const key = zoneBandGrade(zoneCrowd?.arrivalBand) ?? zoneLevelGrade(level) ?? congestionKey(level, busyAt);
+  return { key, cls: CONGESTION_CLASS[key] };
+}
+
 // 정류지·대안의 **보여도 되는** 추정(예측 수치가 있으면 null, 60분 넘게 낡았으면 null).
 // 공유 링크로 복원한 정류지에는 추정이 없다 — 링크는 몇 시간 뒤에 열리고, 그때의 '지금' 이 아니다.
 function stopEstimate(s: { predictedCongestion: number | null; congestionEstimate?: unknown }) {
@@ -218,6 +240,13 @@ function arrivalText(offsetMin: number, t: TFunc, baseMs: number | null): string
 function CourseContent() {
   const t = useT();
   const searchParams = useSearchParams();
+  // 지금 지역(S3) — 경주는 GYEONGJU_PACK(REGION 값 그대로)이라 좌표·지오펜스·캐시 키·공유가 오늘과 같다.
+  // 지역이 바뀌면 화면이 통째로 다시 마운트된다(lib/regionContext).
+  const { pack, isPublic, regionName } = useRegion();
+  // 위치 효과는 묶음 객체가 아니라 id · 중심 · 경계 값에 건다 — 재확인에서 장소 수만 바뀌어도 위치를 다시 묻고 안내 토스트를
+  // 다시 띄우지 않게(lib/regionContext useRegionGeo).
+  const geo = useRegionGeo();
+  const COURSE_CACHE_KEY = regionCacheKey(COURSE_CACHE_BASE_KEY, pack.id);
 
   // 공유 딥링크(?s=) 감지 — 있으면 '공유 모드'(읽기 전용, 순서 피커/종류 필터 숨김, 새 추천 호출 없음).
   // parseShareParam 은 깨진 조각을 걸러내므로, s 가 있어도 유효한 정류지가 하나도 없으면 일반 모드로 처리.
@@ -234,8 +263,8 @@ function CourseContent() {
 
   const [userId, setUserId] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number }>({
-    lat: REGION.center.lat,
-    lng: REGION.center.lng,
+    lat: pack.center.lat,
+    lng: pack.center.lng,
   });
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   // 순서 지정 피커 상태 — 1개 이상이면 '순서 모드'(fetchCourse 가 body.sequence 를 보낸다).
@@ -327,18 +356,18 @@ function CourseContent() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         let { latitude: lat, longitude: lng } = pos.coords;
-        if (!isWithinRegion(lat, lng)) {
-          lat = REGION.center.lat;
-          lng = REGION.center.lng;
+        if (!isWithinBounds(geo.bounds, lat, lng)) {
+          lat = geo.center.lat;
+          lng = geo.center.lng;
         }
         setCoords({ lat, lng });
       },
       () => {
         // 권한 거부/실패 → 지역 중심 기본값 유지 + 조용히 안내(무음 폴백 방지).
-        toast.info(t("map.locationFallback"));
+        toast.info(isPublic ? t("map.locationFallback") : t("region.locationFallback", { region: regionName }));
       }
     );
-  }, [t]);
+  }, [t, geo, isPublic, regionName]);
 
   // 3) 코스 조회 — sequence(순서 모드)가 있으면 body.sequence, 없으면 selectedTypes(자동 모드,
   //    종류 필터만 지정)를 보낸다. 두 모드는 서로 배타적(간섭 방지, OrderPicker 주석 참조).
@@ -578,7 +607,7 @@ function CourseContent() {
         setHasLoadedOnce(true);
       }
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, isShareMode, announceReplan, t, assumedPreset]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, isShareMode, announceReplan, t, assumedPreset, COURSE_CACHE_KEY]);
 
   // 재조회 디바운스 — framer-motion onReorder 는 '드래그 도중' 순서가 바뀔 때마다 연속 발화하고,
   // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
@@ -612,6 +641,13 @@ function CourseContent() {
   //     spotScore/reason 은 URL 에 싣지 않는 값이라 정직하게 비워두고, StopRow 가 readOnly 일 때 숨긴다.
   const fetchSharedStops = useCallback(async () => {
     if (parsedShare.length === 0) {
+      setSharedStops([]);
+      setSharedLoading(false);
+      return;
+    }
+    // 공유 링크는 경주 코스만 만든다 — Supabase 직접 읽기가 꺼진 지역(내부 검증 지역)에서는 읽지 않고, 링크의 장소를
+    // 찾지 못했을 때와 같은 빈 코스 경로로 간다.
+    if (!pack.features.supabaseFallback) {
       setSharedStops([]);
       setSharedLoading(false);
       return;
@@ -663,7 +699,7 @@ function CourseContent() {
       // EmptyState('결과 없음')가 첫 조회 동안 오표시된다. hasLoadedOnce 는 일반 모드
       // fetchCourse 완료에서만 올린다(공유 모드 재조회는 어차피 전면 스켈레톤이 종전 동작).
     }
-  }, [parsedShare, sharedElapsedMin, t]);
+  }, [parsedShare, sharedElapsedMin, t, pack.features.supabaseFallback]);
 
   useEffect(() => {
     if (!isShareMode) return;
@@ -672,8 +708,9 @@ function CourseContent() {
 
   // 3c) 공유 유입 계측 — 공유 링크(?s=)로 들어온 방문을 무인증 이벤트로 1회 기록한다.
   //     fire-and-forget: 실패해도 페이지 동작에 영향 없음(사용자에게 에러 노출 안 함).
+  //     내부 검증 지역을 보는 동안은 보내지 않는다 — lib/analytics.track 과 같은 규칙(무인증 엔드포인트라 서버가 못 거른다).
   useEffect(() => {
-    if (searchParams.get("s")) {
+    if (searchParams.get("s") && isPublicRegion(getActiveRegion())) {
       apiClient
         .post("/api/v1/events/track", { event: "course_share_visit", props: { ref: "share" } })
         .catch(() => { /* 계측 실패는 조용히 무시 */ });
@@ -784,6 +821,8 @@ function CourseContent() {
     // 모든 정류지가 null 이라 '가끔' 이 아니라 '항상' 그렇다.
     // 미상은 '-' 로 실어 보내고 받는 쪽이 혼잡 배지를 생략한다(courseShare.ts 포맷 주석 참조).
     if (typeof window === "undefined") return undefined;
+    // 공유가 꺼진 지역(내부 검증 지역)은 링크를 만들지 않는다 — 받는 사람은 그 지역을 볼 수 없다(버튼도 감춘다).
+    if (!pack.features.share) return undefined;
     // **공유받은 코스를 다시 공유할 때는 원본 링크를 그대로 넘긴다.**
     //
     // sharedStops 의 도착 오프셋은 경과 시간만큼 이미 깎여 있고(fetchSharedStops), 혼잡 수치는
@@ -802,7 +841,7 @@ function CourseContent() {
       }))
     );
     return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
-  }, [activeStops, isShareMode, shareParam]);
+  }, [activeStops, isShareMode, shareParam, pack.features.share]);
 
   // 도착 시각의 기준 — 가정 시간 코스는 그 시각부터, 공유 코스는 지금부터(오프셋을 공유 뒤 경과 분으로 이미 보정했다).
   const planAssumedIso = isShareMode ? null : assumedAtIsoForPreset(assumedPreset);
@@ -830,14 +869,16 @@ function CourseContent() {
             >
               <ArrowLeft size={18} />
             </Link>
-            <div className="absolute top-4 right-4 z-20">
-              <ShareButton
-                title={t('course.title')}
-                text={t('common.shareCourse')}
-                url={shareUrl}
-                className="shadow-[0_2px_10px_rgba(43,35,32,0.15)]"
-              />
-            </div>
+            {pack.features.share && (
+              <div className="absolute top-4 right-4 z-20">
+                <ShareButton
+                  title={t('course.title')}
+                  text={t('common.shareCourse')}
+                  url={shareUrl}
+                  className="shadow-[0_2px_10px_rgba(43,35,32,0.15)]"
+                />
+              </div>
+            )}
           </div>
 
           {/* 바텀시트 — 배민 배달 추적 화면 문법(그랩바 + rounded-t-3xl + -mt-6 겹침). */}
@@ -1275,6 +1316,7 @@ const DWELL_LAST_MIN = 45;
 function CourseGantt({ stops }: { stops: CourseStop[] }) {
   const t = useT();
   const busyAt = useBusyThreshold();
+  const { isPublic } = useRegion();
   const baseMs = useCourseBaseMs();
   const segments = stops.map((s, i) => {
     const start = Math.max(0, s.arrivalOffsetMin);
@@ -1316,7 +1358,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
           const est = stopEstimate(s);
           // 추정 막대는 같은 등급색이되 **점선 테두리** — 예측 막대(실선)와 섞여 보이지 않게.
           const cong = s.predictedCongestion != null
-            ? congestion(s.predictedCongestion, busyAt)
+            ? stopCongestion(s.predictedCongestion, busyAt, isPublic, s.facility.zoneCrowd)
             : est
               ? { key: congestionKey(est.level, busyAt), cls: `${congestion(est.level, busyAt).cls} border-dashed` }
               : { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' };
@@ -1557,6 +1599,20 @@ function DroppedSlotRow({
   );
 }
 
+/** 구역 근거의 화면 줄 — 'N분 전 관측' 을 실제 시계로 세려고 1분 박자의 시계를 둔다(근거가 없으면 시계도 없다). */
+function useZoneLines(ev: ZoneEvidence | null) {
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  const active = ev !== null;
+  useEffect(() => {
+    if (!active) return;
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const timer = setInterval(tick, 60000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return ev && nowMs !== null ? zoneEvidenceLines(ev, nowMs) : null;
+}
+
 function StopRow({
   stop,
   readOnly = false,
@@ -1574,6 +1630,7 @@ function StopRow({
 }) {
   const t = useT();
   const busyAt = useBusyThreshold();
+  const { isPublic } = useRegion();
   const baseMs = useCourseBaseMs();
   const [open, setOpen] = useState(false);
   const [altsOpen, setAltsOpen] = useState(false);
@@ -1586,9 +1643,14 @@ function StopRow({
   const canReplan = !readOnly && slotIdx !== undefined && slotIdx >= 0;
   const altsId = `course-alts-${stop.facility.id}`;
   const moreId = `course-more-${stop.facility.id}`;
-  const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion, busyAt);
+  const cong = stop.predictedCongestion == null ? null : stopCongestion(stop.predictedCongestion, busyAt, isPublic, stop.facility.zoneCrowd);
   const est = cong ? null : stopEstimate(stop);
   const estCong = est ? congestion(est.level, busyAt) : null;
+  // 내부 검증 지역의 구역 근거 — 있으면 붐빔 칩·이유가 구역 단계(앱 공통 등급 congestion.*)를 말한다. 경주에는 없다.
+  const zoneEv = zoneEvidenceFromCourseStop(stop.facility.zoneCrowd);
+  const zoneLines = useZoneLines(zoneEv);
+  const crowdLabel = zoneLines ? t(zoneLines.band.key) : cong ? t(`congestion.${cong.key}`) : null;
+  const crowdCls = zoneLines ? CONGESTION_CLASS[zoneKeyGrade(zoneLines.band.key)] : cong?.cls ?? '';
   const reasonId = `course-reason-${stop.facility.id}`;
   // 출처 줄을 달 자리가 없는 작은 사진이라 TourAPI 사진만(이 화면 아래 'ⓒ한국관광공사 TourAPI' 가 덮는다).
   const photoUrls = uncreditedPhotoUrls(photoCandidates(stop.facility.imageUrl, stop.facility.galleryImages));
@@ -1601,7 +1663,7 @@ function StopRow({
   // 추정은 '도착 때' 가 아니라 '지금' 이다 — 아래 근거 줄이 따로 말한다), 그리고 서버가 시간 분산 효과를 말했으면 그 이유.
   const reasonText = [
     t('course.stopWhy'),
-    cong ? t('course.stopReasonCrowd', { label: t(`congestion.${cong.key}`) }) : null,
+    crowdLabel ? t('course.stopReasonCrowd', { label: crowdLabel }) : null,
     stopCalmerOnArrival(stop.reason) ? t('course.stopCalmer') : null,
   ].filter(Boolean).join(' ');
   const startNavigation = (mode: 'walk' | 'car') => {
@@ -1668,9 +1730,9 @@ function StopRow({
                     {t('compare.benefitWalk', { walk: walkMinutes })}
                   </span>
                 )}
-                {cong && (
-                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[12px] font-bold ${cong.cls}`}>
-                    {t(`congestion.${cong.key}`)}
+                {crowdLabel && (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[12px] font-bold ${crowdCls}`}>
+                    {crowdLabel}
                   </span>
                 )}
                 {/* 추정: 점선 테두리·옅은 바탕. 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다. */}
@@ -1690,6 +1752,13 @@ function StopRow({
                   </span>
                 )}
               </div>
+              {/* 구역 근거 한 줄(내부 검증 지역) — '{zone} 일대 실시간 인구 기준 · N분 전 관측' + 평소 대비 보조 문장. */}
+              {zoneLines && (
+                <p data-testid="course-zone-line" className="mt-1 text-[11px] leading-snug text-muk-soft">
+                  {[t(zoneLines.source.key, zoneLines.source.params), ...(zoneLines.basis ? [t(zoneLines.basis.key, zoneLines.basis.params)] : [])].join(' · ')}
+                  {zoneLines.usual && <> · {t(zoneLines.usual.key)}</>}
+                </p>
+              )}
             </div>
             {/* 56px 사진 — 없거나 깨지면 장소 표지(I38). */}
             <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
@@ -1804,7 +1873,7 @@ function StopRow({
           {canReplan && moreOpen && altsOpen && alternatives.length > 0 && (
             <div id={altsId} className="mt-2.5 rounded-2xl border border-line bg-hanji-deep/40 divide-y divide-line/70 overflow-hidden">
               {alternatives.map((alt) => {
-                const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion, busyAt);
+                const altCong = alt.predictedCongestion == null ? null : stopCongestion(alt.predictedCongestion, busyAt, isPublic);
                 const altEst = altCong ? null : stopEstimate(alt);
                 return (
                   <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2.5">

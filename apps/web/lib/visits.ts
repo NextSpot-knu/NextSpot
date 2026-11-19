@@ -1,6 +1,11 @@
 // 방문 여정 로컬 스토어 — '수락(길안내 시작) → 30분 뒤 다녀오셨나요? 확인 → 방문 이력' 루프.
 // 정적 export 앱이라 서버 없이 localStorage 로만 처리한다(무세션 데모에서도 동작). 모든 접근은 방어적:
 // 저장이 막힌 환경(시크릿 모드 등)·파싱 실패에서도 예외를 던지지 않고 안전한 기본값으로 수렴한다.
+//
+// 지역(S3): 대기 방문·진행 중 여정은 **수락한 때의 지역**을 함께 적는다(region). 공개 지역(경주)은 적지 않는다 —
+// 경주 저장 모양이 오늘과 같고, 이 변경 전에 저장된 값(region 없음)도 경주로 읽힌다. 화면은 지금 지역과 같은
+// 지역의 여정만 보여 준다(visitMatchesRegion) — 내부 지역 여정이 경주 화면에 뜨거나, 그 답이 다른 지역으로 가지 않게.
+import { getActiveRegion, isPublicRegion, PUBLIC_REGION_ID } from './regionRuntime';
 
 const PENDING_KEY = 'nextspot_pending_visit';
 const HISTORY_KEY = 'nextspot_visit_history';
@@ -18,6 +23,24 @@ export interface PendingVisit {
   lng: number | null;
   acceptedAt: number; // epoch ms
   recommendationId?: string;
+  /** 수락한 때의 지역 — 공개 지역(경주)이면 없다(없으면 경주). */
+  region?: string;
+}
+
+/** 저장된 방문·여정의 지역. 지역이 없으면(경주 또는 이 필드 전에 저장된 값) 공개 지역. */
+export function visitRegion(visit: { region?: unknown } | null | undefined): string {
+  const region = visit?.region;
+  return typeof region === 'string' && region.trim() ? region.trim() : PUBLIC_REGION_ID;
+}
+
+/** 저장된 방문·여정이 지금 보는 지역의 것인가. */
+export function visitMatchesRegion(visit: { region?: unknown } | null | undefined, regionId: string | null | undefined): boolean {
+  return visitRegion(visit) === (isPublicRegion(regionId) ? PUBLIC_REGION_ID : String(regionId));
+}
+
+/** 저장할 지역 필드 — 공개 지역이면 빈 조각(저장 모양이 오늘과 같다). */
+function regionField(regionId: string): { region?: string } {
+  return isPublicRegion(regionId) ? {} : { region: regionId };
 }
 
 export interface ActiveTrip extends PendingVisit {
@@ -85,6 +108,7 @@ export function recordPendingVisit(fac: {
     lat: typeof fac.latitude === 'number' ? fac.latitude : null,
     lng: typeof fac.longitude === 'number' ? fac.longitude : null,
     acceptedAt: Date.now(),
+    ...regionField(getActiveRegion()),
   };
   safeSet(PENDING_KEY, JSON.stringify(pending));
 }
@@ -168,6 +192,22 @@ export function dismissVisitCheck(): void {
   clearActiveTrip();
 }
 
+/**
+ * 내부 지역에서 수락한 대기 방문 · 여정을 지운다(경주 것은 그대로). 내부 지역을 더는 볼 수 없게 됐을 때(역할 변경 ·
+ * 서버 거절 — RegionProvider 의 흔적 지우기) 부른다: 그 기록에는 내부 지역 장소 이름 · 좌표가 들어 있고, 지역이 맞지
+ * 않아 화면에도 다시 뜨지 않으니 남겨 둘 이유가 없다. 지웠으면 true.
+ */
+export function clearInternalRegionVisits(): boolean {
+  const rawTrip = safeGet(ACTIVE_TRIP_KEY);
+  let tripRegion: string = PUBLIC_REGION_ID;
+  if (rawTrip) {
+    try { tripRegion = visitRegion(JSON.parse(rawTrip)); } catch { /* 손상된 값 — 지역을 모르면 경주로 본다 */ }
+  }
+  const internal = !isPublicRegion(visitRegion(getPendingVisit())) || !isPublicRegion(tripRegion);
+  if (internal) dismissVisitCheck();
+  return internal;
+}
+
 // 노출 판정만 떼어낸 순수 함수 — localStorage 와 Date.now() 에 묶여 있으면 경계값
 // (정확히 30분, 도착 직후, 아직 이른 시각)을 재현할 수 없다. lib/visits.test.ts 가 직접 검증한다.
 export function isVisitCheckDue(
@@ -183,9 +223,11 @@ export function isVisitCheckDue(
 // 노출 대상 방문 확인 — 대기 중이고(pending) 노출 조건을 만족하면 반환, 아니면 null.
 // (pending 자체가 '미처리' 마커 — 확정은 completeVisit, 닫기는 dismissVisitCheck 가
 //  지우므로 별도 플래그가 필요 없다.)
-export function getDueVisit(): PendingVisit | null {
+// regionId 를 주면 그 지역에서 수락한 방문만 돌려준다(다른 지역의 대기 방문은 지우지 않고 그 지역으로 돌아갈 때까지 둔다).
+export function getDueVisit(regionId?: string): PendingVisit | null {
   const pending = getPendingVisit();
   if (!pending) return null;
+  if (regionId !== undefined && !visitMatchesRegion(pending, regionId)) return null;
   const active = getActiveTrip();
   if (!isVisitCheckDue(pending.acceptedAt, active?.status, Date.now())) return null;
   return { ...pending, recommendationId: active?.recommendationId };

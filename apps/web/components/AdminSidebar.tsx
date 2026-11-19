@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogIn, LogOut, ShieldAlert, Printer, UserCog, Compass, FlaskConical, Menu, X } from 'lucide-react';
 import { signOutAdmin } from '@/lib/adminAuth';
-import { useAccount, canEnterDevConsole } from '@/lib/account';
+import { useAccount, canEnterDevConsole, canSeeInternalRegions } from '@/lib/account';
 import { useDemoToast } from '@/components/DemoBadge';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -13,6 +13,10 @@ import { useT } from '@/lib/i18n/I18nProvider';
 // 경주 관제의 메뉴에 서 있으면 첫인상이 서울이 된다. 화면 자체는 /admin/engine-validation 으로 그대로
 // 열린다(질의응답용 · 대시보드 맨 아래 링크). 심사가 끝나면 이 집합에서 빼기만 하면 메뉴로 돌아온다.
 const HIDDEN_FROM_MENU = new Set<string>(['/admin/engine-validation']);
+
+// 서울 데이터를 보여 주는 화면 — developer 전용(2026-10-31 사용자 결정 1). admin(외부 기관 관제 · 공용 심사 계정)에게는
+// 심사 기간이 끝나 HIDDEN_FROM_MENU 에서 빠져도 메뉴에 서지 않는다. 서버도 같은 화면의 API 를 admin 에게 403 으로 닫는다.
+const INTERNAL_REGION_ONLY = new Set<string>(['/admin/engine-validation']);
 
 // demo=true 는 `/admin/dashboard?demo=1`(로그인 없는 읽기 전용 데모) 전용이다. 메뉴는 그대로
 // 보이되 **어디로도 이동하지 않는다** — 데모에는 세션이 없어서 다른 관제 화면은 전부 로그인
@@ -52,7 +56,8 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
     ...(canEnterDevConsole(account) && process.env.NODE_ENV !== 'production'
       ? [{ name: '개발자 콘솔', path: '/dev', icon: UserCog }]
       : []),
-  ].filter((item) => !HIDDEN_FROM_MENU.has(item.path));
+  ].filter((item) => !HIDDEN_FROM_MENU.has(item.path))
+    .filter((item) => !INTERNAL_REGION_ONLY.has(item.path) || canSeeInternalRegions(account));
 
   // 휴대폰 폭(lg 미만)에서 여는 메뉴 서랍. 연 경로를 기억해 두고 그 경로에 있는 동안만 열려 있다 —
   // 서랍 안 링크로 다른 화면에 가면 저절로 닫힌다(경로 변화를 이펙트로 쫓아 setState 하지 않는다).

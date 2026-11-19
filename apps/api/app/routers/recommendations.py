@@ -16,6 +16,12 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.client_ip import client_ip
 from app.core.config import settings
+from app.core.region import (
+    PUBLIC_REGION,
+    apply_region,
+    arun_region_scoped,
+    resolve_request_region,
+)
 from app.core.network_key import network_key_hash
 from app.core.report_slots import (
     CONGESTION_VOTES_BY_IP,
@@ -65,10 +71,14 @@ from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import get_walking_routes
 from app.services.spot.ranking import spot_ranking_sort_key
 from app.services.congestion_evidence import (
+    ZONE_EVIDENCE_TIER,
     attach_estimate,
+    evidence_is_current,
     load_current_estimates,
+    measurement_is_current,
     rankable_measured_level,
 )
+from app.services.crowd.zone_evidence import load_zone_readings, zone_evidence_dict
 from app.services.travel_context import (
     KST,
     RECOMMENDATION_ELIGIBILITY_LABELS,
@@ -212,13 +222,51 @@ async def fetch_user(user_id: str):
         raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
     return res.data[0]
 
-async def fetch_facility(facility_id: str):
-    res = await asyncio.to_thread(
-        supabase_client.table("facilities").select("*").eq("id", facility_id).execute
-    )
-    if not res.data:
+async def fetch_facility(facility_id: str, *, region: str = PUBLIC_REGION):
+    """시설 1건 — **요청 지역의 시설만**(쿼리 안의 region 필터). 다른 지역 id 는 없는 시설과 같은 404 다.
+
+    기본값은 공개 지역(경주)이다 — 빠뜨려도 서울 시설이 나오지 않는다(fail-closed). region 컬럼이 아직 없는
+    DB(마이그레이션 전)에서는 경주만 필터 없이 다시 읽는다(core/region.run_region_scoped).
+    """
+
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_client.table("facilities").select("*").eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, region)
+        return query.execute().data or []
+
+    rows = await arun_region_scoped(_read, region=region)
+    if not rows:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
-    return res.data[0]
+    return rows[0]
+
+
+# 추천 이력 행의 지역 표시 — **경주가 아닌 추천에만** 스냅샷에 ``region`` 을 적는다(경주 행은 글자 하나 바뀌지 않는다).
+# 두 곳이 이 표시를 읽는다: DB 의 RESTRICTIVE 정책 recommendations_public_region_only(관제 계정이 남의 서울 추천 행을
+# 브라우저에서 못 읽게 — 서울 시설이 지워져 id 가 NULL 이 돼도) · /admin/model-trust(경주 관제 숫자에서 뺀다).
+RECOMMENDATION_REGION_KEY = "region"
+
+
+def _region_marker(region: str) -> dict:
+    """스냅샷에 펼쳐 넣을 지역 표시. 공개 지역(경주)이면 빈 dict."""
+    return {} if region == PUBLIC_REGION else {RECOMMENDATION_REGION_KEY: region}
+
+
+def _region_marker_snapshot(region: str) -> dict:
+    """스냅샷 없이 넣던 행(직접 수락 · 메인 거절)에 붙일 칸. 경주면 빈 dict — 종전 payload 그대로."""
+    marker = _region_marker(region)
+    return {"recommendation_snapshot": marker} if marker else {}
+
+
+def public_facility_view(row: dict) -> dict:
+    """응답으로 나가는 시설 dict — ``region`` 을 뺀 **사본**. 원본(풀·캐시 행)은 건드리지 않는다.
+
+    지역은 서버 내부의 격리 키다. 응답에 실으면 경주 응답의 모양이 지역 도입 전과 달라지고, 화면이 그 값으로
+    무엇을 판정할 여지가 생긴다(판정은 서버만 한다). 캐시 행에서 지우면 다음 요청의 격리가 무너진다.
+    """
+    if not isinstance(row, dict) or "region" not in row:
+        return row
+    return {key: value for key, value in row.items() if key != "region"}
 
 
 def _attach_tourism_area_priors(facilities: list[dict], forecasts: list[dict]) -> None:
@@ -231,7 +279,11 @@ def _attach_tourism_area_priors(facilities: list[dict], forecasts: list[dict]) -
     attach_tourism_area_priors(facilities, forecasts)
 
 async def _fetch_all_facilities_uncached(
-    *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
+    *,
+    center_lat: float | None = None,
+    center_lng: float | None = None,
+    radius_m: float | None = None,
+    region: str = PUBLIC_REGION,
 ):
     # PostgREST 행수 캡을 넘는 전체 시설 조회. is_active=false(폐업·표출중단 감지, 2차 기획 1위)는
     # 후보에서 제외 — infrastructures.fetch_active_facilities 재사용(컬럼 미배포 시 필터 없이 폴백).
@@ -247,7 +299,12 @@ async def _fetch_all_facilities_uncached(
                 .gte("longitude", center_lng - lng_delta).lte("longitude", center_lng + lng_delta)
             )
 
-    facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=extra_filters)
+    facilities = await fetch_active_facilities(
+        supabase_client, "*", region=region, extra_filters=extra_filters
+    )
+    if region != PUBLIC_REGION:
+        # 관광공사 집중률(아래)은 경주 관광지 이름 앵커다 — 다른 지역 시설에는 붙이지 않는다.
+        return facilities
     # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 이름 일치 관광지를
     # 좌표 앵커로 삼아 반경 2km에 거리 감쇠 지역 기준선을 붙인다. 미승인 환경은 무해 폴백한다.
     try:
@@ -286,8 +343,12 @@ async def fetch_all_facilities(
     radius_m: float | None = None,
     with_availability: bool = True,
     copy_rows: bool = True,
+    region: str = PUBLIC_REGION,
 ):
     """시설 목록. ``with_availability=False`` 면 영업 근거를 붙이지 않는다.
+
+    ``region`` 은 **한 지역의 풀**만 돌려준다(기본값 공개 지역 = 경주, fail-closed). 경주의 캐시 키는 지역 도입
+    전과 같은 ``('all',)`` 이고, 다른 지역은 ``('region', r)`` 로 따로 캐시한다 — 두 풀은 섞이지 않는다.
 
     ``copy_rows=False`` 면 캐시 행을 깊은 복사하지 않고 **공유 행 그대로** 돌려준다
     (목록만 새 list). 호출부는 행과 그 안의 중첩 값을 읽기만 하고, 계속 쓸 행은
@@ -307,10 +368,12 @@ async def fetch_all_facilities(
     # 시설 수(활성 1,669곳, 2026-09-20 실측)가 늘어도 이 판단은 그대로다 — 미스가 곧 재조회이고
     # 재조회 비용이 위 실측치이기 때문이다. 다만 전체를 메모리에 올리는 구조라, 자릿수가
     # 한 번 더 늘면 그때는 캐시 대상을 좁히는 쪽을 다시 봐야 한다.
-    key = ("all",)
+    key = ("all",) if region == PUBLIC_REGION else ("region", region)
 
     async def _load():
-        return await _fetch_all_facilities_uncached()
+        if region == PUBLIC_REGION:
+            return await _fetch_all_facilities_uncached()
+        return await _fetch_all_facilities_uncached(region=region)
 
     has_bbox = center_lat is not None and center_lng is not None and radius_m is not None
     if copy_rows and has_bbox:
@@ -350,13 +413,16 @@ async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
 
 
 async def _attach_delayed_area_actions(
-    items: list[dict], *, now: datetime, delay_minutes: int = 30
+    items: list[dict], *, now: datetime, delay_minutes: int = 30, region: str = PUBLIC_REGION
 ) -> None:
     """상위 후보만 30분 지연 출발과 비교한다.
 
     이력이나 관광 통계가 없으면 delayed signal은 None이며 행동 추천도
     ``no_clear_advantage``로 닫힌다. 현재 실측을 미래로 복사하지 않는다.
+    주변 수요 신호는 경주 전용이라 다른 지역에서는 아무것도 하지 않는다.
     """
+    if region != PUBLIC_REGION:
+        return
     delayed_signals = await asyncio.gather(*[
         get_area_demand_signal(
             item["facility"],
@@ -370,7 +436,7 @@ async def _attach_delayed_area_actions(
 
 
 async def resolve_congestion_evidence(
-    facility: dict, log_info: dict | None, *, now: datetime | None = None
+    facility: dict, log_info: dict | None, *, now: datetime | None = None, allow_model: bool = True
 ) -> dict:
     """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
 
@@ -402,7 +468,8 @@ async def resolve_congestion_evidence(
             "is_stale": bool(log_info.get("is_stale", False)),
             "timestamp": log_info.get("timestamp"),
         }
-    if not get_model_info()["trained"]:
+    # allow_model=False(공개 지역이 아닌 요청) — 경주에서 학습한 모델로 다른 지역의 혼잡을 말하지 않는다.
+    if not allow_model or not get_model_info()["trained"]:
         return {
             "level": None, "source": "none", "log_source": None,
             "evidence_tier": None, "is_stale": None, "timestamp": None,
@@ -428,6 +495,9 @@ async def resolve_congestion_evidence(
 async def build_candidate_evidence(
     facility: dict, log_info: dict | None, estimates: dict | None = None,
     *, now: datetime | None = None,
+    region: str = PUBLIC_REGION,
+    zone_readings: dict | None = None,
+    wall_now: datetime | None = None,
 ) -> dict:
     """후보 1건의 혼잡 근거 — **세 경로가 공유하는 단일 정의.**
 
@@ -450,6 +520,12 @@ async def build_candidate_evidence(
          움직이게 한다(그전에는 이 자리가 늘 'none' 이라 시각을 바꿔도 카드가 그대로였다).
       5. 없음('none').
 
+    **구역 근거(서울 S3)** 는 좌석 방송 · 신선한 신뢰 로그 다음, 모델 예측 앞에 선다.
+    ``zone_readings``(``zone_evidence.load_zone_readings`` 결과 — 경주는 언제나 빈 dict)에 이 시설이 있으면
+    ``zone_evidence_dict`` 로 만든 근거(evidence_tier='zone_measured', ``zones`` 포함)를 돌려준다. ``wall_now`` 는
+    그 신선도를 재는 실제 벽시계다. 빈 dict·None 이면 종전과 완전히 같다.
+    ``region`` 이 공개 지역이 아니면 경주 학습 모델로 예측하지 않는다(업종 시간대 곡선은 지역 무관 휴리스틱이라 둔다).
+
     ``now`` 는 예측 기준 시각이다(가정 시각 또는 서버 현재 시각). resolve 의 모델 예측과 위 4번
     기준선에만 쓰고, 추정·실측의 '지금' 신선도 판정(attach_estimate)에는 넘기지 않는다 —
     그 판정은 실제 벽시계로 해야 한다(가정 시각으로 재면 방금 만든 추정이 만료로 잘못 걸린다).
@@ -471,8 +547,21 @@ async def build_candidate_evidence(
             "timestamp": (facility.get("seat_status_fresh") or {}).get("updated_at"),
             "estimate": None, "is_current": True,
         }
+    readings = (zone_readings or {}).get(str(facility.get("id"))) if zone_readings else None
+    if readings and not (
+        log_info is not None
+        and measurement_is_current(log_info.get("evidence_tier"), log_info.get("timestamp"), now=wall_now)
+    ):
+        zone_evidence = zone_evidence_dict(readings, wall_now=wall_now)
+        return {
+            **zone_evidence,
+            "estimate": None,
+            "is_current": evidence_is_current(zone_evidence, now=wall_now),
+        }
     # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
-    evidence = await resolve_congestion_evidence(facility, log_info, now=now)
+    evidence = await resolve_congestion_evidence(
+        facility, log_info, now=now, allow_model=region == PUBLIC_REGION
+    )
     # 추정은 벽시계 기준으로 붙인다(가정 시각을 넘기지 않는다 — 위 docstring).
     evidence = attach_estimate(evidence, estimates, facility.get("id"))
     # 실측·모델·추정이 모두 없을 때만(= source 'none' 이고 추정도 못 붙은 자리) 업종 예측
@@ -509,6 +598,8 @@ def _reason_congestion_ctx(item: dict) -> dict:
     실측 문장으로 팔린다(추정은 배지 전용이다).
     """
     evidence = item["congestion_evidence"]
+    if evidence.get("evidence_tier") == ZONE_EVIDENCE_TIER:
+        return _zone_reason_ctx(item)
     if evidence.get("is_current"):
         return {
             "candidate_congestion": item["candidate_congestion"],
@@ -518,6 +609,62 @@ def _reason_congestion_ctx(item: dict) -> dict:
             "facility_type": item["facility"].get("type"),
         }
     return {"candidate_congestion": None, "congestion_source": "none"}
+
+
+def _zone_reason_ctx(item: dict) -> dict:
+    """구역 근거 후보의 사유 컨텍스트 — 도착 시각 단계(없으면 '지금' 인 관측의 단계)로만 말한다.
+
+    도착 시각도 지금도 말할 수 없는 관측(낡은 구역 관측)은 혼잡을 주장하지 않는다 — 카드가 'N분 전 관측' 으로
+    보여 줄 뿐이다. '%' 는 쓰지 않는다(reason_service._build_zone_template).
+    """
+    evidence = item["congestion_evidence"]
+    breakdown = item.get("breakdown") or {}
+    band = breakdown.get("zone_arrival_level_band")
+    basis = "arrival"
+    if band is None and evidence.get("is_current"):
+        # 엔진이 도착 단계를 내지 못했다 — '지금' 단계로만, 현재형으로 말한다('도착할 즈음' 을 주장하지 않는다).
+        band = breakdown.get("zone_level_band")
+        basis = "now"
+    ctx = {"candidate_congestion": None, "congestion_source": "none"}
+    if band is None:
+        return ctx
+    return {
+        **ctx,
+        "congestion_evidence_tier": ZONE_EVIDENCE_TIER,
+        "zone_name": breakdown.get("zone_name"),
+        "zone_band": band,
+        "zone_band_basis": basis,
+        "zone_usual_comparison": (
+            breakdown.get("zone_usual_comparison") if evidence.get("is_current") else None
+        ),
+    }
+
+
+def _zone_score_kwargs(
+    region: str, wall_now: datetime, origin_zone_evidence: dict | None = None
+) -> dict:
+    """calculate_spot_score 에 넘길 지역 인자. 경주면 **빈 dict** — 경주 호출은 지역 도입 전과 같은 인자다."""
+    if region == PUBLIC_REGION:
+        return {}
+    return {"region": region, "evidence_now": wall_now, "origin_zone_evidence": origin_zone_evidence}
+
+
+async def _region_congestion_inputs(
+    region: str, facility_ids: list[str], *, wall_now: datetime
+) -> tuple[dict, dict | None, dict]:
+    """(혼잡 로그 맵, 추정 묶음, 구역 관측) 을 한 번에 받는다.
+
+    경주 — 종전과 같은 두 호출(혼잡 로그 · 추정)만 한다. 구역 관측은 ``{}``(경주에는 구역 근거가 없다).
+    다른 지역 — 공개 혼잡 로그는 경주 전용(DB 트리거)이고 추정은 경주 주차·관광 통계라 읽지 않는다. 구역 관측만 읽는다.
+    """
+    if region == PUBLIC_REGION:
+        congestion_by_id, estimates = await asyncio.gather(
+            fetch_congestion_map(facility_ids),
+            load_current_estimates(),
+        )
+        return congestion_by_id, estimates, {}
+    zone_readings = await load_zone_readings(facility_ids, region=region, wall_now=wall_now)
+    return {}, None, zone_readings
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -560,6 +707,7 @@ def _eligibility_tier_counts(candidates: list[tuple]) -> dict[str, int]:
 @router.post("/recommendations", response_model=list[RecommendItem])
 async def get_recommendations(
     req: RecommendRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     logger.info("recommendation_request_received", user_id=req.user_id, original_infra=req.original_facility_id)
@@ -569,20 +717,27 @@ async def get_recommendations(
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
+    # 0-1. 요청 지역 — 헤더는 요청일 뿐이고 서버가 DB 역할로 정한다(헤더 없으면 I/O 없이 경주).
+    #      아래 원본 시설·후보 풀·근거·점수가 모두 이 값 하나를 명시 인자로 받는다.
+    region = await resolve_request_region(request, current_user)
+
     # 1. 사용자 정보 및 원본 시설 정보 병렬 조회
     user_task = fetch_user(req.user_id)
-    original_infra_task = fetch_facility(req.original_facility_id)
+    original_infra_task = fetch_facility(req.original_facility_id, region=region)
     max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else 10
     # 도보 추정을 계산하기 전 DB bbox는 넉넉히 잡고, 최종 제한은 보수적 경로 시간으로 강제한다.
     request_radius = max_walk_minutes * 100.0
     all_infra_task = fetch_all_facilities(
-        center_lat=req.user_lat, center_lng=req.user_lng, radius_m=request_radius
+        center_lat=req.user_lat, center_lng=req.user_lng, radius_m=request_radius,
+        region=region,
     )
     
     user_info, original_infra, all_facilities = await asyncio.gather(
         user_task, original_infra_task, all_infra_task
     )
-    await attach_related_destination_priors(original_infra, all_facilities)
+    if region == PUBLIC_REGION:
+        # Tmap 연관 목적지 prior 는 경주 이동 데이터다 — 다른 지역 후보에는 붙이지 않는다.
+        await attach_related_destination_priors(original_infra, all_facilities)
 
     # 2. 시설 조건을 먼저 적용하고, 도보 경로 행렬로 영업 여부와 하드 캡을 판정한다.
     eligible = []
@@ -646,18 +801,28 @@ async def get_recommendations(
     #    후보별 최신 혼잡도는 일괄 조회(fetch_congestion_map) 후 맵 참조 — 후보 수만큼의
     #    개별 쿼리 팬아웃(N+1, 스레드풀 고갈 위험)을 제거한다.
     # 추정 묶음(5분 캐시)은 혼잡 로그 조회와 겹쳐 받는다 — 추천 지연을 더하지 않는다.
-    congestion_by_id, estimates = await asyncio.gather(
-        fetch_congestion_map([req.original_facility_id, *[f["id"] for f, _, _ in candidates]]),
-        load_current_estimates(),
+    # 다른 지역은 공개 혼잡 로그·추정 대신 구역 관측만 읽는다(_region_congestion_inputs). now 가 곧 벽시계다.
+    congestion_by_id, estimates, zone_readings = await _region_congestion_inputs(
+        region, [req.original_facility_id, *[f["id"] for f, _, _ in candidates]], wall_now=now
     )
     model_ready = get_model_info()["trained"]
-    original_evidence = await resolve_congestion_evidence(
-        original_infra, congestion_by_id.get(req.original_facility_id), now=now
-    )
-    original_congestion = (
-        rankable_measured_level(original_evidence)
-        if original_evidence["source"] == "measured" else original_evidence.get("level")
-    )
+    origin_zone_evidence = None
+    if zone_readings.get(str(req.original_facility_id)):
+        # 출발지도 구역 근거로 본다 — 재배치 기여의 기준선은 '같은 도착 시각의 출발지' 다(score.py).
+        origin_zone_evidence = zone_evidence_dict(zone_readings[str(req.original_facility_id)], wall_now=now)
+        original_evidence = {**origin_zone_evidence, "estimate": None}
+        original_congestion = (
+            origin_zone_evidence["level"] if evidence_is_current(origin_zone_evidence, now=now) else None
+        )
+    else:
+        original_evidence = await resolve_congestion_evidence(
+            original_infra, congestion_by_id.get(req.original_facility_id), now=now,
+            allow_model=region == PUBLIC_REGION,
+        )
+        original_congestion = (
+            rankable_measured_level(original_evidence)
+            if original_evidence["source"] == "measured" else original_evidence.get("level")
+        )
     # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
     original_wait_time = None
     if model_ready and original_evidence["source"] == "predicted" and original_congestion is not None:
@@ -670,7 +835,10 @@ async def get_recommendations(
     async def _score_candidate(f: dict, route, eligibility_tier: int) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
         # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates, now=now)
+        evidence = await build_candidate_evidence(
+            f, congestion_by_id.get(f["id"]), estimates, now=now,
+            region=region, zone_readings=zone_readings, wall_now=now,
+        )
         candidate_congestion = evidence["level"]
         # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
         # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
@@ -689,6 +857,7 @@ async def get_recommendations(
             travel_time_override=route.duration_min,
             travel_distance_override=route.distance_m,
             travel_source=route.source,
+            **_zone_score_kwargs(region, now, origin_zone_evidence),
         )
         return {
             "facility": f,
@@ -724,7 +893,7 @@ async def get_recommendations(
     )))
     # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
     top_n = recommendation_results[:_MAIN_RECOMMENDATION_LIMIT]
-    await _attach_delayed_area_actions(top_n, now=now)
+    await _attach_delayed_area_actions(top_n, now=now, region=region)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
     #      컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
@@ -789,6 +958,7 @@ async def get_recommendations(
                 {"id": original_infra.get("id"), "name": original_infra.get("name")}
                 if req.discovery_theme else None
             ),
+            **_region_marker(region),
         }
         payload = {
                 "user_id": req.user_id,
@@ -806,6 +976,10 @@ async def get_recommendations(
         except Exception as exc:
             # Migration rollout compatibility: preserve recommendation IDs until the new column is deployed.
             if "recommendation_snapshot" not in str(exc):
+                raise
+            if region != PUBLIC_REGION:
+                # 구 payload 는 스냅샷째 지역 표시를 잃는다 — 표시 없는 내부 지역 행은 경주 집계·RLS 에 경주로 보인다.
+                # 저장을 건너뛴다(이 항목은 mock-rec-id 로 강등). 경주는 종전 폴백 그대로다.
                 raise
             legacy_payload = {k: v for k, v in payload.items() if k != "recommendation_snapshot"}
             return await asyncio.to_thread(
@@ -836,7 +1010,7 @@ async def get_recommendations(
         evidence = item["congestion_evidence"]
         response_items.append(RecommendItem(
             recommendation_id=rec_id,
-            facility=item["facility"],
+            facility=public_facility_view(item["facility"]),
             spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
@@ -868,17 +1042,78 @@ async def get_recommendations(
     return response_items
 
 
-async def _fetch_owned_recommendation(recommendation_id: str, user_id: str) -> dict:
+# 추천 행 + 추천된 시설(요청 지역 것만). !inner 라 다른 지역 시설을 가리키는 추천 행은 **행째** 빠진다 —
+# 읽은 뒤 dict 로 거르지 않고 쿼리 안에서 거른다(core/region 원칙). 지역 필터는 임베드 별칭의 region 칸에 건다.
+_RECOMMENDATION_WITH_FACILITY = "*, recommended_facility:facilities!recommended_facility_id!inner(*)"
+_RECOMMENDED_FACILITY_REGION = "recommended_facility.region"
+
+
+def _select_recommendation_in_region(recommendation_id: str, region: str, *, limit: int | None = None):
+    """동기 — 추천 행 1건을 요청 지역 시설 조인으로 읽는다(region 컬럼이 없는 DB 는 경주만 필터 없이)."""
+
+    def _read(with_region: bool) -> list[dict]:
+        query = (
+            supabase_client.table("recommendations")
+            .select(_RECOMMENDATION_WITH_FACILITY)
+            .eq("id", recommendation_id)
+        )
+        if with_region:
+            query = query.eq(_RECOMMENDED_FACILITY_REGION, region)
+        if limit is not None:
+            query = query.limit(limit)
+        return query.execute().data or []
+
+    return _read
+
+
+# 설명(explain)의 공개 지역 읽기 — 시설은 **왼쪽** 임베드(region 칸만)다. 시설이 지워진(FK SET NULL) 경주 추천도
+# 스냅샷으로 답한다(S3 전과 같다). 서울 행은 쿼리 안의 두 겹으로 빠진다: 스냅샷 지역 표시(``region``)가 있는 행,
+# 그리고 시설 임베드가 지역 필터에 걸려 비는 행(시설 id 는 있는데 경주 시설이 아니다).
+_RECOMMENDATION_WITH_FACILITY_REGION_LEFT = "*, recommended_facility:facilities!recommended_facility_id(region)"
+_RECOMMENDATION_SNAPSHOT_REGION = f"recommendation_snapshot->>{RECOMMENDATION_REGION_KEY}"
+
+
+def _select_public_recommendation_for_explain(recommendation_id: str):
+    """동기 — 공개 지역(경주) 설명용 추천 행 1건. region 컬럼이 없는 DB 는 임베드 없이(모든 시설이 경주다)."""
+
+    def _read(with_region: bool) -> list[dict]:
+        query = (
+            supabase_client.table("recommendations")
+            .select(_RECOMMENDATION_WITH_FACILITY_REGION_LEFT if with_region else "*")
+            .eq("id", recommendation_id)
+            .is_(_RECOMMENDATION_SNAPSHOT_REGION, "null")
+        )
+        if with_region:
+            query = query.eq(_RECOMMENDED_FACILITY_REGION, PUBLIC_REGION)
+        rows = query.limit(1).execute().data or []
+        if not with_region:
+            return rows
+        # 왼쪽 임베드라 지역 필터는 행을 빼지 않고 임베드만 비운다 — 시설 id 가 있는데 임베드가 비었으면 다른 지역 시설이다.
+        return [
+            row for row in rows
+            if row.get("recommended_facility_id") is None or row.get("recommended_facility")
+        ]
+
+    return _read
+
+
+async def _fetch_owned_recommendation(
+    recommendation_id: str, user_id: str, region: str = PUBLIC_REGION
+) -> dict:
     try:
         uuid.UUID(recommendation_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다.") from None
-    result = await asyncio.to_thread(
-        supabase_client.table("recommendations").select("*").eq("id", recommendation_id).limit(1).execute
-    )
-    if not result.data:
+    if region == PUBLIC_REGION:
+        # 경주 — 시설이 지워진 추천도 스냅샷으로 답한다(S3 전 동작). 서울 행은 쿼리가 뺀다.
+        read = _select_public_recommendation_for_explain(recommendation_id)
+    else:
+        # 내부 지역 — 그 지역 시설에 걸린 추천만(!inner). 시설이 지워진 내부 지역 추천은 설명하지 않는다.
+        read = _select_recommendation_in_region(recommendation_id, region, limit=1)
+    rows = await arun_region_scoped(read, region=region)
+    if not rows:
         raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다.")
-    row = result.data[0]
+    row = rows[0]
     if row.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="본인의 추천만 설명할 수 있습니다.")
     return row
@@ -888,13 +1123,15 @@ async def _fetch_owned_recommendation(recommendation_id: str, user_id: str) -> d
 async def explain_recommendation(
     recommendation_id: str,
     req: ExplainRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     ids = [recommendation_id, *req.comparison_recommendation_ids]
     if len(set(ids)) != len(ids):
         raise HTTPException(status_code=422, detail="비교 추천 ID는 중복될 수 없습니다.")
+    region = await resolve_request_region(request, current_user)
     rows = await asyncio.gather(*[
-        _fetch_owned_recommendation(rec_id, current_user["id"]) for rec_id in ids
+        _fetch_owned_recommendation(rec_id, current_user["id"], region) for rec_id in ids
     ])
     snapshots = []
     for row in rows:
@@ -959,7 +1196,7 @@ class RecommendByTypeRequest(BaseModel):
 _by_type_cache = ResponseCache("recommend_by_type")
 
 
-def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
+def _by_type_cache_key(req: "RecommendByTypeRequest", region: str = PUBLIC_REGION) -> tuple:
     """_recommend_by_type 의 출력을 바꿀 수 있는 입력을 **빠짐없이** 담은 키.
 
     아래 목록이 곧 "이 두 요청은 같은 질문인가" 의 정의다. 하나라도 빠지면 다른 질문에 남의
@@ -977,8 +1214,10 @@ def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
         max_walk_minutes 를 통해 후보 자격과 반경을 모두 바꾼다.
       · 가정 시각 버킷 — 도착 영업여부·도착시점 혼잡·SPOT 채점의 기준 '지금'.
       · fill_weaker_tiers — 영업 미확인 등급으로 채울지(구 번들과 새 번들이 같은 키를 나누면 서로의 답을 받는다).
+      · region — 요청 지역(서버가 역할로 정한 값). **공개 지역(경주)이면 넣지 않는다** — 경주 키는 지역 도입
+        전과 같다. 같은 계정이라도 서울로 판정된 요청과 경주 요청은 다른 키다(풀이 다르다).
     """
-    return (
+    key = (
         req.user_id,
         req.facility_type,
         *round_location(req.user_lat, req.user_lng),
@@ -989,11 +1228,13 @@ def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
         assumed_time_bucket(parse_assumed_time(req.assumed_at)),
         bool(req.fill_weaker_tiers),
     )
+    return key if region == PUBLIC_REGION else (*key, ("region", region))
 
 
 @router.post("/recommendations/by-type", response_model=list[RecommendItem])
 async def recommend_by_type(
     req: RecommendByTypeRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     logger.info("recommend_by_type_request", user_id=req.user_id, facility_type=req.facility_type)
@@ -1002,6 +1243,9 @@ async def recommend_by_type(
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
+    # 요청 지역은 **캐시보다 먼저** 정한다 — 캐시 키와 파이프라인이 같은 값을 명시 인자로 받는다.
+    region = await resolve_request_region(request, current_user)
+
     # /courses/recommend 와 같은 이유로 감싼다(2026-08-28). 여기도 예외 처리가 없어
     # 업스트림이 흔들리면 그대로 500 이 나갔다 — 동시 호출 시 실측으로 확인했다.
     # 프런트는 이미 503 을 ServiceUnavailableError 로 따로 잡아 로컬 폴백으로 내려간다.
@@ -1009,7 +1253,7 @@ async def recommend_by_type(
         # 캐시는 예외 처리 **안쪽**이다 — 미스가 그대로 파이프라인 호출이라 실패 경로(503 강등·
         # record_failure)가 종전과 똑같이 돈다. 실패는 캐시에 남지 않는다.
         return await _by_type_cache.get_or_compute(
-            _by_type_cache_key(req), lambda: _recommend_by_type(req)
+            _by_type_cache_key(req, region), lambda: _recommend_by_type(req, region)
         )
     except HTTPException:
         raise
@@ -1029,12 +1273,15 @@ async def recommend_by_type(
         ) from exc
 
 
-async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
+async def _recommend_by_type(req: "RecommendByTypeRequest", region: str = PUBLIC_REGION) -> list:
     """by-type 추천 본체. 예외 처리는 호출부(recommend_by_type)가 맡는다."""
     max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else _DEFAULT_BROWSE_WALK_MINUTES
     user_info, all_facilities = await asyncio.gather(
         fetch_user(req.user_id),
-        fetch_all_facilities(center_lat=req.user_lat, center_lng=req.user_lng, radius_m=max_walk_minutes * 100.0),
+        fetch_all_facilities(
+            center_lat=req.user_lat, center_lng=req.user_lng, radius_m=max_walk_minutes * 100.0,
+            region=region,
+        ),
     )
 
     exclude = set(req.exclude_ids or [])
@@ -1087,14 +1334,18 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
     # 선호 벡터 1회 조회(없으면 Cold Start 생성 후 업서트) — get_recommendations 와 동일 패턴
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
 
-    # 후보별 최신 혼잡도 일괄 조회(N+1 제거) — get_recommendations 와 동일 패턴
-    congestion_by_id, estimates = await asyncio.gather(
-        fetch_congestion_map([f["id"] for f in candidates]),
-        load_current_estimates(),
+    # 후보별 최신 혼잡도 일괄 조회(N+1 제거) — get_recommendations 와 동일 패턴.
+    # 구역 관측의 신선도는 **실제 벽시계**로 잰다(now 는 가정 시각일 수 있다 — 채점의 기준 시각과 분리).
+    wall_now = datetime.now(timezone.utc)
+    congestion_by_id, estimates, zone_readings = await _region_congestion_inputs(
+        region, [f["id"] for f in candidates], wall_now=wall_now
     )
 
     async def _score(f: dict) -> dict:
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates, now=now)
+        evidence = await build_candidate_evidence(
+            f, congestion_by_id.get(f["id"]), estimates, now=now,
+            region=region, zone_readings=zone_readings, wall_now=wall_now,
+        )
         cong = evidence["level"]
         route = route_by_id[f["id"]]
         # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.
@@ -1117,6 +1368,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             travel_time_override=route.duration_min,
             travel_distance_override=route.distance_m,
             travel_source=route.source,
+            **_zone_score_kwargs(region, wall_now),
         )
         return {
             "facility": f2,
@@ -1137,7 +1389,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
         x["breakdown"].get("ranking_congestion"),
     )))
     top = scored[: max(1, req.limit)]
-    await _attach_delayed_area_actions(top, now=now)
+    await _attach_delayed_area_actions(top, now=now, region=region)
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
     # facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
@@ -1185,6 +1437,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             "scoring_mode": item["breakdown"].get("scoring_mode"),
             "model_version": item["breakdown"].get("model_version"),
             "prediction_source": item["breakdown"].get("prediction_source"),
+            **_region_marker(region),
         }
         return await asyncio.to_thread(
             supabase_client.table("recommendations").insert({
@@ -1208,7 +1461,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
                 result.data[0]["id"]
                 if not isinstance(result, Exception) and result.data else "mock-rec-id"
             ),
-            facility=item["facility"],
+            facility=public_facility_view(item["facility"]),
             spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
@@ -1490,11 +1743,14 @@ class RejectRequest(BaseModel):
 @router.post("/recommendations/reject")
 async def reject_recommendation(
     req: RejectRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """메인 브라우즈 거절을 실험실 pending 결정으로 비차단 적재할 수 있게 한다."""
     user_id = current_user["id"]
-    await fetch_facility(req.facility_id)  # 클라이언트 점수·혼잡값 없이 서버의 시설 존재만 검증한다.
+    region = await resolve_request_region(request, current_user)
+    # 클라이언트 점수·혼잡값 없이 서버의 시설 존재만 검증한다(요청 지역의 시설만 — 다른 지역은 404).
+    await fetch_facility(req.facility_id, region=region)
 
     # 동일 시설의 미처리 browse 거절은 재사용한다. 네트워크 재시도로 실험실 항목이 중복되지 않되,
     # reason_status 가 완료/제거된 과거 거절 뒤의 새 거절은 별도 이력으로 남는다.
@@ -1524,6 +1780,7 @@ async def reject_recommendation(
                 "score_breakdown": {},
                 "accepted": False,
                 "source": "browse",
+                **_region_marker_snapshot(region),
             }).execute
         )
         recommendation_id = inserted.data[0]["id"]
@@ -1561,6 +1818,7 @@ def _linkable_recommendation_id(raw: str | None) -> str | None:
 @router.post("/recommendations/accept")
 async def accept_recommendation(
     req: AcceptRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     """특정 시설 방문을 수락 확정하고 제휴 시설이면 쿠폰을 발급한다.
@@ -1573,13 +1831,15 @@ async def accept_recommendation(
            "recommendation_id": str|None(수락으로 표시한 추천 행), "updated_vector": bool(이번에 취향을 배웠나)}
     """
     user_id = current_user["id"]
+    region = await resolve_request_region(request, current_user)
 
     # 1. 시설 존재 검증(없으면 404 — fetch_facility 가 던진다). coupon_rate 포함 시설 dict 확보.
-    facility = await fetch_facility(req.facility_id)
+    #    요청 지역의 시설만 — 다른 지역 시설 id 는 없는 시설과 같은 404 다.
+    facility = await fetch_facility(req.facility_id, region=region)
 
     recommendation_id = _linkable_recommendation_id(req.recommendation_id)
     if recommendation_id is not None:
-        return await _accept_shown_recommendation(recommendation_id, facility, current_user)
+        return await _accept_shown_recommendation(recommendation_id, facility, current_user, region)
 
     # 2. (구 번들·추천 이력 없음) 수락 이력 기록 — 종전과 같다.
     #    원본이 없는 직접 수락이라 original=recommended=facility_id, spot_score 는 스키마 NOT NULL 기본값 0.0.
@@ -1593,19 +1853,22 @@ async def accept_recommendation(
                 "spot_score": 0.0,
                 "score_breakdown": {},
                 "accepted": True,
+                **_region_marker_snapshot(region),
             }).execute
         )
     except Exception as e:
         logger.warning("accept_persist_failed", user_id=user_id, facility_id=req.facility_id, error=str(e))
 
     # 3. 제휴 시설이면 쿠폰 발급(피드백 경로와 동일 규칙 — 멱등 upsert·만료 7일).
-    result = await issue_coupon_if_partner(supabase_client, user_id, facility)
+    result = await issue_coupon_if_partner(supabase_client, user_id, facility, region=region)
     logger.info("recommendation_accepted", user_id=user_id, facility_id=req.facility_id, coupon_issued=result["coupon_issued"])
     # 이 경로는 취향을 배우지 않는다(이을 추천 행이 없다) — 화면이 '취향에 반영' 을 말할지 이 값으로 고른다.
     return {"success": True, **result, "recommendation_id": None, "updated_vector": False}
 
 
-async def _accept_shown_recommendation(recommendation_id: str, facility: dict, current_user: dict) -> dict:
+async def _accept_shown_recommendation(
+    recommendation_id: str, facility: dict, current_user: dict, region: str = PUBLIC_REGION
+) -> dict:
     """노출된 추천 행을 수락으로 표시한다 — /feedback accepted_visit_intent 와 같은 효과, 새 행 없음.
 
     /feedback 을 함께 불러도 두 번 세지 않는다: 결정 행은 추천당 1개(record_decision 멱등)이고 취향 학습
@@ -1613,7 +1876,9 @@ async def _accept_shown_recommendation(recommendation_id: str, facility: dict, c
     """
     user_id = current_user["id"]
     # 소유권 가드(비-UUID·없는 행 404, 남의 행 403) — /feedback · /outcome 과 같은 함수.
-    recommendation, _joined_facility = await resolve_feedback_target(recommendation_id, current_user)
+    recommendation, _joined_facility = await resolve_feedback_target(
+        recommendation_id, current_user, region=region
+    )
     if str(recommendation.get("recommended_facility_id")) != str(facility["id"]):
         # 다른 장소의 추천 행을 수락으로 바꾸면 분산 지표가 없던 이동을 센다 — 고치지 않고 거절한다.
         raise HTTPException(status_code=409, detail="추천 기록의 장소와 수락한 장소가 다릅니다.")
@@ -1639,7 +1904,7 @@ async def _accept_shown_recommendation(recommendation_id: str, facility: dict, c
             user_id=user_id, recommendation_id=recommendation_id, error=str(e),
         )
 
-    result = await issue_coupon_if_partner(supabase_client, user_id, facility)
+    result = await issue_coupon_if_partner(supabase_client, user_id, facility, region=region)
 
     # 취향 벡터 — 서비스가 학습 슬롯을 선점해 준 경우에만(행당 생애 1회, /feedback 과 같은 규칙).
     updated_vector = False
@@ -1709,8 +1974,13 @@ async def apply_feedback_vector_learning(*, user_id: str, facility: dict, vector
     return True
 
 
-async def resolve_feedback_target(recommendation_id: str, current_user: dict) -> tuple[dict, dict]:
+async def resolve_feedback_target(
+    recommendation_id: str, current_user: dict, *, region: str = PUBLIC_REGION
+) -> tuple[dict, dict]:
     """피드백/실험실 경로의 공통 진입 가드 — 추천 이력 조회 + 소유권 검사.
+
+    ``region`` — 추천된 시설이 이 지역 것인 추천 행만 찾는다(쿼리 안의 !inner 조인 필터). 다른 지역 시설의
+    추천 행은 없는 추천과 같은 404 다(기본값 공개 지역 = 경주, fail-closed).
 
     Returns:
         (recommendation, facility)
@@ -1731,16 +2001,13 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
 
-    rec_res = await asyncio.to_thread(
-        supabase_client.table("recommendations")
-        .select("*, recommended_facility:facilities!recommended_facility_id(*)")
-        .eq("id", recommendation_id)
-        .execute
+    rows = await arun_region_scoped(
+        _select_recommendation_in_region(recommendation_id, region), region=region
     )
-    if not rec_res.data:
+    if not rows:
         raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
 
-    recommendation = rec_res.data[0]
+    recommendation = rows[0]
     # 소유권 가드: 타인의 추천 기록에 피드백을 넣어 그 사람의 선호 벡터를 오염시키는 것을 차단.
     if recommendation["user_id"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="해당 추천 기록에 대한 권한이 없습니다.")
@@ -1749,8 +2016,8 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
     if isinstance(facility, list):
         facility = facility[0] if facility else None
     if not facility:
-        # facilities 를 조인하지 못했을 시 단독으로 시설 추가 조회
-        facility = await fetch_facility(recommendation["recommended_facility_id"])
+        # facilities 를 조인하지 못했을 시 단독으로 시설 추가 조회(같은 지역 필터)
+        facility = await fetch_facility(recommendation["recommended_facility_id"], region=region)
     return recommendation, facility
 
 
@@ -1765,6 +2032,8 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
 _CROWD_ANSWER_SHARED_NETWORK = "not_recorded_shared_network"
 _CROWD_ANSWER_COOLDOWN = "not_recorded_cooldown"
 _CROWD_ANSWER_PENDING_MIGRATION = "not_recorded_pending_migration"
+#   not_recorded_region             내부 지역(서울) 추천 — 그 지역은 혼잡 제보가 꺼져 있어 답을 버린다(계정 사용자 포함).
+_CROWD_ANSWER_REGION = "not_recorded_region"
 # 같은 게스트·같은 장소의 답은 교차검증 창(30분)에 한 번. 실시간을 켜면 한 게스트가 추천을 돌려 단건 관측을 쌓는 것을 막는다.
 _GUEST_ANSWER_COOLDOWN_SEC = CORROBORATION_WINDOW_SEC
 # 응답에서 빼는 열 — 네트워크 키는 측정·교차검증용이라 클라이언트에 돌려줄 이유가 없다.
@@ -1835,7 +2104,8 @@ async def record_recommendation_outcome(
     게스트 답에만 1인 1표가 걸린다: 같은 IP·같은 장소는 30분에 한 계정(계정 사용자의 실시간 표는 읽기만 하고 자리는 게스트
     전용 표에 잡는다), 같은 게스트·같은 장소는 30분에 한 번. 막히면 평가만 저장하고 crowd_answer 로 이유를 알린다.
     """
-    recommendation, _facility = await resolve_feedback_target(recommendation_id, current_user)
+    region = await resolve_request_region(request, current_user)
+    recommendation, _facility = await resolve_feedback_target(recommendation_id, current_user, region=region)
     observed = req.observed_congestion
     # 게스트 판정은 검증된 JWT 의 is_anonymous 다. 방금 계정을 연결해(linkIdentity·이메일 전환) JWT 는 아직 익명인데 DB 는
     # 계정 사용자인 짧은 순간이 있다(L1). 그때 이 요청은 게스트 규칙(IP·쿨다운 제한, 네트워크 키 계산)을 한 번 더 받을 뿐이고,
@@ -1844,6 +2114,12 @@ async def record_recommendation_outcome(
     dropped: str | None = None
     network_hash: str | None = None
     slot = None
+    if observed is not None and region != PUBLIC_REGION:
+        # 내부 지역(서울)은 혼잡 제보가 꺼져 있다(사용자 결정 2) — 체감 혼잡은 저장하지 않는다(평가·단계만 저장).
+        # 저장하면 경주 관제의 답 지표(guest_crowd_answer_shadow_metrics)에 서울 답이 섞인다. 경주는 그대로다.
+        observed = None
+        dropped = _CROWD_ANSWER_REGION
+        logger.info("outcome_crowd_answer_not_recorded", recommendation_id=recommendation_id, reason=dropped)
     if observed is not None and is_guest:
         ip = client_ip(request)
         facility_id = str(recommendation.get("recommended_facility_id") or "")
@@ -1875,6 +2151,9 @@ async def record_recommendation_outcome(
         message = str(exc)
         if "must be recorded first" in message or "cannot be changed" in message:
             raise HTTPException(status_code=409, detail="방문 결과 단계 순서가 올바르지 않습니다.")
+        if "facility_region_not_public" in message:
+            # DB 의 지역 격리 트리거(P0001) — 공개 지역이 아닌 시설은 공개 혼잡 표에 쓰지 않는다. 없는 시설과 같은 404.
+            raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
         logger.error("recommendation_outcome_failed", recommendation_id=recommendation_id, error=message)
         raise HTTPException(status_code=500, detail="방문 결과 저장에 실패했습니다.")
     if legacy_db and is_guest and observed is not None:
@@ -1893,7 +2172,8 @@ async def record_recommendation_outcome(
         if row.get("observed_congestion") and row.get("observed_answer_mode"):
             crowd_answer = row["observed_answer_mode"]
         row = {k: v for k, v in row.items() if k not in _OUTCOME_PRIVATE_FIELDS}
-    if observed is not None and crowd_answer != "guest_shadow":
+    if observed is not None and crowd_answer != "guest_shadow" and region == PUBLIC_REGION:
+        # (다른 지역 시설의 답은 DB 가 공개 congestion_logs 로 옮기지 않는다 — 스냅샷을 흔들 이유가 없다.)
         # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
         # 옮긴다 — 지도에 보이는 쓰기다. 게스트 그림자 답은 옮기지 않으므로 스냅샷을 흔들지 않는다.
         reference_snapshot.mark_dirty("congestion")
@@ -1903,13 +2183,17 @@ async def record_recommendation_outcome(
 @router.post("/feedback")
 async def submit_feedback(
     req: FeedbackRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     logger.info("feedback_received", recommendation_id=req.recommendation_id, action=req.action)
 
     # 1. 추천 이력 조회 + 소유권 가드(비-UUID·미존재 id 는 404, 타인 소유는 403).
     #    by-type 브라우즈 노출도 recommendations 에 저장돼 실제 UUID 로 들어온다 — 이 경로를 통과한다.
-    _recommendation, facility = await resolve_feedback_target(req.recommendation_id, current_user)
+    region = await resolve_request_region(request, current_user)
+    _recommendation, facility = await resolve_feedback_target(
+        req.recommendation_id, current_user, region=region
+    )
     user_id = current_user["id"]  # body 의 user_id 를 신뢰하지 않는다 — 토큰 주체만 쓴다.
 
     # 2. 만족도 신호(helpful/not_helpful): 품질 신호 전용 행만 남긴다.
@@ -1947,7 +2231,7 @@ async def submit_feedback(
         # 제휴 시설이면 '내 쿠폰함'에 쿠폰 발급 — 실제 '수락'을 게이트로 w3 인센티브(coupon_rate)를
         # 현물화한다. 발급 규칙(제휴 판정·멱등 upsert·만료 7일·best-effort)은 issue_coupon_if_partner 로
         # 통일해 수락 파이프라인(/recommendations/accept)과 동일하게 재사용한다.
-        await issue_coupon_if_partner(supabase_client, user_id, facility)
+        await issue_coupon_if_partner(supabase_client, user_id, facility, region=region)
 
     # 5. 선호 벡터 학습 — 서비스가 학습 슬롯을 선점해준 경우에만(행당 생애 1회).
     updated_vector = False

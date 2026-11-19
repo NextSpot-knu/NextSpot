@@ -17,7 +17,12 @@ from app.services import engine_validation_metrics as metrics
 from app.services import seoul_alternatives_service as alternatives
 from app.services import seoul_citydata_service
 from app.services.spot.wait_time import calculate_predicted_wait_time
-from tests.conftest import admin_headers
+from tests.conftest import role_headers
+
+
+def developer_headers() -> dict:
+    """서울 리허설 API 는 developer 전용이다(사용자 결정 1 — admin 은 403, test_engine_validation_developer_only)."""
+    return role_headers("developer")
 
 # 21:00 KST — 대기 공식의 시간대 계수가 1.0인 시각이라 기대값을 손으로 확인할 수 있다.
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
@@ -149,7 +154,7 @@ def test_requires_admin():
 
 def test_unknown_origin_is_422_not_silent_default(monkeypatch):
     _install(monkeypatch, _Table(rows=_cluster_rows(at=NOW)))
-    response = _client().get(f"{PATH}?origin=경주 황리단길", headers=admin_headers())
+    response = _client().get(f"{PATH}?origin=경주 황리단길", headers=developer_headers())
     assert response.status_code == 422
     assert response.json() == {"detail": "unknown_origin"}
 
@@ -173,7 +178,7 @@ def test_origin_accepts_name_and_area_code():
 
 def test_missing_table_is_not_migrated_not_500(monkeypatch):
     _install(monkeypatch, _Table(error=Exception("{'code': 'PGRST205', 'message': \"Could not find the table 'public.seoul_citydata_snapshots' in the schema cache\"}")))
-    response = _client().get(PATH, headers=admin_headers())
+    response = _client().get(PATH, headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert body["state"] == "not_migrated"
@@ -388,7 +393,7 @@ def test_query_reads_only_the_measured_columns(monkeypatch):
 
 def test_endpoint_returns_contract(monkeypatch):
     _install(monkeypatch, _Table(rows=_cluster_rows(at=datetime.now(timezone.utc) - timedelta(minutes=3))))
-    response = _client().get(f"{PATH}?origin=POI007", headers=admin_headers())
+    response = _client().get(f"{PATH}?origin=POI007", headers=developer_headers())
     assert response.status_code == 200
     body = response.json()
     assert set(body) >= {
@@ -411,7 +416,7 @@ def test_endpoint_returns_contract(monkeypatch):
 
 def test_unexpected_failure_is_503(monkeypatch):
     _install(monkeypatch, _Table(error=RuntimeError("connection reset")))
-    response = _client().get(PATH, headers=admin_headers())
+    response = _client().get(PATH, headers=developer_headers())
     assert response.status_code == 503
     assert response.json() == {"detail": "engine_validation_unavailable"}
 

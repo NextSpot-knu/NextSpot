@@ -12,6 +12,13 @@ from pydantic import BaseModel
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.client_ip import client_ip
 from app.core.http_cache import etag_response
+from app.core.region import (
+    PUBLIC_REGION,
+    apply_region,
+    arun_region_scoped,
+    is_missing_region_column,
+    run_region_scoped,
+)
 from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
 from app.services import reference_snapshot
 from app.services.availability_service import fetch_effective_availability_map
@@ -263,39 +270,50 @@ def _is_missing_is_active_column(exc: Exception) -> bool:
     return "is_active" in message and "does not exist" in message
 
 
-async def fetch_active_facilities(client, select: str = "*", *, extra_filters=None) -> list[dict]:
-    """facilities 를 is_active=false(폐업·표출중단 감지, 2차 기획 1위) 제외하고 전량 조회한다.
+async def fetch_active_facilities(
+    client, select: str = "*", *, region: str = PUBLIC_REGION, extra_filters=None
+) -> list[dict]:
+    """facilities 를 is_active=false(폐업·표출중단 감지, 2차 기획 1위) 제외하고 **한 지역만** 전량 조회한다.
 
     추천/코스/예측/시설목록 로드가 공용으로 쓰는 지점 — fetch_all_rows(apply_filters=...) 위에
-    is_active 필터를 얹은 얇은 래퍼다. is_active 컬럼이 아직 배포되지 않았으면(마이그레이션
-    미적용, 42703) 필터 없이 재조회해 500 대신 전체 목록을 반환한다 — 폐업 감지가 아직 준비되지
-    않았을 뿐 서비스 자체는 무중단이어야 한다(오탐보다 무필터 저하가 낫다는 원칙).
+    region·is_active 필터를 얹은 얇은 래퍼다.
+
+    ``region`` 기본값은 공개 지역(경주)이다 — 빠뜨려도 서울이 나오는 일은 없다(fail-closed). 서울은
+    내부 경로(routers/internal_regions.py · 엔진의 지역 풀)만 명시해서 읽는다.
+
+    42703(컬럼 없음)은 둘로 나눈다:
+      · region 컬럼이 없다(지역 격리 마이그레이션 전) → 경주는 region 필터 없이 다시 읽고, 다른 지역은 [].
+      · is_active 컬럼이 없다 → 종전처럼 is_active 필터 없이 재조회한다(region 필터는 **유지**). 폐업 감지가
+        아직 준비되지 않았을 뿐 서비스 자체는 무중단이어야 한다(오탐보다 무필터 저하가 낫다는 원칙).
+      · 그 밖의 42703 → 그대로 올린다.
     """
     # 페이지 경계 고정: fetch_all_rows 는 offset(range) 페이지를 **서로 다른 HTTP 요청**으로 받는다.
     # 정렬이 없으면 PostgREST 는 순서를 보장하지 않아, 두 요청 사이에 행이 옮겨지면(좌석 방송·일배치
     # upsert 같은 UPDATE) 한 시설은 두 번, 다른 시설은 0번 온다. 유일 키(id)로 전순서를 건다
     # (admin.py model-trust · simulate_peak 와 같은 규칙).
-    def _filters(query):
-        if extra_filters is not None:
-            query = extra_filters(query)
-        return query.eq("is_active", True).order("id")
+    def _read(with_region: bool, with_active: bool) -> list[dict]:
+        def _filters(query):
+            if extra_filters is not None:
+                query = extra_filters(query)
+            if with_region:
+                query = apply_region(query, region)
+            if with_active:
+                query = query.eq("is_active", True)
+            return query.order("id")
 
-    def _fallback_filters(query):
-        if extra_filters is not None:
-            query = extra_filters(query)
-        return query.order("id")
+        return fetch_all_rows(client, "facilities", select, apply_filters=_filters)
 
-    try:
-        rows = await asyncio.to_thread(
-            fetch_all_rows, client, "facilities", select, apply_filters=_filters
-        )
-    except Exception as e:
-        if not _is_missing_is_active_column(e):
-            raise
-        logger.warning("facilities_is_active_column_missing_fallback", select=select)
-        rows = await asyncio.to_thread(
-            fetch_all_rows, client, "facilities", select, apply_filters=_fallback_filters
-        )
+    def _scoped(with_region: bool) -> list[dict]:
+        try:
+            return _read(with_region, True)
+        except Exception as e:
+            # region 컬럼 부재는 run_region_scoped 가 처리한다 — 여기서 is_active 폴백으로 삼키지 않는다.
+            if is_missing_region_column(e) or not _is_missing_is_active_column(e):
+                raise
+            logger.warning("facilities_is_active_column_missing_fallback", select=select)
+            return _read(with_region, False)
+
+    rows = await arun_region_scoped(_scoped, region=region)
     try:
         # 출처 표는 **페이지네이션**한다. 단발 select 는 PostgREST 캡(1000행)에서 오류 없이 잘려,
         # localdata 출처가 1000건을 넘는 날 임의의 일부 시설이 조용히 'tourapi'/'kakao' 로 되돌아간다.
@@ -523,7 +541,10 @@ async def _live_infrastructures(
             return query
 
         # is_active=false(폐업·표출중단 감지) 제외 + 기존 위치/타입 필터 병행 적용.
-        facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=_apply_filters)
+        # 공개 지도는 경주만(명시 고정 — 서울은 내부 경로 GET /internal/regions/{region}/infrastructures).
+        facilities = await fetch_active_facilities(
+            supabase_client, "*", region=PUBLIC_REGION, extra_filters=_apply_filters
+        )
 
         if not facilities:
             return []
@@ -761,13 +782,16 @@ async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
         # 지도에 '데이터 없음' 으로 남는다 —
         # 위 독스트링이 말하는 "전 시설" 도, 아래 비율 배정(앞 40%/35%/25%)도 그만큼 거짓이 된다.
         # id 로 정렬해 페이지 경계에서 행이 중복·누락되지 않게 한다(전순서 보장).
-        facilities = await asyncio.to_thread(
-            fetch_all_rows,
-            supabase_client,
-            "facilities",
-            "id, name, type, capacity",
-            apply_filters=lambda q: q.order("id"),
-        )
+        # 모의 로그는 공개 congestion_logs 에 쓴다 — 경주 시설만(서울 시설은 DB 트리거도 거부한다).
+        def _read_facilities(with_region: bool) -> list[dict]:
+            return fetch_all_rows(
+                supabase_client,
+                "facilities",
+                "id, name, type, capacity",
+                apply_filters=lambda q: (apply_region(q, PUBLIC_REGION) if with_region else q).order("id"),
+            )
+
+        facilities = await asyncio.to_thread(run_region_scoped, _read_facilities, region=PUBLIC_REGION)
         if not facilities:
             raise HTTPException(status_code=404, detail="시설 목록을 찾을 수 없습니다.")
         

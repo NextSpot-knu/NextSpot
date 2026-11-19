@@ -18,6 +18,7 @@ import {
   AlertCircle, AlertTriangle, CheckCircle2, Info, LogIn, MapPin, RefreshCw, Loader2, Database, FlaskConical,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { useAccount, canSeeInternalRegions } from '@/lib/account';
 import { MetricTile, OmittedMetricTile } from '@/components/admin/engine-validation/MetricTile';
 import { ConfusionTable } from '@/components/admin/engine-validation/ConfusionTable';
 import { ValidationSeriesChart } from '@/components/admin/engine-validation/ValidationSeriesChart';
@@ -52,8 +53,13 @@ export default function EngineValidationPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [selectedPlace, setSelectedPlace] = useState<string | null>(null);
+  // 서울 데이터 화면 — developer 전용(2026-10-31 사용자 결정 1). admin(외부 기관 관제 · 공용 심사 계정)은 관제 콘솔에
+  // 들어올 수 있어도 이 화면에서는 아무것도 불러오지 않는다(서버도 같은 API 를 admin 에게 403 으로 닫는다).
+  const { account, status: accountStatus } = useAccount();
+  const allowed = canSeeInternalRegions(account);
 
   useEffect(() => {
+    if (!allowed) return;
     let active = true;
     adminApi
       .get(summaryPath(days))
@@ -89,7 +95,7 @@ export default function EngineValidationPage() {
     return () => {
       active = false;
     };
-  }, [days, reloadKey]);
+  }, [days, reloadKey, allowed]);
 
   const reload = () => {
     setLoad({ status: 'loading' });
@@ -111,6 +117,33 @@ export default function EngineValidationPage() {
   const pipeline = summary ? parsePipeline(summary.pipeline) : null;
   const decisionQuality = summary ? parseDecisionQuality(summary.decision_quality) : null;
   const step = chartStepMinutes(place?.median_bucket_gap_minutes, place?.cadence_minutes);
+
+  if (!allowed) {
+    return (
+      <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+        <AdminSidebar />
+        <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 p-4 lg:p-8 overflow-y-auto">
+            {accountStatus === 'loading' ? (
+              <p className="flex items-center gap-2 text-sm text-hanok-muted">
+                <Loader2 size={16} className="animate-spin" /> 권한을 확인하는 중…
+              </p>
+            ) : (
+              <div data-testid="rehearsal-developer-only" className="rounded-2xl border border-hanok-line bg-hanok-panel p-5 text-sm">
+                <p className="font-semibold text-hanok-ink flex items-center gap-2">
+                  <Info size={16} className="text-hanok-muted" /> 개발팀 전용 화면입니다
+                </p>
+                <p className="mt-1 text-hanok-muted">관제 대시보드에서 경주 현황을 확인해 주세요.</p>
+                <Link href="/admin/dashboard" className="mt-3 inline-flex text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep">
+                  관제 대시보드로 이동
+                </Link>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">

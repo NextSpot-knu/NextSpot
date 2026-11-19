@@ -9,6 +9,7 @@
 //   - FASTAPI 베이스 URL 계산은 lib/api-client.ts 의 BASE_URL 과 동일 로직이다.
 //     그 파일이 값을 export 하지 않아 여기 인라인 중복했다 — 값을 바꿀 땐 두 파일 다 함께 수정할 것.
 import { markServerSkipsStroller, serverSkipsStroller, withoutStrollerAttribute } from "./strollerSupport";
+import { getActiveRegion, isPublicRegion } from "./regionRuntime";
 
 const FASTAPI_BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 const TRACK_URL = `${FASTAPI_BASE_URL}/api/v1/events/track`;
@@ -64,6 +65,8 @@ const EVENT_PROPS: Record<string, ReadonlySet<string>> = {
  */
 export function track(event: string, props?: Record<string, unknown>): void {
   if (typeof window === "undefined") return; // SSR/프리렌더 가드
+  // 내부 검증 지역을 보는 동안은 보내지 않는다. /events/track 은 인증이 없어 서버가 내부 계정을 걸러 낼 수 없다.
+  if (!isPublicRegion(getActiveRegion())) return;
 
   try {
     const allowed = EVENT_PROPS[event];

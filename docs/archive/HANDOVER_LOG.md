@@ -1,4 +1,184 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-09b — 모바일 앱 웹 판(디자이너용) · EAS Hosting `https://nextspot.expo.app` · 시트 반영 preview APK
+
+- 도구·브랜치: Claude Code(i7, 구현 2 · 독립 검토 1) / `yunseong` · 커밋 `fc99dcd`·`dbe498f`·`3a38113` + 이 기록.
+- 한 것: Appetize 무료(월 30분·세션 3분)로는 디자이너가 오래 못 써서 웹 판을 만들었다. ① 웹 지도 = 카카오 JS SDK(`features/map/NextSpotMap.web.tsx`·`kakaoWeb.ts`, 키 `EXPO_PUBLIC_KAKAO_MAP_KEY` — 웹 앱과 같은 값) ② 웹 실행 수리 — `web.output` `single`(하이드레이션 #418 제거), expo-sqlite 저장소 설치를 네이티브 전용 파일로, 데스크톱은 430px 가운데 기둥, `Alert`→`window.confirm`, 카카오맵 길안내 https 직행, 위치 거부 배너 ③ 검토 Med 1(실패한 SDK 태그 재사용) 수정 `3a38113`. EAS Hosting 운영 배포(`dist` → `eas deploy --prod`). preview APK `0e946bf4`(시트 반영, `8021caf`).
+- 검증: mobile tsc · 테스트 68 · check:shared · expo-doctor · export(웹·안드로이드). Playwright 412×915·1440×900 흐름 전부 + 8분 켜 두기(오류 0). 검토 → 네이티브 회귀 없음, High 0.
+- 다음·미결: 웹은 시트 본문 마우스 끌기가 안 된다(손잡이·휠은 됨). 개발 모드 접근성 prop 경고 다수(운영 빌드엔 없음). 웹 재배포 = `apps/mobile` 에서 `npx expo export --platform web` → `npx eas-cli deploy --prod`.
+- 사람 작업: 카카오 JS SDK 도메인 · Render `ALLOWED_ORIGINS` 에 `https://nextspot.expo.app` 추가 — **11-10 사용자가 끝냄**(아래 11-10b 에서 확인).
+
+## 2026-11-09 — 모바일: 배포 빌드 지도 버그 · SDK 57 패치 · 추천 시트·여정 카드 한 판(검토 3회)
+
+- 도구·브랜치: Claude Code(i7, 구현 3 · 독립 검토 4회) / `yunseong` · 커밋 `c23ded5`..`d5c0269` + 이 기록. 갤북↔i7 인계 문서는 git 제외 `scratch/`.
+- 한 것: ① preview·출시 빌드 지도 안내 판 — Expo 가 공개 설정에서 `android.config` 를 지워 `MAP_AVAILABLE` 이 늘 거짓이었다 → `extra.googleMapsConfigured`(불리언) `c23ded5`. preview 실기기 지도 확인(사용자). ② SDK 57 패치 6개 `e7ac629`(expo-doctor 21/21). ③ 사용자 요청: 추천 시트는 높이와 상관없이 같은 내용(끄는 만큼 이어서 보임, 놓으면 3단 정렬), 가장 낮은 높이는 머리+첫 행동 줄을 재서(글자 1.6배까지), 펼친 뒤에만 예측 API. 여정 카드도 접은 판 없이 남은 자리만큼 + 스크롤. EAS preview `381cf7de`·development `edf9d84d`(폰에 설치). 원격 `claude/pin-supabase-2-33` 삭제(병합됨). i7 시스템 PATH 의 옛 adb 제거.
+- 검증: mobile tsc · 테스트 65 · check:shared · expo-doctor · export. 에뮬레이터(폰·360×780·폴드 크기·글자 1.0/1.3/1.6). 검토 4회 → High·Med 0.
+- 다음·미결: 실기기 미확인 — 상황 변경 입력 중 키보드(AI 동의 필요)·위치 점·구글 로그인 복귀·TalkBack. **Metro 8081 파일 감시가 반복해서 멈춘다**(옛 번들을 준다 — `--clear` 재시작으로 임시 해결, 원인 미조사). 한 폰에 EAS 빌드와 로컬 빌드를 번갈아 깔면 서명이 달라 설치가 거부된다 — 폰에는 EAS 빌드만. P0 ③ PR #31 설명·리뷰어(진석 님 GitHub 아이디 필요) · P1 개발 빌드 첫 실행 반복 · 계획 iOS 항목 정리.
+- 사람 작업: 진석 님 GitHub 아이디 · Play Console 계정 확인. Supabase Redirect·익명 30/h 줄은 지웠다(11-05 완료).
+
+## 2026-11-08 — 갤럭시북 앱 실행 환경 · 팀원용 preview APK · App Store 폐기 · 개발 중 첫 실행 반복 요청
+
+- 도구·브랜치: Claude Code / `yunseong`(`01edd15` — supabase 2.33.0 고정은 사용자가 클라우드 세션으로) · 커밋 이 기록(문서)만
+- 한 것: 두 번째 PC(갤럭시북)에 앱 실행 환경 — `apps/mobile/.env.local`(공개 값 + `Expo_Token_for_Claude`), EAS preview APK 빌드 `d5b58709`(팀원 설치 링크), 로컬 개발 빌드 → Z Fold7 설치(USB `adb reverse tcp:8081`). **로컬 빌드는 JDK 21 로**(`C:\Program Files\Java\jdk-21.0.11`) — JDK 25 는 react-native-screens·worklets 의 `configureCMakeDebug` 가 'restricted method' 경고로 실패한다(`--enable-native-access` 로도 안 됨). 갤럭시북에서는 `npx` 캐시가 깨져 eas-cli 를 따로 설치해 썼다.
+- 결정(사용자): **App Store 출시 폐기 — Play 스토어만.** `MOBILE_APP_PLAN.md` 의 iOS 항목(TestFlight·4.8·Apple 로그인 철회·진석 님 Apple 권한)은 더 진행하지 않는다(계획 본문 정리는 아직).
+- 다음·미결: ① **개발 빌드에서 게스트 세션을 기기에 남기지 않기(사용자 요청, 미구현)** — 지금은 Supabase 세션(`lib/core/supabase.ts` `storage: globalThis.localStorage` = expo-sqlite)과 첫 실행 표시(`features/onboarding/firstRunCore.ts` `INTRO_SEEN_KEY`·`SETUP_SEEN_KEY`)가 재실행에도 남아 취향 조사 화면이 완전 첫 설치에만 뜬다. 개발 중에는 같은 폰에서도 매번 첫 실행 흐름을 검사할 수 있어야 한다. 운영 빌드는 지금 동작 유지(`__DEV__`·`APP_VARIANT=development` 로 가른다). 주의: 실행마다 새 익명 로그인을 하면 익명 한도 30/h(IP)와 운영 DB 의 빈 게스트 행이 늘어난다 — 세션은 두고 첫 실행 표시만 지우는 방식이나 개발 메뉴 '첫 실행 다시 보기'도 함께 검토. ② preview APK(링크 설치)에서 지도가 안 나온다는 사용자 보고 — 같은 패키지·EAS 키(SHA-1 `C8:94…`)라 키 제한 목록·preview 환경 변수부터 확인. ③ 아이폰 팀원 열람은 Appetize(독립 실행 APK 필요) 또는 웹 export(반나절~하루 추정) 중 미정.
+- 사람 작업: Play Console — 진석 님 개발자 계정 등록 여부·종류·생성일 확인 후 사용자 초대(로그인만으로는 개발자 계정이 되지 않는다).
+
+## 2026-11-05 — 모바일 3단계: 홈 여정 카드·내 위치·폴드 펼친 화면 · Z Fold7 실기기 연결
+
+- 도구·브랜치: Claude Code(구현 1 · 작은 수정 Sonnet 1 · 독립 검토 3회) / `yunseong` · 커밋 `77684e8`..`890b093` + 이 기록
+- 한 것: 여정 카드는 한 번에 하나(방문 확인 먼저), 시트 위 남은 높이 안에서 스크롤, 넓은 화면은 560dp 열. 감출 때는 떼지 않는다(상태 유지). 위치 점·'내 위치로'는 약관 동의+허용일 때만, 거부 상태별 흐름. 줌 대응 실측 고정. 대기 머리글 중복·웹 `userData` 대기열 키. Maps 키 Android 앱 제한 적용(사용자) 뒤 지도 정상.
+- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · i18n · web test. 검토 3회(Med 3 → 0). 화면 확인은 에뮬레이터(폰·폴드 크기). 위치 점·키보드는 실기기 미확인.
+- 다음·미결: 실기기에서 위치 점·구글 로그인 복귀·펼친 화면 확인 → 4단계. 오류 URL 이 `seenCodes` 에 안 남는 OAuth 틈(결정 필요). Metro 8081 감시가 죽어 8082 를 쓴다.
+- 사람 작업: Supabase Redirect `nextspot://**`·익명 30/h 는 사용자가 저장(11-05). 남은 것: 진석 님 권한(Apple $99 가입 여부 확인 포함)·법무 검토.
+
+## 2026-11-02d — 모바일: EAS 연결 · 지도 키 · 첫 클라우드 개발 빌드
+
+- 도구·브랜치: Claude Code / `yunseong` · 커밋 `c929e52` + 이 기록
+- 한 것: EAS 프로젝트 `@oys030408s-team/nextspot`(로봇 사용자 토큰은 `apps/mobile/.env.local` 의 `Expo_Token_for_Claude`, 명령마다 `EXPO_TOKEN` 으로). Supabase 공개 값·`GOOGLE_MAPS_ANDROID_API_KEY` 는 EAS 환경 변수(3환경). 에뮬레이터에서 실제 구글 지도 확인. development APK 빌드 `66dad613`.
+- 서명 SHA-1(지도 키 제한용, 비밀 아님): EAS 업로드 키 `C8:94:4D:49:95:9E:8F:96:E2:52:24:DB:BD:98:4D:14:34:2F:35:DF` · 로컬 debug `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` · Play 앱 서명 키는 콘솔 등록 뒤 추가.
+- 다음: Z Fold7 실기기 확인 → 3단계(지도 줌 보정·위치 마무리) → 4단계(진석 님 스토어 권한).
+
+## 2026-11-02c — 모바일 2단계: 관광객 화면 전부 이식 · 검토 3렌즈 반영(에뮬레이터 실데이터 확인)
+
+- 도구·브랜치: Claude Code(화면 묶음 에이전트 7 — 반복 이식 Sonnet · 인증 Opus, 검토 Opus) / `yunseong`
+- 커밋: `6003a0c`..`bb60ae3` + 이 기록. 묶음·통합·수정 커밋은 [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md) §9.2 진행표.
+- 한 것: 홈 지도·추천 카드 시트·여정/방문 확인·대안·코스·대기·저장·마이(+7)·로그인·첫 실행(소개 → 위치기반서비스 약관 동의 → 첫 설정). 위치는 약관 동의 없으면 읽지도 묻지도 않는다. 외부 AI(Upstage)로 문장을 보내는 3곳은 첫 사용 허락. 앱 처리방침을 앱 사실로 바꾸고 초안 [`MOBILE_PRIVACY_DRAFT.md`](../MOBILE_PRIVACY_DRAFT.md)(법무 검토 전). 문구 126키 4로케일, 웹 키 검사가 앱도 본다. 안드로이드 구글 지도는 키 없으면 앱이 죽어 키 없는 빌드는 판만 그린다.
+- 검증: mobile tsc · 테스트 62 · check:shared · expo-doctor · export · web lint 0 error(148)·test·build · 에뮬레이터 실데이터 흐름. **실수**: `be63804`·`7a49c64`(빨간 테스트)와 `03138ca`(문구 파일 빠짐)를 푸시했다 — 다음 커밋에서 고쳤다(게이트 명령의 실패 코드 유실·없는 경로로 git add 실패).
+- 다음·미결: 3단계는 Google Maps 키, 4단계는 Expo 조직·진석 님 권한 대기. 위치정보법 서버 요건과 접속 로그 좌표(M22)는 법무 확인 뒤. 웹에도 같은 버그 하나(`userData.ts` 에 `nextspot_saved_pending_deletes` 없음).
+- 사람 작업: "사람 작업 대기" 모바일 ①·② + Supabase Redirect URL `nextspot://**`.
+
+## 2026-11-02b — 모바일 1단계: Expo SDK 57 뼈대 · 공용 층 4개 · 탭 셸(에뮬레이터 확인)
+
+- 도구·브랜치: Claude Code(공용 층 에이전트 4 · worktree) / `yunseong`
+- 커밋: `79b8426`..`381b70e`(뼈대 · 테스트 실행기 · 지도 래퍼 · 플랫폼·문구 · 데이터·세션 · 디자인 시스템 · 탭 셸) + 이 기록
+- 한 것: `apps/mobile`(루트 workspaces 에서 뺀 독립 패키지, 루트 lock 은 한 줄). 웹 `lib` 순수 모듈 23개를 복사 없이 공유하고 의존 폐포 검사로 지킨다. Android SDK·에뮬레이터를 이 PC 에 설치(관리자 권한 없이)하고 로컬 개발 빌드로 탭 5개 셸을 확인했다. 진행표는 [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md) §9.2 아래.
+- 검증: mobile tsc · 테스트 16 · check:shared · expo-doctor 21/21 · expo export android · 에뮬레이터 화면. CI 에 `mobile` 잡 추가.
+- 다음·미결: 공용 층 검토 3렌즈(진행 중) 반영 → 2단계 화면 이식. 문서 `DEPLOY_AND_ENV.md` 의 운영 API 주소가 옛 오리건이다(앱은 nextspot-t2ib). 글꼴 TTF 6개(약 16MB)는 부분 집합으로 줄일지 출시 전에 정한다.
+- 사람 작업: Expo 조직(M6) · Google Maps 키(A21) · Supabase 익명 한도 30/h(A7') — "사람 작업 대기".
+
+## 2026-11-02 — 모바일 앱 계획 답 반영 · CI 시계 의존 테스트 수정
+
+- 도구·브랜치: Claude Code / `yunseong`
+- 커밋: `d9c6ad4`(테스트) + 이 기록(문서)
+- 한 것: 사용자 답을 [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md) 에 반영 — SDK 는 57 로 시작(스토어 빌드 조건을 맞추는 가장 낮은 버전, 2027-04 iOS 27 SDK 전에 58 이상으로), CAPTCHA 끔 확정, 폰 Z Fold7(접힘·펼침 점검 추가)·에뮬레이터 허락, 지도 키는 사용자 Google Cloud, 게스트 문의에 선택 이메일 칸 권장. CI api 잡이 11-02 부터 실패 — S4 때 넣은 보정 라우트 테스트가 고정 날짜 표본을 실제 시계 28일 창으로 잘라 `rank_gate` 가 'insufficient' 가 됐다. 라우트 경로도 고정 시각을 쓰게 테스트만 고쳤다.
+- 검증: api ruff · pytest 4004 · check-docs. 다른 파일의 시계 의존 테스트를 찾으려던 시계 이동 실행은 도구 충돌로 접었다(CI 로 잡는다).
+- 다음·미결: Expo 조직(M6) 생기면 모바일 1단계. 고정 `NOW` 를 쓰면서 라우트는 실제 시계를 쓰는 테스트가 다른 파일에도 있을 수 있다.
+- 사람 작업: "사람 작업 대기" 11-01 모바일 ① 갱신(Expo 조직 · Google Maps 키).
+
+## 2026-11-01c — 모바일 앱(iOS·Android) 재구현 계획(검토 대기)
+
+- 도구·브랜치: Claude Code(조사 에이전트 4 — 화면 목록 · 웹 전용 의존성 · 공유 가능 로직 · 외부 규정) / `yunseong`
+- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
+- 한 것: 사용자 요청 "현재 NextSpot 을 모바일 앱으로 재구현 — 범위·프레임워크·작업 방식 문서화"(조건: Expo · WebView 금지 · 지도 교체·위치 권한 문구 · EAS → TestFlight·Play 비공개 테스트, 진석 님 권한). [`MOBILE_APP_PLAN.md`](../MOBILE_APP_PLAN.md): v1 = 관광객 화면 전부(사장님·관제·개발자는 웹), Expo SDK 58(첫날 호환 확인, 막히면 57) + Expo Router + react-native-maps(래퍼로 교체 가능), 스타일은 NativeWind·Uniwind 확인 뒤, 웹 `lib` 순수 모듈 97개는 복사 없이 import, `apps/mobile` 은 루트 workspaces 에서 뺀 독립 패키지, 위치 권한 문구 4로케일 초안, 스토어 심사 점검표(4.8 Apple 로그인·토큰 철회, Play 12명×14일, 위치정보법 확인), 에이전트 단계 1~5.
+- 검증: 레드팀 에이전트 1개가 코드·공식 문서로 반박 검토(높음 6 · 중간 7 · 낮음 10 — 전부 반영). 결론을 바꾸는 지적은 코드로 재확인: 웹 `lib` 순수 모듈 일부가 API·Supabase 클라이언트를 import(→ Metro 어댑터 치환), 재설정 메일이 PKCE 라 다른 기기에서 실패(→ `token_hash` + `/auth/confirm`), 접속 로그·추천 기록 거리로 위치가 남음(→ M22), 위치 권한 안내 화면은 버튼 하나(Apple HIG). check-docs.
+- 다음·미결: ★ 질문 답 → 1단계(호환 확인 · 해석 설정 · Expo 뼈대 + 공용 층 에이전트 3). 위치정보법 법무 확인은 웹에도 걸린다(사람 작업 모바일 ②).
+- 사람 작업: "사람 작업 대기" 11-01 모바일 ①(계획 검토 · 스토어 권한 준비) · ②(위치정보법 확인). 10-31c ⑤(Turnstile 켜기)는 M7 답 전 보류 표시.
+
+## 2026-11-01b — 서울 테스트베드 S4: 분산 결정 재생 평가(오프라인) · 지표 약점 4건 보완
+
+- 도구·브랜치: Claude Code(ultracode 워크플로 21 에이전트 + 수정·독립 재검토 에이전트) / `yunseong`(S3 위, main 미반영)
+- 커밋: `eec81e5`(KST 달력 · 지표 보완) · `66d6ab9`(재생) · `54f0c43`(리허설 화면) + 이 기록(문서)
+- 한 것: 사용자 지시 "홍대 1차 결과까지, 종로는 재실행만 가능하게". 읽기 전용 반출 SQL → CSV 검증 로더(운영 수집 사슬 그대로) → 실제 엔진 경로 재생(미래 정보 없음, 도보 상한 20분 · 라우터 이동) → V3(대안 2곳 이상 결정에서 엔진 − 가장 가까운 곳, 판정 하한 = min(날짜 블록 부트스트랩, 날짜 군집 t)) · V2 절제 · V4 예보 대 지속 → JSON·마크다운·화면 요약. 판정 인자는 CRITERIA 해시(지금 `bc852a570864`, 홍대 검토 뒤 고정)로 묶고, 종로 확인 실행은 `--expect-criteria` 필수 · 커밋 안 된 변경이면 거부. 설계·결정 규칙·한계는 [`SEOUL_TESTBED_PLAN.md`](../SEOUL_TESTBED_PLAN.md) §6 'S4'.
+- 검증: 3렌즈 반박 검증 → 수정 2라운드 → 남은 Med 3건 수정 → 독립 재검토(누설·선택 편향·실행 가능성 — High 0, Med 2) → 수정. 합성 홍대 40일·종로 16일을 두 번씩 돌려 바이트 동일, 깨끗한 복제본에서 종로 확인 실행 명령 종료 0. 마지막 트리에서 api ruff · pytest 4004 · build_reset(무변경) · check-docs · web lint 0 error(경고 148 그대로)·typecheck·test 131·build. e2e 는 CI.
+- 다음·미결: 홍대 CSV 를 받으면 `run --label pilot` → 1차(예비) 결과 보고 · 집계 요약만 커밋(원본 CSV 금지) → 기준 해시 고정. 홍대는 엔진이 가장 가까운 곳과 갈릴 수 있는 출발지가 홍대 관광특구 하나라 예비·참고 결과다. 결정 대기 Q-S4-1~11 은 기본값으로 돈다. 보정 순위 관문은 보고 전용(Q-S4-3).
+- 사람 작업: "사람 작업 대기" 11-01 S4 ①(홍대 반출) · ②(종로 확인 실행).
+
+## 2026-11-01 — 서울 테스트베드 S3: 개발자 전용 내부 지역 · 구역 실측 엔진 연결 · DB 지역 격리
+
+- 도구·브랜치: Claude Code(ultracode 워크플로 24 에이전트 + 수정·검토 에이전트) / `yunseong`(`0747801` 위, main 미반영)
+- 커밋: `cc6b299`(DB 격리·region-guard) · `40d6034`(서울 적재·매핑) · `b563db2`(API 지역 판정·엔진) · `50ed9b8`(리허설 화면 개발자 전용) · `d22aeef`(웹) + 이 기록(문서)
+- 한 것: 사용자 결정 — 서울은 **developer 만**(admin·심사 계정 포함 그 밖은 0), 서울에선 제보·자리 알림·타임세일·공유·경주 전용 위젯 끔, region-guard 자동 비활성화 켬, 인사동 유지, 순위는 절대 단계. 엔진 검증(리허설) 화면도 서울 실측을 보여 개발자 전용으로 바꿨다(사용자 확인: 관광공모전이 끝나 심사 계정 노출은 필요 없다). 설계·동작은 [`SEOUL_TESTBED_PLAN.md`](../SEOUL_TESTBED_PLAN.md) §6 'S3' 와 커밋 본문.
+- 검증: 6 작업 묶음 구현 → 통합 → 4 렌즈(보안·경주 불변·엔진·웹) 반박 검증 → 수정 3회 → 남은 Med 4건·Low 다수를 API·웹 에이전트가 고치고 다른 검토자 2명이 다시 봄(High·Med 0 까지). 마지막 트리에서 api ruff · pytest 3739 · web lint 0 error(경고 148 그대로)·typecheck·test 131·build · build_reset(추가만) · check-docs. 마이그레이션은 PGlite 시나리오(57+ 검사)만 — 실 Supabase 미시험. e2e 는 바뀐 spec 만 로컬, 전체는 CI.
+- 다음·미결: 받아들인 잔여 — ① developer 에서 강등된 사람은 자기 서울 추천 행을 브라우저로 계속 읽는다(RLS 소유자 절) — 강등 때 그 행을 지우거나 라벨을 바꾸는 것은 사람 판단 ② 운영 PostgREST 가 임베드 JSON 경로 필터를 받는지 미확인(model-trust 는 실패하면 닫힌 쪽 폴백) ③ 내부 지역 `pack` 을 쓰는 효과 일부(saved 등)는 재확인 때 다시 돈다(무해). S4(재생 평가)는 사용자가 ultracode 로.
+- 사람 작업: "사람 작업 대기" 11-01 S3 ①~⑥(사전 확인 쿼리 · 적용 순서 · region-guard · 시험 계정 비밀·적재 · 구역 경계 · 리허설). 계획의 Render 변수 `INTERNAL_REGION_*` 는 없다(코드에 developer 고정).
+
+## 2026-10-31c — 서울 테스트베드 S1·S2·S5·S6 + 게스트 답 그림자 모드(D3) + 문서 답변
+
+- 도구·브랜치: Claude Code / `yunseong`(`4c31b0b` 위, main 미반영)
+- 커밋: `47ee20c`..`c1daf72`(12건 — 문서 `47ee20c`·`ef04eef`·`45f5dc9`·`eb3a88b` · 서울 `b6cb50a`·`20096dd`·`c534783`·`65a45ff`·`4052f68`·`22ecc1d`·`8c0de61` · D3 `c1daf72`) + 이 기록(문서)
+- 한 것: 상세는 커밋 본문 · [`SEOUL_TESTBED_PLAN.md`](../SEOUL_TESTBED_PLAN.md) §6 진행표 · [`PRODUCT_EVALUATION_PLAN.md`](../PRODUCT_EVALUATION_PLAN.md) §7.
+  - 문서 답: 두 계획 문서에 사용자가 단 답·질문(A1·A2·A6·A3·A3', S0 A~E 결과)에 답하고 반영했다. D6 확정(도착 확인 때 쿠폰), D3 은 '받되 2주 그림자 모드 뒤 실시간 여부 결정'. S0 은 사용자 SQL 로 끝났다(5곳 09-20부터 10분, `140000` 적용).
+  - 서울: S1 공급원 층 `services/crowd/` + 구역 표 `20261031120000` + 수집기 이중 저장 · S2 9곳(종로 4곳, '인사동'만 — 확인 필요) · 주기 재설계(홍대 권역 10분 · 종로/검증 30분, 주 720 · 최악 864회/일, 동시 조회 4, 조회 45초·실행 80초 마감) · S5 [`CROWD_DATA_CONTRACT.md`](../CROWD_DATA_CONTRACT.md)·통신사 어댑터 틀·합성 격자·계약 테스트 · S6 관리자 '실시간 데이터 리허설'(`pipeline`·`decision_quality`).
+  - D3: 게스트 방문 확인 답은 `guest_shadow`(DB 트리거가 `is_anonymous` 로 분류) · 게스트 방문 답에 1인 1표(등록 사용자는 제한 없음) · 네트워크 키(대역 HMAC, 30일 pg_cron) · 측정 `GET /admin/metrics/guest-answers` · 스위치 `GUEST_CROWD_ANSWERS_LIVE`(꺼짐) · Turnstile 기반(키 있을 때만). 구현마다 렌즈가 다른 독립 검토를 돌렸고 `c534783`·`4052f68`·`22ecc1d`·`8c0de61` 이 그 수정이다.
+- 검증: 마지막 `c1daf72` 에서 api ruff · pytest 3267 · OpenAPI(추가만) · build_reset(추가만) · web lint(0 error)·typecheck·test 118·build · check-docs. 마이그레이션은 PGlite 시나리오만(실 Supabase 미시험). **커밋 메시지 정정**: `c534783` 의 'pytest 3221' 은 S6 변경이 함께 있던 트리에서 센 값이다. 같은 커밋의 '조회 최악 85초 → 35초' 에서 실제 이전 기본값은 버킷당 6곳(75초)이었고, 35초는 `4052f68` 이 마감(조회 45초 · 실행 80초)으로 다시 고쳤다.
+- 다음·미결: main 반영은 오늘 밤 KST(API 먼저 → 웹, 마이그레이션은 API 배포 직후 — 위 "배포 상태"). **S3(엔진 연결)·S4(재생 평가)는 사용자가 ultracode 로 직접** 한다. D3 실시간 전환은 `130000` 적용 2주 뒤 측정으로 정한다. `c1daf72` 보안 검토 지적은 후속 커밋에서 고쳤다. 실시간 전환 전 결정할 것: 게스트+계정 혼합 일치의 약점(L3), 버린 시도의 측정 누락(L7), DB 동작의 CI 검증(L8). S5 남은 결정: 분위수 기준('평소 대비'·'절대 붐빔') · 잠정 임계값.
+- 사람 작업: "사람 작업 대기" 10-31c ①~⑧(Render 서울 대상지 변수 · 마이그레이션 2개 · 종로 이름 확인 · Turnstile · 처리방침 · 2주 뒤 전환 결정 · 인사동 확인). 해결된 '서울 수집 0건'·`140000` 적용 줄은 지웠다(S0 확인).
+
+## 2026-10-31b — 승인 없이 할 수 있는 개선안 착수(관제·사장님·추천·영업시간) · 모두의 창업 로컬 트랙 1R 정정
+
+- 도구·브랜치: Claude Code / `yunseong`(`e5703d6` 위, main 미반영)
+- 커밋: `a648898` · `fe80cda` · `cfbb1fe` · `9f3c77f` · `5af16c7` · `7a94335` · `97bc930` · `9b65fbe` · 이 기록(9건)
+- 한 것: 사용자 지시로 [`PRODUCT_EVALUATION_PLAN.md`](../PRODUCT_EVALUATION_PLAN.md) 개선안 중 결정·사람 작업이 필요 없는 것을 네 에이전트(추천 코어 · 관광객 웹 · 관제 · 사장님)로 나눠 구현하고, 렌즈가 다른 검토 에이전트로 거듭 검증했다. 항목별 상태·후속은 §7.
+  - 관제: 운영 화면의 시나리오 값 제거 · 근거 없으면 안전 '판정 불가' · 효과 지표 재정의 · 관리자·개발자 계정 제외. 사장님: 성적표(노출·도착·길안내 정의, 직전 기간 대비, 7/30일, 세일 비용 안내).
+  - 추천·관광객: 일요일 휴무 오판 수정 + 웹·API 공용 판정표 · 확인 등급이 모자라면 다음 등급으로 채움(음식점·카페 요청만, A4) · 수락 기록 · '대신 갈 곳 보기' · 유모차 분리 · 임팩트 정리. 영업시간 해석은 운영 대비 나빠진 날 154 → 0(정답지), 보류 세트 꼭 고칠 1건까지 6차에 걸쳐 고쳤다.
+  - 문서: 공모전 우수상 · 실서비스 창업 방향 · [`SEOUL_TESTBED_PLAN.md`](../SEOUL_TESTBED_PLAN.md) 재작성(경주 통신사 데이터로 공급원만 바꾸는 구조). 모두의 창업은 사용자 정정으로 **로컬 트랙 1라운드**로 고치고 수상·상용화 선정 취소 조항이 1R 에도 걸린다고 정리했다.
+  **동작 변경(공개)**: 효과 지표·임팩트·사장님 노출 숫자가 전보다 작다(정의가 엄격해짐, 의도). 웹이 `stroller` 를 보내므로 **API 먼저 배포**해야 한다(옛 API 는 422 — 웹이 한 번 빼고 다시 보내긴 한다).
+- 검증: api ruff · pytest 3028 · OpenAPI 스냅샷(필드 삭제 없음) · web lint(0 error)·typecheck·test 117·build · check-docs · 스키마 파리티. CI e2e 는 `5af16c7` 에서 사장님 화면 key 중복으로 2건 실패 → `97bc930` 에서 고침(로컬 CI 조건 42건 통과).
+- 다음·미결: main 반영은 사용자 지시 뒤 KST 밤, **API(Render 수동 배포) 먼저 · 웹 바로 뒤**. 보류: P0-2(D3) · P0-6(D8) · P1-3(서울 — Q1~Q8 답 받음, Q2·Q6 수정안 확인과 S0 A~D 결과 뒤 S1) · P2·P3. 후속 목록은 §7.
+- 사람 작업: 모두의 창업 조항 서면 확인(위 "사람 작업 대기" 첫 줄 — 로컬 트랙 2R 마감 · 사업자등록 의무 확인 포함).
+
+## 2026-10-31 — 제품 평가·다음 작업 계획 + 서울 테스트베드 이해 정리(검토 대기)
+
+- 도구·브랜치: Claude Code / `yunseong`(`e8b64ed` 위)
+- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
+- 한 것: 사용자 요청으로 공모전 이후 할 일을 정리했다.
+  - 평가 기준: 2026 공고문 원본 배점(가점 2종·PT 상위 5팀 포함)에 다른 대회(범정부 공공데이터·AI 창업, 병무청 합동, 서울시 빅데이터, 예비관광벤처, 혁신제품)와 품질 프레임워크(Nielsen·ISO 25010·KRDS·KWCAG·UNWTO·ETIS)를 더했다.
+  - 평가: 관광객·사장님·기관·공통 관점을 각각 다른 검토 에이전트가 코드 근거로 채점했고, 핵심 주장은 메인 세션이 다시 확인했다.
+  - 결과: [`PRODUCT_EVALUATION_PLAN.md`](../PRODUCT_EVALUATION_PLAN.md)(평균 관광객 2.6 · 사장님 2.1 · 기관 2.0 · 공통 3.0, Phase 0~3, 결정 D1~D7).
+  - 서울 건은 문서·코드만 읽고 [`SEOUL_TESTBED_PLAN.md`](../SEOUL_TESTBED_PLAN.md)(검토 대기)로 정리했다. 요지: 지금까지는 추정기 검증이고, '분산 알고리즘 유효성'은 새 평가 층(분산 결정 재생)이 필요하다. 질문 10개가 있다.
+  - 색인의 `CONGESTION_ENGINE_PLAN.md` '초안' 표기를 바로잡았다.
+- 검증: check-docs. 일요일 휴무 오판은 `open_status_at_arrival` 직접 실행으로 재현했다(위 "알려진 이슈").
+- 다음·미결: 사용자 검토 뒤 Phase 0(일요일 휴무 버그 · 게스트 방문 확인 체감 혼잡 · 운영 시나리오 값 제거 · 안전 '판정 불가' · 문구 정리)부터.
+- 사람 작업: Phase 0-7 의 세 건(`JWT_SECRET` 시크릿 · Render Deploy Hook · 서울 수집 점검 SQL)은 이미 "사람 작업 대기"에 있는 항목이다.
+
+## 2026-10-30 — 게스트(익명 세션) 혼잡·영업 제보 차단 + IP·시설당 한 계정
+
+- 도구·브랜치: Claude Code / `yunseong`(main `168f979` 위)
+- 커밋: 이 기록 포함 1건(API·웹·API 테스트·문서, 스키마 무변경)
+- 한 것: 보안 진단 '중 — 게스트가 혼잡 근거를 오염'(사용자 결정: 완전 차단). `POST /reports/congestion`·`/reports/availability` 가 새 가드 `authz.get_registered_user`(JWT `is_anonymous`, DB 안 읽음)로 게스트를 403. 계정 여러 개를 한 단말에서 돌려 '두 사람의 일치' 를 꾸미지 못하게 **IP·시설당 한 계정 30분**(DB 교차검증 창과 같은 길이)을 더했다 — 처음엔 IP 쪽도 쿨다운 길이(5분·1분)로 걸었는데, 리뷰 에이전트가 '두 번째 계정이 5분 1초 뒤에 보내면 그대로 corroborated' 임을 짚어 바꿨다. 같은 리뷰로 검사→기록 사이 await 경합(동시 두 계정이 함께 통과)도 닫았다(`_reserve_report_slot` 이 await 없이 자리를 잡고, 저장 실패면 되돌린다). 네 라우터에 복제돼 있던 XFF 해석은 `app/core/client_ip.py` 하나로. 웹: 혼잡 제보 403 → '로그인 후 제보할 수 있어요'(기존 키). 영업 상태 확인이 403(게스트)·429(같은 네트워크 다른 계정)면 답을 서버에 남기지 않고 그 화면에서만 수락·제외를 잇는다(`RecommendationCard` · `explore/recommend` — 영업시간 미확인 가게의 '바로 갈래요' 가 막히지 않는다).
+  **동작 변경(공개)**: 게스트는 혼잡을 제보할 수 없고 '방문객 n분 전' 칩·제보 쿠폰 보상은 계정 사용자 제보로만 채워진다. 같은 와이파이·같은 공인 IP(통신사 CGNAT 포함)의 두 번째 계정은 같은 장소를 30분 동안 제보할 수 없다(혼잡 → '잠시 후 다시', 영업 → 그 화면에만 적용). 로그인 사용자의 제보에서 역할 조회가 빠졌다(전보다 DB 읽기 1회 적음).
+- 검증: api ruff · pytest 2497 · 새 테스트 6건(게스트 403 두 경로가 DB·프로필 조회 전에 끝남 · 30분 창이 사용자 쿨다운 뒤에도 유지되고 닫히면 풀림(두 경로) · IP 를 바꿔도 사용자 쿨다운 유지 · INSERT 시점에 자리가 이미 잡혀 있고 실패하면 되돌림) · OpenAPI 스냅샷은 두 경로 설명 문구만 · web lint(0 error)·typecheck·test·build · check-docs.
+- 다음·미결: main 반영은 사용자 확인 뒤 KST 밤(API 변경 — Render 자동 배포가 안 되므로 반영 뒤 Manual Deploy 또는 Deploy Hook, "사람 작업 대기" 첫 줄). XFF 방향 관측(보안 진단 '중')은 그대로 — Render 가 hop 을 덧붙인다면 IP 규칙이 '전원 한 키' 가 되어 한 장소를 30분에 한 계정만 제보하게 된다(관측 전 위험). IPv6 는 /64 안에서 주소를 바꿔 IP 규칙을 피할 수 있다(정규화 미구현). 영업 확인 안내문(`card.hoursCheckPrivacy` '…만 기록해요')은 게스트에게는 기록하지 않는 경우라 과소가 아닌 과대 진술 — 문구는 그대로 뒀다.
+- 사람 작업: 없음(위 배포 항목은 기존 줄).
+
+## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
+
+- 도구·브랜치: Claude Code / `feat/merchant-photos-1024` · `feat/admin-photo-takedown-1024` · `feat/usage-summary-1024` 외(PR #23~#26·#28 은 이미 main)
+- 커밋: 이 기록 포함(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: 디벨롭 로드맵. ① 사장님 가게 사진(PM 10-24: 바로 공개 · 관리자 사후 관리) — 공개 버킷 `facility-photos/<가게 id>/`, 올리기·기록은 그 가게의 현재 사장님만(`owns_facility_folder` 스토리지 정책 · `set_merchant_photo` RPC), 내리기는 사장님 또는 관리자(`clear_merchant_photo`). 사진 자리는 `features.merchant_photo`(밤 적재가 `image_url` 은 지울 수 있지만 features 는 병합한다). 사장님 콘솔 '⑤ 가게 사진'(올리기·바꾸기·내리기, 데모는 토스트만), 추천 카드·'지금 출발하면?'은 이 사진을 첫 후보로. ② 같은 날 웹만: 혼잡 칩이 사장님 30분 안 좌석 상태('사장님 5분 전: 자리 여유', #26) · 방문객 2시간 안 제보('방문객 12분 전: 한산', #25)를 먼저 말한다 · `/guide` '이런 분께'·'자주 묻는 질문'(#24, 펼친 채) · `/waiting` 대표 카드 3장 폰 가로 넘김(#23). ⑥ 관제 대시보드 '서비스 이용 현황'(③ 분산 효과 차트 아래) — 관리자 전용 집계 RPC `usage_summary(p_days)`(1~90일, KST): 방문 → 추천 카드 확인 → 바로 갈래요 → 도착 확인 방문자 수와 날짜별 방문자. 행·익명 번호는 밖으로 나가지 않고, 조회가 안 되면 패널이 숨는다.
+- 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
+- 다음·미결: 사진 내리기는 관제 > 인프라 맨 위 '사장님이 올린 가게 사진'(PR #29, 사진이 있을 때만 보인다). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
+- 사람 작업: 없음.
+
+## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
+
+- 도구·브랜치: Claude Code / `feat/usage-events-1023`(main `9cf767c` 위)
+- 커밋: 이 기록 포함 1건(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: PM 결정(10-23) — 외부 분석 업체 없이 Supabase `public.usage_events` 에 익명 이벤트를 쌓는다. 브라우저는 고른 칼럼에 INSERT 만(읽기 없음, user_id 칼럼 없음), 이벤트 이름은 CHECK 화이트리스트(`lib/usageEvents.ts` 와 같은 목록 — `tests/migrations/test_usage_events_migration.py` 가 대조), 1년 보관(pg_cron 매일 삭제). 웹은 `page_view`(화면 이동) · `rec_shown`(카드) · `rec_accept`/`rec_drive`/`rec_next`/`rec_later`(카드 버튼) · `visit_arrived`/`visit_congestion`(도착 확인) · `congestion_report` 를 운영 주소에서만, 자동화(`navigator.webdriver`)·Do Not Track 은 빼고 2초씩 모아 보낸다. 실패하면 그 탭에서 멈춘다. 개인정보 안내(`/mypage/privacy`)에 '이용 기록' 절을 4로케일로 더하고 '수집하는 정보' 문장을 고쳤다(최종 업데이트 2026-10-23).
+- 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
+- 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
+- 사람 작업: 표 적용 1회(위).
+
+## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
+
+- 도구·브랜치: Claude Code / `chore/llm-off-1022`(main `9bd5584` 위)
+- 커밋: 이 기록 포함 1건(API·문서)
+- 한 것: PM "당분간 Upstage 꺼놔 — 보여 줄 사람도 없으니". `LLM_ENABLED`(기본 `false`)를 두고 `llm_client.is_enabled()` 가 스위치와 키를 함께 본다. 모든 Upstage 호출이 `chat_text()` → `is_enabled()` 를 지나므로 음성 해석·검색 재작성·조건 해석·사유·브리핑이 전부 기존 키워드·규칙·템플릿 폴백으로 간다(키 없는 운영과 같은 경로). 키는 Render 에 그대로 둔다.
+- 검증: api ruff · pytest(테스트는 `tests/conftest.py` 가 스위치를 켜 기존 LLM 경로 검증을 그대로 유지).
+- 배포: Render 자동 배포가 일어나지 않아 23:53 KST PM Manual Deploy 로 반영(`deploy.commit=a9ecd921cb02` 확인). 자동 배포 원인은 "사람 작업 대기" 첫 줄. PR #13 의 밤 23시 e2e 수정 두 건은 PR #21 로 따로 뗐다.
+- 다음·미결: 다시 켤 때는 Render `nextspot-t2ib` 환경변수 `LLM_ENABLED=true`. `render.yaml` 에는 넣지 않았다 — Blueprint 가 아직 정지된 오리건 서비스(`nextspot-api`)를 가리켜, 그 파일을 고치면 동기화가 그쪽을 건드린다. PR #13(LLM IP 리밋·전역 예산)은 LLM 이 꺼진 동안 급하지 않다 — 그 안의 밤 23시 e2e 수정만 필요하면 따로 뗀다.
+- 사람 작업: 없음.
+
+## 2026-10-22 — main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임 · 오리건 API 정지
+
+- 도구·브랜치: Claude Code / `fix/ci-e2e-1022`(main `b6d428e` 위)
+- 커밋: 이 기록 포함 6건(웹·e2e·문서, API·스키마 무변경)
+- 한 것: main CI e2e 10건 실패(10-19부터 — 마지막 초록은 10-11 `3a61300`)를 정리했다. ① 관제 로그인 '데모로 둘러보기'가 로그인 화면으로 다시 튕기던 버그 — 레이아웃이 살아 있는 채 경로가 바뀌면 새 경로의 첫 렌더가 옛 데모 판정으로 리다이렉트를 걸었다. `app/admin/layout.tsx` 가 그 경로의 데모 판정을 읽은 뒤에만 보낸다. ② 화살표 검사 5건은 10-19 `1adb704` 로 가치 상자 머리에 들어온 '출발 → 도착' 시간 줄까지 보고 있었다 → 가치 문장(`value-sentence`)만 본다. ③ SPOT 상자 밀림 검사는 카드 등장 애니메이션 중에 기준을 쟀다 → 다 자란 뒤, 멈춘 자리끼리 비교. ④ 1366×650 '상세 정보 펼치기' 2px 넘침(10-21 첫 문장 메뉴·이동 시간 뒤) → 짧은 패널 간격 4→3px. ⑤ 휴대폰 미리보기: 출발·도착을 칩 줄 맨 앞으로 올려 한 줄 줄였다(PM 결정) — 390×844 미리보기 221→193px, 360×640 지도 띠 101→129px. e2e 예산은 ≤195px · ≥125px(이전 ≤190 · ≥180, PM 결정).
+- 운영: 오리건 `nextspot-api` 정지(PM, 10-22 저녁 — 503 확인). 정지 뒤 수집 버킷 11:30Z 가 들어온 것을 `area-demand-alert` 수동 실행(age 6.1분)으로 확인 — pg_cron 은 싱가포르로 간다. 싱가포르 `/health` healthy.
+- 검증: 실패했던 e2e 15건(테마·로케일 포함) 로컬 통과 · web lint(0 error)·typecheck·test(110파일). PR #19 CI(리눅스) e2e 518 통과 — 10-20 부터 리눅스 글꼴에서만 72px 로 실패하던 768 태블릿 ja 지도 띠도 미리보기 한 줄 줄임으로 통과.
+- 다음·미결: `render.yaml` 의 오리건 서비스 정의 정리(Blueprint 동기화가 정지된 서비스를 되살리지 않게 — 별도 결정) 
+- 사람 작업: 없음.
+
 ## 2026-10-21e — 탭 전환의 중복 테마 갱신 제거
 
 - 도구·브랜치: Codex / `fix/card-detail-and-grants-1021`.

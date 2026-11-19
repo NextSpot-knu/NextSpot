@@ -66,6 +66,23 @@
 차이가 사라진다. 시간대 보정은 주차가 **없는** 곳에 값을 만들 때 쓸 도구이지, 주차가 있는 곳의
 값을 다시 흔드는 도구가 아니다.
 
+## 순위 관문(rank_gate) — 보고 전용, 적용 판정에 쓰지 않는다 (SEOUL_TESTBED_PLAN 부록 · S4)
+
+세 관문은 "홀드아웃 MAE 가 항등보다 낮다" 만 본다. 그런데 x 가 y 의 순서를 전혀 모르는 경우에도(예: 주차와 인파가
+무관) PAVA 는 거의 평평한 곡선을 배워 모든 값을 평균 쪽으로 끌어당기고, 그것만으로 항등보다 MAE 가 낮아질 수
+있다 — 순위 정보 없이 관문을 넘는다. 그래서 `rank_gate(pairs)` 가 같은 날짜 분할의 홀드아웃에서 (1) 항등(보정 전)
+x 와 y 의 **대상지 안** Spearman ρ(대상지별 ρ 의 표본 가중 평균) ≥ 0.30, (2) 학습 날짜로 적합한 곡선의 MAE 가
+'대상지별 학습 평균 상수' 의 MAE 보다 낮은지, (3) 학습 날짜 시간대 평균(대상지 · **10분 칸** · 평일/주말)을 x·y 양쪽에서
+뺀 이상치 ρ(`anomaly_rho`) ≥ 0.10 이고 그 95% 하한(`anomaly_rho_ci_low`, 홀드아웃 날짜 잭나이프 — 엔진 검증 Spearman
+관문과 같은 식) > 0 인지를 잰다. 하한이 없으면 날짜 안 자기상관 때문에 정보 없는 x 도 21일 창에서 넷 중 하나꼴로
+ρ ≥ 0.10 을 넘었다(S4 검토 3차). (1)·(2)는 하루 모양만 따라 그리는 x(시각의 함수)도 넘는다 — 대상지 안
+ρ 가 높고 상수도 이긴다. 그런 x 는 그날 고유의 정보가 없으므로 (3)이 막는다(S4 검토 2차). 칸은 데이터 해상도(10분 버킷)로
+잡는다 — 한 시간 칸이면 시간 안의 오르내림이 남아 시각만의 x 도 이상치 ρ 가 양수로 나온다. 대상지를 섞은
+ρ(`pooled_spearman`)는 대상지끼리의 수준 차이만으로도 높아지므로 참고로만 싣는다.
+ρ 는 PAVA 전 순위로 잰다 — PAVA 는 동률을 더할 뿐이라 ρ 를 낮추기만 한다. 홀드아웃이 36점·5일 미만이면 판정하지 않는다. **이 관문은 `assess()`·
+`active_calibration()` 에 들어가지 않는다**(`enforced: false`) — 관리자 리포트(`build_report`)에서만 계산하고,
+실패해도 None 으로 떨어진다. 경주 추정에 거는 일은 별도 결정이다(Q-S4-3).
+
 ## 표는 새로 만들지 않는다
 
 추정기와 같은 철학이다(읽을 때 계산). 적합은 `seoul_citydata_snapshots` 의 결정적 함수라 따로
@@ -86,10 +103,15 @@ import structlog
 
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.engine_validation_metrics import (
+    SPEARMAN_ANOMALY_CI_METHOD,
+    SPEARMAN_ANOMALY_SLOT_MINUTES,
+    MIN_SAMPLES,
+    _day_jackknife,
     parse_time,
     population_midpoint,
     spearman_rho,
 )
+from app.services.kst_calendar import climatology
 from app.services.parking_derived_congestion_service import SNAPSHOT_SOURCE
 
 logger = structlog.get_logger()
@@ -441,6 +463,215 @@ def assess(pairs: list[Pair], *, now: datetime) -> dict[str, Any]:
     }
 
 
+# ── 순수 함수: 순위 관문(보고 전용) ──────────────────────────────────────────
+
+# [제안] 기준(Q-S4-3·Q-S4-10). 적용 판정(assess)에는 들어가지 않는다.
+RANK_GATE_MIN_HOLDOUT_SPEARMAN = 0.30
+RANK_GATE_MIN_HOLDOUT_SAMPLES = MIN_SAMPLES
+RANK_GATE_MIN_HOLDOUT_DAYS = 5
+# 학습 날짜 시간대 평균(10분 칸)을 뺀 이상치 ρ 의 하한 — 하루 모양만 따라 그리는 x 를 거른다.
+RANK_GATE_MIN_ANOMALY_RHO = 0.10
+
+_RANK_GATE_DEFINITION = (
+    "적용 판정과 같은 날짜 분할(뒤쪽 1/3 날짜 = 홀드아웃)에서 잰다. 통과 = 보정 전(항등) 주차 수준과 실측 인파의 "
+    f"대상지 안 Spearman ρ(대상지별 ρ 를 표본 수로 가중 평균) ≥ {RANK_GATE_MIN_HOLDOUT_SPEARMAN:.2f} 이고, 학습 날짜로 "
+    "적합한 곡선의 MAE 가 대상지별 학습 평균 상수의 MAE 보다 낮고 — 대상지끼리의 수준 차이만으로는 넘지 못한다 — "
+    f"이상치 ρ(학습 날짜의 시간대 평균 — 대상지·{SPEARMAN_ANOMALY_SLOT_MINUTES}분 칸·평일/주말 — 을 양쪽에서 뺀 값끼리의 ρ) "
+    f"≥ {RANK_GATE_MIN_ANOMALY_RHO:.2f} 이고 그 95% 하한(홀드아웃 {SPEARMAN_ANOMALY_CI_METHOD}) > 0 일 것 — "
+    "하루 모양(시각)만 따라 그리는 주차 수준으로는 넘지 못하고, 날짜 몇 개의 우연으로 생긴 ρ 도 하한에서 걸린다. "
+    "대상지를 섞은 ρ 는 참고로 싣는다. "
+    "ρ 는 PAVA 전 순위로 잰다(PAVA 는 동률을 더할 뿐이라 ρ 를 낮추기만 한다). "
+    f"홀드아웃 {RANK_GATE_MIN_HOLDOUT_SAMPLES}점 · {RANK_GATE_MIN_HOLDOUT_DAYS}일 미만이면 판정하지 않는다. "
+    "보고 전용 — 보정 적용 여부를 바꾸지 않는다"
+)
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _holdout_anomaly_rho(
+    train: list[Pair], holdout: list[Pair]
+) -> tuple[float | None, float | None, float | None]:
+    """학습 날짜 시간대 평균(대상지 · 10분 칸 · 평일/주말)을 x·y 양쪽에서 뺀 홀드아웃 이상치끼리의 ρ. 칸이 비면 그 점을 뺀다.
+
+    칸은 데이터 해상도(10분 버킷)다 — 한 시간 칸이면 시간 안의 오르내림이 이상치에 남아, 시각만의 함수인 x 도
+    양수 ρ 를 받는다(S4 검토 2차). x 가 시각만의 함수면 이상치가 모두 0 이라 ρ 가 정의되지 않는다(None).
+
+    돌려주는 값: (ρ, SE, 95% 하한). SE·하한은 홀드아웃 날짜 잭나이프다 — 엔진 검증 Spearman 관문
+    (`engine_validation_metrics._day_jackknife`)과 같은 식이다. 같은 날 안의 점들은 서로 닮아(자기상관) 점 수만큼의
+    정보가 없으므로, 날짜 단위 불확실성 없이 ρ ≥ 0.10 만 보면 정보 없는 x 도 우연히 넘는다(S4 검토 3차).
+    """
+    if not train or not holdout:
+        return None, None, None
+    train_dates = sorted({pair.date_kst for pair in train})
+    common: dict[str, Any] = {
+        "time": lambda pair: pair.bucket_at,
+        "mode": "train_dates",
+        "train_dates": train_dates,
+        "min_samples": 1,
+        "group": lambda pair: pair.area_nm,
+        "slot_minutes": SPEARMAN_ANOMALY_SLOT_MINUTES,
+    }
+    clim_x = climatology(train, value=lambda pair: pair.x, **common)
+    clim_y = climatology(train, value=lambda pair: pair.y, **common)
+    xs: list[float] = []
+    ys: list[float] = []
+    day_of_point: list[str] = []
+    for pair in holdout:
+        base_x = clim_x(pair)
+        base_y = clim_y(pair)
+        if base_x is None or base_y is None:
+            continue
+        # 평균을 빼고 남은 부동소수 찌꺼기가 순위를 만들지 않게 자른다(engine_validation_metrics 와 같은 자릿수).
+        xs.append(round(pair.x - base_x, 9))
+        ys.append(round(pair.y - base_y, 9))
+        day_of_point.append(pair.date_kst)
+    rho = spearman_rho(xs, ys) if len(xs) >= 2 else None
+    se, ci_low = _day_jackknife(xs, ys, day_of_point, rho)
+    return rho, se, ci_low
+
+
+def _within_site_spearman(holdout: list[Pair]) -> tuple[float | None, int]:
+    """대상지별 홀드아웃 ρ 를 표본 수로 가중 평균한다. ρ 가 정의되는 대상지가 없으면 (None, 0).
+
+    대상지를 섞어 잰 ρ 는 "B 가 A 보다 x 도 y 도 높다" 는 대상지 차이만으로 높아진다 — 그 추정기는
+    어느 대상지인지만 알 뿐 순위를 모른다(S4 검토). 그래서 판정 ρ 는 대상지 안에서 잰다.
+    """
+    by_site: dict[str, list[Pair]] = {}
+    for pair in holdout:
+        by_site.setdefault(pair.area_nm, []).append(pair)
+    weighted = 0.0
+    weight = 0
+    sites = 0
+    for site in sorted(by_site):
+        members = by_site[site]
+        if len(members) < 2:
+            continue
+        rho = spearman_rho([pair.x for pair in members], [pair.y for pair in members])
+        if rho is None:
+            continue
+        weighted += rho * len(members)
+        weight += len(members)
+        sites += 1
+    return (weighted / weight if weight else None), sites
+
+
+def _site_constant_predictions(train: list[Pair], holdout: list[Pair]) -> list[float] | None:
+    """홀드아웃 각 점에 그 대상지의 학습 평균을 준다(학습에 없는 대상지는 전역 학습 평균)."""
+    global_mean = _mean([pair.y for pair in train])
+    if global_mean is None:
+        return None
+    sums: dict[str, list[float]] = {}
+    for pair in train:
+        sums.setdefault(pair.area_nm, []).append(pair.y)
+    site_mean = {site: sum(values) / len(values) for site, values in sums.items()}
+    return [site_mean.get(pair.area_nm, global_mean) for pair in holdout]
+
+
+def rank_gate(pairs: list[Pair]) -> dict[str, Any] | None:
+    """보정 곡선이 **순위 정보**를 담는지 홀드아웃에서 잰다 — 보고 전용(`enforced: False`).
+
+    순수 함수다. 쌍이 없으면 None. 날짜가 하나뿐이거나(학습 비어 있음) x 가 상수라 ρ 가 정의되지 않으면
+    ``status='insufficient'`` 와 이유를 담은 dict 를 준다. `assess()` 와 `active_calibration()` 은 이 함수를 부르지
+    않는다 — 경주 추정은 이 함수와 무관하다.
+    """
+    if not pairs:
+        return None
+    train, holdout, holdout_dates = split_by_date(pairs)
+    xs = [pair.x for pair in holdout]
+    ys = [pair.y for pair in holdout]
+    pooled_spearman = spearman_rho(xs, ys) if len(holdout) >= 2 else None
+    holdout_spearman, holdout_sites = _within_site_spearman(holdout)
+    constant = _site_constant_predictions(train, holdout) if holdout else None
+    mae_constant = _mae(constant, ys) if constant is not None and ys else None
+    train_curve = fit_curve(train, fitted_at="") if train else None
+    mae_calibrated = (
+        _mae([apply_curve(train_curve.knots, x) or 0.0 for x in xs], ys)
+        if train_curve is not None and ys
+        else None
+    )
+    beats_constant = (
+        mae_calibrated is not None and mae_constant is not None and mae_calibrated < mae_constant
+    )
+    anomaly_rho, anomaly_se, anomaly_ci_low = _holdout_anomaly_rho(train, holdout)
+    holdout_days = len(holdout_dates)
+
+    reason: str | None = None
+    if not holdout:
+        status = "insufficient"
+        reason = "날짜로 학습·홀드아웃을 가를 수 없다(날짜가 하나뿐이다)."
+    elif len(holdout) < RANK_GATE_MIN_HOLDOUT_SAMPLES or holdout_days < RANK_GATE_MIN_HOLDOUT_DAYS:
+        status = "insufficient"
+        reason = (
+            f"홀드아웃 {len(holdout)}점 · {holdout_days}일 — 최소 {RANK_GATE_MIN_HOLDOUT_SAMPLES}점 · "
+            f"{RANK_GATE_MIN_HOLDOUT_DAYS}일이 필요하다(뒤쪽 1/3 날짜가 홀드아웃이다)."
+        )
+    elif holdout_spearman is None:
+        status = "insufficient"
+        reason = "홀드아웃에서 주차 수준이나 실측 인파가 변하지 않아 순위 상관이 정의되지 않는다."
+    elif (
+        holdout_spearman >= RANK_GATE_MIN_HOLDOUT_SPEARMAN
+        and beats_constant
+        and anomaly_rho is not None
+        and anomaly_rho >= RANK_GATE_MIN_ANOMALY_RHO
+        and anomaly_ci_low is not None
+        and anomaly_ci_low > 0
+    ):
+        status = "pass"
+    else:
+        status = "fail"
+        failed: list[str] = []
+        if holdout_spearman < RANK_GATE_MIN_HOLDOUT_SPEARMAN:
+            failed.append(f"홀드아웃 ρ {holdout_spearman:.4f} < {RANK_GATE_MIN_HOLDOUT_SPEARMAN:.2f}")
+        if not beats_constant:
+            failed.append("보정 곡선이 대상지별 학습 평균 상수보다 MAE 가 낮지 않다")
+        if anomaly_rho is None:
+            failed.append(
+                "시간대 평균을 뺀 ρ 가 정의되지 않는다 — 주차 수준이 하루 모양(시각)만 따라 그려 그날 고유의 정보가 없다"
+            )
+        elif anomaly_rho < RANK_GATE_MIN_ANOMALY_RHO:
+            failed.append(f"시간대 평균을 뺀 ρ {anomaly_rho:.4f} < {RANK_GATE_MIN_ANOMALY_RHO:.2f}")
+        elif anomaly_ci_low is None:
+            failed.append("시간대 평균을 뺀 ρ 의 95% 하한을 계산할 수 없다(홀드아웃 날짜 부족)")
+        elif anomaly_ci_low <= 0:
+            failed.append(f"시간대 평균을 뺀 ρ 의 95% 하한(날짜 잭나이프) {anomaly_ci_low:.4f} ≤ 0")
+        reason = " · ".join(failed)
+
+    return {
+        "status": status,
+        "enforced": False,
+        "holdout_spearman": _round_or_none(holdout_spearman),
+        "pooled_spearman": _round_or_none(pooled_spearman),
+        "holdout_sites": holdout_sites,
+        "anomaly_rho": _round_or_none(anomaly_rho),
+        "anomaly_rho_se": _round_or_none(anomaly_se),
+        "anomaly_rho_ci_low": _round_or_none(anomaly_ci_low),
+        "anomaly_ci_method": SPEARMAN_ANOMALY_CI_METHOD,
+        "min_anomaly_rho": RANK_GATE_MIN_ANOMALY_RHO,
+        "anomaly_slot_minutes": SPEARMAN_ANOMALY_SLOT_MINUTES,
+        "min_holdout_spearman": RANK_GATE_MIN_HOLDOUT_SPEARMAN,
+        "mae_constant": _round_or_none(mae_constant),
+        "mae_calibrated": _round_or_none(mae_calibrated),
+        "beats_constant": bool(beats_constant),
+        "holdout_samples": len(holdout),
+        "holdout_days": holdout_days,
+        "min_holdout_samples": RANK_GATE_MIN_HOLDOUT_SAMPLES,
+        "min_holdout_days": RANK_GATE_MIN_HOLDOUT_DAYS,
+        "definition": _RANK_GATE_DEFINITION,
+        "reason": reason,
+    }
+
+
+def _safe_rank_gate(pairs: list[Pair]) -> dict[str, Any] | None:
+    """리포트 전용 래퍼. 어떤 예외도 올리지 않는다 — 관문 계산이 깨져도 리포트 나머지는 그대로 나간다."""
+    try:
+        return rank_gate(pairs)
+    except Exception as exc:  # noqa: BLE001 — 보고 전용 필드다. 리포트 전체를 죽이지 않는다
+        logger.warning("congestion_calibration_rank_gate_failed", error_type=type(exc).__name__)
+        return None
+
+
 # ── 순수 함수: 시간대 모양(표시 전용) ─────────────────────────────────────────
 
 
@@ -695,6 +926,8 @@ def _envelope(state: str, *, days: int, now: datetime) -> dict[str, Any]:
         "hour_shape": {"seoul": hour_shape([]), "gyeongju_parking": hour_shape([])},
         "gyeongju_effect": None,
         "reason": None,
+        # 순위 관문(보고 전용). 계산할 수 없으면 None — `rank_gate()` 참조.
+        "rank_gate": None,
     }
 
 
@@ -720,6 +953,8 @@ def build_report(days: int = DEFAULT_WINDOW_DAYS, *, now: datetime | None = None
     envelope["curve"] = curve.to_dict() if curve is not None else None
     envelope["quality"] = verdict["quality"]
     envelope["reason"] = verdict["reason"]
+    # 적용 판정(verdict)이 다 정해진 **뒤에** 따로 계산한다 — 관문 결과가 applied 를 바꾸지 않는다.
+    envelope["rank_gate"] = _safe_rank_gate(pairs)
 
     seoul_samples = [(pair.hour_kst, pair.weekend, pair.y) for pair in pairs]
     try:

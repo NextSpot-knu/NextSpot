@@ -60,6 +60,7 @@ from postgrest.types import CountMethod
 
 from app.core.config import settings
 from app.core.daemon_executor import DaemonExecutor as _DaemonExecutor
+from app.core.region import PUBLIC_REGION, apply_region, run_region_scoped
 from app.core.supabase import fetch_all_rows, supabase_admin, supabase_client
 from app.services.availability_service import is_effective_availability_evidence
 from app.services.congestion_evidence import RANKING_FRESHNESS, TRUSTED_EVIDENCE_TIERS
@@ -562,10 +563,19 @@ def _probe() -> tuple:
     """
     signature: list = []
     for table, active_only in (("facilities", True), ("facility_source_refs", False)):
-        query = supabase_client.table(table).select("updated_at", count=CountMethod.exact)
         if active_only:
-            query = query.eq("is_active", True)
-        res = query.order("updated_at", desc=True).limit(1).execute()
+            # 공개 지도는 경주만 — 탐침도 같은 집합을 센다(region 컬럼이 없으면 필터 없이).
+            def _probe_facilities(with_region: bool, table: str = table):
+                query = supabase_client.table(table).select("updated_at", count=CountMethod.exact)
+                if with_region:
+                    query = apply_region(query, PUBLIC_REGION)
+                query = query.eq("is_active", True)
+                return query.order("updated_at", desc=True).limit(1).execute()
+
+            res = run_region_scoped(_probe_facilities, region=PUBLIC_REGION)
+        else:
+            query = supabase_client.table(table).select("updated_at", count=CountMethod.exact)
+            res = query.order("updated_at", desc=True).limit(1).execute()
         signature += [getattr(res, "count", None), _first_value(res, "updated_at")]
     return tuple(signature)
 
@@ -616,8 +626,15 @@ def _load_base(
             return prev_signature, None, exc, None
         if signature == prev_signature:
             return signature, None, None, None
-    rows = _keyset_rows(
-        supabase_client, "facilities", BASE_COLUMNS, filters=lambda q: q.eq("is_active", True)
+    # 공개 지도 베이스는 경주 시설만(region 은 쿼리 안에서 — 서울 행은 읽지도 않는다).
+    rows = run_region_scoped(
+        lambda with_region: _keyset_rows(
+            supabase_client,
+            "facilities",
+            BASE_COLUMNS,
+            filters=lambda q: (apply_region(q, PUBLIC_REGION) if with_region else q).eq("is_active", True),
+        ),
+        region=PUBLIC_REGION,
     )
     refs_error: BaseException | None = None
     try:

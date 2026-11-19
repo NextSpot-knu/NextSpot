@@ -45,6 +45,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.authz import (
+    ROLE_DEVELOPER,
     ROLE_MERCHANT,
     assert_role,
     load_profile_from_request,
@@ -53,6 +54,7 @@ from app.core.authz import (
 )
 from app.core.config import settings
 from app.core.internal_accounts import filter_internal_roles, internal_ids_from_rows, is_internal_user
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import merchant_briefing_service, reference_snapshot
 from app.services.merchant_boost import SEAT_LEVEL_CONGESTION, SEAT_STATUS_FRESH_MINUTES
@@ -101,6 +103,44 @@ def assert_owns(ctx: dict, facility_id: str) -> None:
     if profile is None:
         return
     require_facility_owner(profile, facility_id)
+
+
+async def _public_facility(facility_id: str, columns: str = "id") -> dict | None:
+    """공개 지역(경주) 시설 한 곳 — 지역은 쿼리 안에서 건다(region 컬럼 전이면 경주 폴백). 다른 지역·없음은 None."""
+
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select(columns).eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
+    rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
+    return rows[0] if rows else None
+
+
+async def require_public_facility(ctx: dict, facility_id: str) -> None:
+    """서울(개발자 전용) 시설이면 404 — 사장님 콘솔은 공개 지역(경주) 가게만 다룬다(S3).
+
+    소유권을 확인한 사장님(JWT · developer 아님)은 확인할 필요가 없다 — facility_owners 트리거
+    (reject_non_public_region_facility)가 서울 시설에 소유권을 붙이지 못하게 막는다. 소유권을 건너뛰는
+    두 경로(developer · 구 공유 토큰)만 시설을 지역을 건 쿼리로 확인한다.
+    """
+    profile = ctx.get("profile")
+    if profile is not None and profile.get("role") != ROLE_DEVELOPER:
+        return
+    try:
+        found = await _public_facility(facility_id)
+    except Exception as exc:
+        logger.error("merchant_facility_region_lookup_failed", facility_id=facility_id, error=str(exc))
+        raise HTTPException(status_code=500, detail="가게 정보를 확인하지 못했습니다.") from None
+    if not found:
+        raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+
+
+def _region_rejected(exc: Exception) -> bool:
+    """지역 격리 DB 가드(트리거 P0001 facility_region_not_public — 마이그레이션 20261101090000)의 거절."""
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return "facility_region_not_public" in text
 
 
 router = APIRouter(prefix="/api/v1/merchant", tags=["merchant"])
@@ -363,6 +403,7 @@ async def get_stats(
     ctx: dict = Depends(merchant_context),
 ):
     assert_owns(ctx, facility_id)
+    await require_public_facility(ctx, facility_id)
     # Literal[7, 30] 은 쿼리 문자열 '7' 을 받지 못한다(pydantic v2 리터럴은 형 변환을 하지 않는다) — 직접 본다.
     if days not in _STATS_WINDOW_CHOICES:
         raise HTTPException(status_code=422, detail="집계 기간은 7일 또는 30일만 고를 수 있습니다.")
@@ -489,21 +530,21 @@ async def get_briefing(facility_id: str, ctx: dict = Depends(merchant_context)):
     캐시(facility+KST 시간 버킷, 성공 30분/실패 1분) 히트 시 예측·DB 조회 없이 즉시 반환한다.
     미스면 시설 존재·타입을 확인(golden-hour 의 단건 조회 패턴 미러)한 뒤 브리핑을 생성한다.
     """
+    await require_public_facility(ctx, facility_id)
     cached = merchant_briefing_service.cached_briefing(facility_id)
     if cached is not None:
         return cached
 
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("facilities").select("id, type").eq("id", facility_id).limit(1).execute
-        )
+        # 공개 지역(경주) 시설만 — 서울 시설은 없는 시설과 같은 404(쿼리 안에서 거른다).
+        facility = await _public_facility(facility_id, "id, type")
     except Exception as e:
         logger.error("merchant_briefing_facility_lookup_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="브리핑 생성에 실패했습니다.")
-    if not res.data:
+    if not facility:
         raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
 
-    return await merchant_briefing_service.generate_briefing(facility_id, res.data[0]["type"])
+    return await merchant_briefing_service.generate_briefing(facility_id, facility["type"])
 
 
 # =========================================================================
@@ -532,10 +573,8 @@ class TimesaleCancel(BaseModel):
 
 
 async def _facility_exists(facility_id: str) -> bool:
-    res = await asyncio.to_thread(
-        supabase_admin.table("facilities").select("id").eq("id", facility_id).limit(1).execute
-    )
-    return bool(res.data)
+    """공개 지역(경주) 시설이 있는가 — 서울(개발자 전용) 시설은 '없음'이다(S3)."""
+    return await _public_facility(facility_id) is not None
 
 
 async def _active_timesale_rates(facility_id: str) -> list[float] | None:
@@ -603,6 +642,8 @@ async def create_timesale(req: TimesaleCreate, ctx: dict = Depends(merchant_cont
     except HTTPException:
         raise
     except Exception as e:
+        if _region_rejected(e):  # DB 트리거가 서울 시설을 막았다 — 없는 시설과 같다
+            raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.") from None
         # 마이그레이션 미적용 환경(테이블 부재)도 여기로 흡수된다 — 프런트는 일반 실패로 취급한다.
         logger.error("merchant_timesale_create_failed", facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="타임세일 발행에 실패했습니다.")
@@ -667,6 +708,7 @@ async def list_active_timesales(facility_id: str, ctx: dict = Depends(merchant_c
 async def cancel_timesale(req: TimesaleCancel, ctx: dict = Depends(merchant_context)):
     assert_owns(ctx, req.facility_id)
     """타임세일 취소 — id+facility_id 일치 행만 canceled_at 을 채운다(타 시설 세일 오취소 방지)."""
+    await require_public_facility(ctx, req.facility_id)
     try:
         res = await asyncio.to_thread(
             supabase_admin.table("merchant_timesales")
@@ -808,16 +850,16 @@ class SeatStatusUpdate(BaseModel):
 async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant_context)):
     assert_owns(ctx, req.facility_id)
     try:
-        fac_res = await asyncio.to_thread(
-            supabase_admin.table("facilities").select("id, features, capacity").eq("id", req.facility_id).limit(1).execute
-        )
+        # 공개 지역(경주) 시설만 — 서울 시설은 없는 시설과 같은 404(쿼리 안에서 거른다).
+        facility = await _public_facility(req.facility_id, "id, features, capacity")
     except Exception as e:
         logger.error("merchant_seat_status_lookup_failed", facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
-    if not fac_res.data:
+    if not facility:
         raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+    region = PUBLIC_REGION  # 위 읽기와 같은 지역에만 쓴다
 
-    current_features = fac_res.data[0].get("features") or {}
+    current_features = facility.get("features") or {}
     if not isinstance(current_features, dict):
         current_features = {}
     updated_at = datetime.now(timezone.utc).isoformat()
@@ -828,10 +870,14 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
         new_features = {**current_features, "seat_status": {"level": req.level, "updated_at": updated_at}}
 
     # ── 주 효과(①): 화면에 보이는 좌석 상태. 이게 실패하면 방송 자체가 실패다 → 500.
+    def _write(with_region: bool):
+        query = supabase_admin.table("facilities").update({"features": new_features}).eq("id", req.facility_id)
+        if with_region:
+            query = apply_region(query, region)
+        return query.execute()
+
     try:
-        upd = await asyncio.to_thread(
-            supabase_admin.table("facilities").update({"features": new_features}).eq("id", req.facility_id).execute
-        )
+        upd = await arun_region_scoped(_write, region=region)
         if not upd.data:
             raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
     except HTTPException:
@@ -889,7 +935,7 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
             # 화면용 최신 상태와 별개로 시계열 관측을 남긴다. 매장 운영자가 직접 확인한
             # 좌석 방송은 MVP의 가장 빠른 현장 관측이므로 공식 학습 가능한 verified 로 기록한다.
             try:
-                capacity = int(fac_res.data[0].get("capacity") or 0)
+                capacity = int(facility.get("capacity") or 0)
                 await asyncio.to_thread(
                     supabase_admin.table("congestion_logs").insert({
                         "facility_id": req.facility_id,

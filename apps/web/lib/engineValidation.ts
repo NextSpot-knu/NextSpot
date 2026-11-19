@@ -38,6 +38,45 @@ export interface ValidationMetric {
   missed?: number;
   covered?: number;
   ours_mae_same_sample?: number | null;
+  // --- S4 지표 보강(이전 서버는 없다 — 없으면 화면이 예전 그대로다) ---
+  /** spearman: 시간대 평균(다른 날)을 양쪽에서 뺀 이상치끼리의 ρ. */
+  anomaly_rho?: number | null;
+  anomaly_n?: number;
+  anomaly_dates?: number;
+  /** spearman: 시간대 평균만으로 얻는 ρ(비교 기준). */
+  climatology_rho?: number | null;
+  anomaly_threshold?: number;
+  anomaly_min_dates?: number;
+  anomaly_flat_estimate?: boolean;
+  /** spearman: 이상치 ρ 의 날짜 잭나이프 95% 하한 — 통과에는 0 보다 커야 한다(10분 버킷의 자기상관을 날짜 단위로 흡수). */
+  anomaly_rho_ci_low?: number | null;
+  /** forecast_mae_30m: 보정 전 전체 표본 MAE(예전 판정 값, 보고용). */
+  raw_mae?: number | null;
+  raw_n?: number;
+  oracle_reference_label?: string;
+  /** forecast_mae_30m: 실측 지속 모델 MAE — 추정기는 쓸 수 없는 정보라 참고로만. */
+  oracle_reference_mae?: number | null;
+  holdout_n?: number;
+  holdout_dates?: number;
+  /** forecast_mae_30m: 기준선 MAE 에 곱하는 여유(0.95 → 기준선의 0.95배 이하). */
+  margin?: number;
+  /** grade_exact: 두 등급 분포만으로 기대되는 일치율 · Cohen κ. */
+  chance_agreement?: number | null;
+  cohen_kappa?: number | null;
+  /** grade_within_one: 우연히 ±1 이내일 확률 · 선형 가중 κ. */
+  chance_within_one?: number | null;
+  weighted_kappa_linear?: number | null;
+  kappa_threshold?: number;
+  /** grade_exact 추가 필드(보고 전용): 학습 날짜의 실측 분포를 재현하는 분위 경계로 등급화한 홀드아웃 일치율. */
+  rank_mapped_value?: number | null;
+  rank_mapped_chance?: number | null;
+  rank_mapped_n?: number;
+  rank_mapped_holdout_days?: number;
+  rank_mapped_cut_points?: (number | null)[] | null;
+  rank_mapped_target_distribution?: number[] | null;
+  rank_mapped_achieved_distribution?: number[] | null;
+  train_actual_distribution?: number[] | null;
+  holdout_actual_distribution?: number[] | null;
 }
 
 export interface OmittedMetric {
@@ -270,18 +309,97 @@ export function formatMetricValue(metric: Pick<ValidationMetric, 'value' | 'unit
   return value.toFixed(3);
 }
 
-/** 통과 기준을 문장으로. MAE 는 기준값이 '지속 모델 MAE' 라 숫자만 쓰면 뜻이 없다. */
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * 통과 기준을 문장으로. MAE 는 기준값이 '기준선 MAE' 라 숫자만 쓰면 뜻이 없다.
+ * 서버가 보강 필드(시간대 평균을 뺀 ρ · κ · 기준선 여유)를 보내면 그 조건도 함께 쓴다 — 없으면 예전 문장 그대로다.
+ */
 export function formatThreshold(metric: ValidationMetric): string {
   if (metric.direction === 'report') return '기준 없음 · 보고용';
   if (metric.unit === 'mae') {
     const base = metric.baseline_mae;
     const label = metric.baseline_label ?? '지속 모델';
+    if (finite(metric.margin)) {
+      const times = `${metric.margin.toFixed(2)}배 이하`;
+      return finite(base) ? `${label}(${base.toFixed(3)})의 ${times}` : `${label}의 ${times}`;
+    }
     return typeof base === 'number' ? `${label}(${base.toFixed(3)})보다 낮을 것` : `${label}보다 낮을 것`;
   }
   if (metric.threshold === null) return '—';
   const sign = metric.direction === 'gte' ? '≥' : '≤';
   const value = metric.unit === 'ratio' ? `${Math.round(metric.threshold * 100)}%` : metric.threshold.toFixed(2);
-  return `${sign} ${value}`;
+  const base = `${sign} ${value}`;
+  if (metric.unit === 'rho' && finite(metric.anomaly_threshold)) {
+    const ci = metric.anomaly_rho_ci_low !== undefined ? ' · 그 95% 하한 > 0' : '';
+    return `${base} · 시간대 평균을 뺀 ρ ≥ ${metric.anomaly_threshold.toFixed(2)}${ci}`;
+  }
+  if (metric.unit === 'ratio' && finite(metric.kappa_threshold)) {
+    const kappa = metric.weighted_kappa_linear !== undefined ? '선형 가중 κ' : 'κ';
+    return `${base} · ${kappa} ≥ ${metric.kappa_threshold.toFixed(2)}`;
+  }
+  return base;
+}
+
+export interface MetricDetailRow {
+  label: string;
+  value: string;
+}
+
+function detailNumber(value: number | null | undefined, digits: number): string {
+  return finite(value) ? value.toFixed(digits) : '—';
+}
+
+function detailPercent(value: number | null | undefined): string {
+  return finite(value) ? percent(value) : '—';
+}
+
+/**
+ * 지표 타일 아래 덧붙임 줄 — 서버가 보낸 보강 필드만(없는 필드는 줄을 만들지 않는다). 이전 서버 응답이면 빈 목록이라
+ * 타일이 예전과 똑같이 그려진다. 값이 null 이면 '—'(0 으로 보이면 '상관이 없다'·'오차가 없다' 로 읽힌다).
+ */
+export function metricDetailRows(metric: ValidationMetric): MetricDetailRow[] {
+  const rows: MetricDetailRow[] = [];
+  if (metric.anomaly_rho !== undefined) {
+    const sample = finite(metric.anomaly_n) ? ` (n=${metric.anomaly_n}${finite(metric.anomaly_dates) ? ` · ${metric.anomaly_dates}일` : ''})` : '';
+    rows.push({ label: '시간대 평균을 뺀 ρ', value: `${detailNumber(metric.anomaly_rho, 2)}${sample}` });
+  }
+  if (metric.anomaly_rho_ci_low !== undefined) {
+    rows.push({ label: '시간대 평균을 뺀 ρ의 95% 하한(날짜 잭나이프)', value: detailNumber(metric.anomaly_rho_ci_low, 2) });
+  }
+  if (metric.climatology_rho !== undefined) {
+    rows.push({ label: '시간대 평균만의 ρ(비교)', value: detailNumber(metric.climatology_rho, 2) });
+  }
+  if (metric.holdout_n !== undefined && metric.unit === 'mae') {
+    rows.push({ label: '홀드아웃', value: `n=${metric.holdout_n}${finite(metric.holdout_dates) ? ` · ${metric.holdout_dates}일` : ''}` });
+  }
+  if (metric.raw_mae !== undefined) {
+    const sample = finite(metric.raw_n) ? ` (n=${metric.raw_n})` : '';
+    rows.push({ label: '보정 전 전체 표본 MAE(보고용)', value: `${detailNumber(metric.raw_mae, 3)}${sample}` });
+  }
+  if (metric.oracle_reference_mae !== undefined) {
+    rows.push({ label: metric.oracle_reference_label ?? '실측 지속(참고)', value: detailNumber(metric.oracle_reference_mae, 3) });
+  }
+  if (metric.chance_agreement !== undefined) {
+    rows.push({ label: '우연 일치', value: detailPercent(metric.chance_agreement) });
+  }
+  if (metric.cohen_kappa !== undefined) {
+    rows.push({ label: 'Cohen κ', value: detailNumber(metric.cohen_kappa, 2) });
+  }
+  if (metric.chance_within_one !== undefined) {
+    rows.push({ label: '우연히 ±1 이내', value: detailPercent(metric.chance_within_one) });
+  }
+  if (metric.weighted_kappa_linear !== undefined) {
+    rows.push({ label: '선형 가중 κ', value: detailNumber(metric.weighted_kappa_linear, 2) });
+  }
+  if (metric.rank_mapped_value !== undefined) {
+    const chance = finite(metric.rank_mapped_chance) ? ` · 우연 ${percent(metric.rank_mapped_chance)}` : '';
+    const sample = finite(metric.rank_mapped_n)
+      ? ` (홀드아웃 n=${metric.rank_mapped_n}${finite(metric.rank_mapped_holdout_days) ? ` · ${metric.rank_mapped_holdout_days}일` : ''})`
+      : '';
+    rows.push({ label: '분위 경계 등급 일치(보고용)', value: `${detailPercent(metric.rank_mapped_value)}${chance}${sample}` });
+  }
+  return rows;
 }
 
 export const STATUS_LABEL: Record<MetricStatus, string> = {
@@ -649,6 +767,35 @@ export interface CalibrationResponse {
   hour_shape: { seoul: HourShapePoint[]; gyeongju_parking: HourShapePoint[] };
   gyeongju_effect: { samples: { raw: number; calibrated: number }[]; median_shift: number | null } | null;
   reason: string | null;
+  /** 보정 곡선이 순위 정보를 담는지 본 관문 — 보고 전용(적용 판정에 쓰지 않는다). 이전 서버는 필드가 없다(null 로 읽는다). */
+  rank_gate?: RankGate | null;
+}
+
+export interface RankGate {
+  status: 'pass' | 'fail' | 'insufficient' | string;
+  enforced: boolean;
+  /** 대상지 안 ρ(대상지별 ρ 의 표본 가중 평균) — 판정 값. 대상지끼리의 수준 차이로는 오르지 않는다. */
+  holdout_spearman: number | null;
+  /** 대상지를 섞은 ρ — 참고(대상지 차이만으로도 높다). 이전 서버는 없다(null). */
+  pooled_spearman: number | null;
+  holdout_sites: number | null;
+  anomaly_rho: number | null;
+  /** 이상치 ρ 의 판정 하한 — 하루 모양(시각)만 따라 그리는 주차 수준을 거른다. 이전 서버는 없다(null — 그때 이상치 ρ 는 참고 줄). */
+  min_anomaly_rho: number | null;
+  /** 이상치 ρ 의 95% 하한(홀드아웃 날짜 잭나이프) — 판정 조건은 > 0. 이전 서버는 없다(null — 그때 줄에 하한을 쓰지 않는다). */
+  anomaly_rho_ci_low?: number | null;
+  /** 이상치 ρ 의 시간대 칸 폭(분). 이전 서버는 없다(null). */
+  anomaly_slot_minutes: number | null;
+  min_holdout_spearman: number | null;
+  mae_constant: number | null;
+  mae_calibrated: number | null;
+  beats_constant: boolean;
+  holdout_samples: number;
+  holdout_days: number;
+  min_holdout_samples: number | null;
+  min_holdout_days: number | null;
+  definition: string | null;
+  reason: string | null;
 }
 
 const CALIBRATION_STATES: readonly CalibrationState[] = ['not_migrated', 'empty', 'insufficient', 'ready'];
@@ -656,6 +803,90 @@ const CALIBRATION_STATES: readonly CalibrationState[] = ['not_migrated', 'empty'
 export function calibrationPath(days: number = CALIBRATION_WINDOW_DAYS): string {
   const safe = Number.isInteger(days) && days >= 1 && days <= 28 ? days : CALIBRATION_WINDOW_DAYS;
   return `${CALIBRATION_PATH}?days=${safe}`;
+}
+
+/** rank_gate 블록 → 화면이 아는 모양. 상태 문자열이 없으면 모르는 모양이라 null(줄을 그리지 않는다). */
+export function parseRankGate(raw: unknown): RankGate | null {
+  if (!isRecord(raw) || typeof raw.status !== 'string') return null;
+  const num = (value: unknown) => (finite(value) ? value : null);
+  return {
+    status: raw.status,
+    enforced: raw.enforced === true,
+    holdout_spearman: num(raw.holdout_spearman),
+    pooled_spearman: num(raw.pooled_spearman),
+    holdout_sites: num(raw.holdout_sites),
+    anomaly_rho: num(raw.anomaly_rho),
+    min_anomaly_rho: num(raw.min_anomaly_rho),
+    anomaly_rho_ci_low: num(raw.anomaly_rho_ci_low),
+    anomaly_slot_minutes: num(raw.anomaly_slot_minutes),
+    min_holdout_spearman: num(raw.min_holdout_spearman),
+    mae_constant: num(raw.mae_constant),
+    mae_calibrated: num(raw.mae_calibrated),
+    beats_constant: raw.beats_constant === true,
+    holdout_samples: finite(raw.holdout_samples) ? raw.holdout_samples : 0,
+    holdout_days: finite(raw.holdout_days) ? raw.holdout_days : 0,
+    min_holdout_samples: num(raw.min_holdout_samples),
+    min_holdout_days: num(raw.min_holdout_days),
+    definition: typeof raw.definition === 'string' ? raw.definition : null,
+    reason: typeof raw.reason === 'string' ? raw.reason : null,
+  };
+}
+
+export const RANK_GATE_TITLE = '순위 관문(참고 — 적용 기준 아님)';
+
+const RANK_GATE_STATUS: Record<string, { label: string; tone: Tone }> = {
+  pass: { label: '통과', tone: 'ok' },
+  fail: { label: '미달', tone: 'warn' },
+  insufficient: { label: '표본 부족', tone: 'info' },
+};
+
+export interface RankGateView {
+  title: string;
+  badge: { label: string; tone: Tone };
+  lines: string[];
+  reason: string | null;
+  definition: string | null;
+}
+
+/**
+ * 순위 관문 한 줄. **보고 전용**이라는 사실이 제목에 선다 — 미달이어도 경주 적용 판정(위 '경주 추정에 적용')은 바뀌지
+ * 않는다. 서버가 enforced=true 를 보내는 날이 오면 제목에서 '적용 기준 아님' 을 떼야 하므로 그 경우 제목을 바꾼다.
+ */
+export function describeRankGate(gate: RankGate): RankGateView {
+  const badge = RANK_GATE_STATUS[gate.status] ?? { label: gate.status, tone: 'warn' as Tone };
+  const rho = formatQualityNumber(gate.holdout_spearman, 2);
+  const minRho = finite(gate.min_holdout_spearman) ? ` / 기준 ≥ ${gate.min_holdout_spearman.toFixed(2)}` : '';
+  const sites = finite(gate.holdout_sites) ? ` · ${gate.holdout_sites}곳` : '';
+  const lines = [
+    `홀드아웃 순위 상관 ρ(대상지 안${sites}) ${rho}${minRho}`,
+    `홀드아웃 MAE — 보정 곡선 ${formatQualityNumber(gate.mae_calibrated)} vs 대상지별 학습 평균 상수 ${formatQualityNumber(gate.mae_constant)} (${gate.beats_constant ? '상수보다 낮음' : '상수보다 낮지 않음'})`,
+    `홀드아웃 ${gate.holdout_samples}점 · ${gate.holdout_days}일${
+      finite(gate.min_holdout_samples) && finite(gate.min_holdout_days)
+        ? ` / 최소 ${gate.min_holdout_samples}점 · ${gate.min_holdout_days}일`
+        : ''
+    }`,
+  ];
+  if (gate.pooled_spearman !== null) lines.push(`대상지를 섞은 ρ(참고) ${formatQualityNumber(gate.pooled_spearman, 2)}`);
+  if (finite(gate.min_anomaly_rho)) {
+    // 판정 줄 — 하루 모양만 따라 그리면 이상치가 남지 않아 ρ 가 '—' 다(0 이 아니다).
+    const slot = finite(gate.anomaly_slot_minutes) ? `${gate.anomaly_slot_minutes}분 칸 ` : '';
+    // 하한을 보내는 서버에서는 '하한 > 0' 도 판정 조건이다 — 같은 줄에 싣는다.
+    const ciLow = finite(gate.anomaly_rho_ci_low)
+      ? ` · 95% 하한(날짜 잭나이프) ${formatQualityNumber(gate.anomaly_rho_ci_low, 2)} > 0`
+      : '';
+    lines.push(
+      `시간대 평균(${slot}학습 날짜)을 뺀 ρ ${formatQualityNumber(gate.anomaly_rho, 2)} / 기준 ≥ ${gate.min_anomaly_rho.toFixed(2)}${ciLow}`,
+    );
+  } else if (gate.anomaly_rho !== null) {
+    lines.push(`시간대 평균을 뺀 ρ(참고) ${formatQualityNumber(gate.anomaly_rho, 2)}`);
+  }
+  return {
+    title: gate.enforced ? '순위 관문(적용 기준)' : RANK_GATE_TITLE,
+    badge,
+    lines,
+    reason: gate.reason,
+    definition: gate.definition,
+  };
 }
 
 function hourShapeList(raw: unknown): HourShapePoint[] {
@@ -698,6 +929,7 @@ export function parseCalibration(raw: unknown): CalibrationResponse | null {
       min_days: typeof requirement.min_days === 'number' ? requirement.min_days : 0,
       must_beat_identity: requirement.must_beat_identity !== false,
     },
+    rank_gate: parseRankGate(raw.rank_gate),
   };
 }
 

@@ -39,6 +39,7 @@ from app.core.authz import (
     log_role_audit,
     require_role,
 )
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped, is_missing_region_column
 from app.core.supabase import supabase_admin
 from app.services import reference_snapshot
 # 증빙 삭제는 **core 의 한 함수**만 쓴다. 심사(여기)와 철회·교체(account.py)가 같은 약속을
@@ -68,6 +69,23 @@ def _is_duplicate_owner(exc: Exception) -> bool:
         or "duplicate key" in text
         or "facility_owners_active_uq" in text
     )
+
+# 지역 격리 DB 가드(마이그레이션 20261101090000)의 거절 표식 — 자식 표 트리거(P0001), 지역 고정 트리거(P0001),
+# 서울 좌표·지역 CHECK(23514). 서울은 개발자 전용 지역이라 소유권·사업자 인증의 대상이 아니다(S3).
+_REGION_REJECTIONS = (
+    "facility_region_not_public",
+    "facility_region_immutable",
+    "facilities_seoul_coords_need_seoul_region",
+    "facilities_seoul_region_needs_seoul_coords",
+    "facilities_region_known",
+)
+_REGION_NOT_PUBLIC_DETAIL = "공개 지역(경주) 가게가 아니라 처리할 수 없습니다. (region_not_public)"
+
+
+def _region_rejected(exc: Exception) -> bool:
+    text = f"{getattr(exc, 'code', '') or ''} {getattr(exc, 'message', None) or exc}"
+    return any(marker in text for marker in _REGION_REJECTIONS)
+
 
 router = APIRouter(
     prefix="/api/v1/dev",
@@ -402,6 +420,8 @@ async def grant_facility_owner(body: OwnerGrant, actor: dict = Depends(get_curre
                 "dev_owner_grant_duplicate", user_id=body.user_id, facility_id=body.facility_id
             )
             raise HTTPException(status_code=409, detail="이미 이 가게의 소유자입니다.") from None
+        if _region_rejected(exc):
+            raise HTTPException(status_code=409, detail=_REGION_NOT_PUBLIC_DETAIL) from None
         logger.error(
             "dev_owner_grant_failed",
             user_id=body.user_id, facility_id=body.facility_id, error=str(exc),
@@ -612,18 +632,42 @@ async def _require_active_facility(facility_id: str) -> None:
         uuid_module.UUID(str(facility_id))
     except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.") from None
+    def _read(with_region: bool) -> list[dict]:
+        # 공개 지역(경주) 가게만 — 지역은 쿼리 안에서 건다(region 컬럼 전이면 경주 폴백).
+        query = supabase_admin.table("facilities").select("id, is_active").eq("id", facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.limit(1).execute().data or []
+
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("facilities")
-            .select("id, is_active").eq("id", facility_id).limit(1).execute
-        )
+        rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
     except Exception as exc:
         logger.warning("verification_facility_lookup_failed", facility_id=facility_id, error=str(exc))
         raise HTTPException(status_code=503, detail="가게 정보를 확인하지 못했습니다.") from None
-    row = (res.data or [None])[0]
+    row = (rows or [None])[0]
+    if not row and await _exists_outside_public_region(facility_id):
+        # 서울(개발자 전용) 가게 — 없는 가게(422)와 갈라 409 로 알린다. 개발자만 오는 경로다.
+        raise HTTPException(status_code=409, detail=_REGION_NOT_PUBLIC_DETAIL)
     # is_active 칼럼이 없는 구 DB에서는 필드가 아예 없다 — '없음'을 '비활성'으로 읽지 않는다.
     if not row or row.get("is_active") is False:
         raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.")
+
+
+async def _exists_outside_public_region(facility_id: str) -> bool:
+    """그 id 의 가게가 공개 지역 **밖에** 있는가 — 지역을 건 쿼리(neq)로 본다. 판정 못 하면 False."""
+
+    def _read() -> list[dict]:
+        return (
+            supabase_admin.table("facilities").select("id").eq("id", facility_id)
+            .neq("region", PUBLIC_REGION).limit(1).execute().data or []
+        )
+
+    try:
+        return bool(await asyncio.to_thread(_read))
+    except Exception as exc:  # noqa: BLE001 — region 컬럼 전(42703)이면 모든 가게가 경주다
+        if not is_missing_region_column(exc):
+            logger.warning("verification_facility_region_probe_failed", facility_id=facility_id, error=str(exc))
+        return False
 
 
 async def _create_facility_for_request(spec: NewFacilityInput, request_id: str) -> str:
@@ -666,6 +710,12 @@ async def _create_facility_for_request(spec: NewFacilityInput, request_id: str) 
     try:
         res = await asyncio.to_thread(supabase_admin.table("facilities").insert(payload).execute)
     except Exception as exc:
+        if _region_rejected(exc):
+            # 서울 좌표(23514) — 새 가게는 공개 지역(경주)에만 만든다. 입력을 고칠 문제라 422.
+            logger.info("verification_facility_create_region_rejected", request_id=request_id)
+            raise HTTPException(
+                status_code=422, detail="공개 지역(경주) 밖의 좌표라 가게를 등록할 수 없습니다. (region_not_public)"
+            ) from None
         logger.error("verification_facility_create_failed", request_id=request_id, error=str(exc))
         raise HTTPException(
             status_code=503, detail="가게를 등록하지 못했습니다. 신청은 그대로 두었습니다."
@@ -711,6 +761,8 @@ async def _link_facility_to_request(request_id: str, facility_id: str) -> None:
             .update({"facility_id": facility_id}).eq("id", request_id).execute
         )
     except Exception as exc:
+        if _region_rejected(exc):
+            raise HTTPException(status_code=422, detail=_REGION_NOT_PUBLIC_DETAIL) from None
         logger.error(
             "verification_facility_link_failed",
             request_id=request_id, facility_id=facility_id, error=str(exc),
@@ -853,6 +905,9 @@ async def approve_verification(
                 to_value=str(facility_id), reason=reason,
             )
         except Exception as exc:
+            # 공개 지역이 아닌 가게(트리거 P0001) — 승인할 수 없는 입력이다. 상태 갱신 전에 멈춘다.
+            if _region_rejected(exc):
+                raise HTTPException(status_code=422, detail=_REGION_NOT_PUBLIC_DETAIL) from None
             # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
             if not _is_duplicate_owner(exc):
                 # 그 밖의 실패로 계속 진행하면 **소유권 없는 사업자**가 만들어진다:

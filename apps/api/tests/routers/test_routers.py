@@ -1439,7 +1439,7 @@ class FilteringFakeTable:
     def execute(self):
         rows = list(self._data)
         for column, value in self._eq:
-            rows = [r for r in rows if r.get(column) == value]
+            rows = [r for r in rows if r.get(column, "gyeongju" if column == "region" else None) == value]  # S3: region 칸이 없는 픽스처 행은 컬럼 기본값 'gyeongju'
         for column, value in self._neq:
             rows = [r for r in rows if r.get(column, "spot") != value]
         for column, value in self._gte:

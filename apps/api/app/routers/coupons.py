@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.region import PUBLIC_REGION, apply_region, arun_region_scoped
 from app.core.supabase import supabase_admin, get_current_user
 from app.services.coupon_service import coupon_expiry_from_now
 
@@ -43,6 +44,10 @@ def _coupon_is_expired(row: dict, *, now: datetime | None = None) -> bool:
     return ts < (now or datetime.now(timezone.utc))
 
 
+# /mine 의 임베드 별칭(facility)의 region 칸 — 지역 필터를 거는 자리.
+_FACILITY_REGION = "facility.region"
+
+
 class IssueCouponRequest(BaseModel):
     facility_id: str = Field(..., description="쿠폰을 발급할 시설(제휴 가맹점) id")
 
@@ -51,20 +56,25 @@ class IssueCouponRequest(BaseModel):
 async def list_my_coupons(current_user: dict = Depends(get_current_user)):
     """현재 사용자의 쿠폰 목록 — 시설명/유형을 조인해 반환(발급 최신순)."""
     user_id = current_user["id"]
+
+    def _read(with_region: bool) -> list[dict]:
+        # 공개 지역(경주) 시설의 쿠폰만 — !inner 임베드의 region 칸에 지역을 건다(쿼리 안에서 거른다).
+        # user_coupons.facility_id 는 NOT NULL + ON DELETE CASCADE 라 !inner 가 경주 행을 빼지 않는다.
+        if with_region:
+            query = supabase_admin.table("user_coupons").select("*, facility:facilities!inner(name, type)")
+            query = query.eq(_FACILITY_REGION, PUBLIC_REGION)
+        else:  # region 컬럼이 아직 없는 DB — 모든 시설이 경주다
+            query = supabase_admin.table("user_coupons").select("*, facility:facilities(name, type)")
+        return query.eq("user_id", user_id).order("issued_at", desc=True).execute().data or []
+
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("user_coupons")
-            .select("*, facility:facilities(name, type)")
-            .eq("user_id", user_id)
-            .order("issued_at", desc=True)
-            .execute
-        )
+        rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
     except Exception as e:
         logger.error("coupons_list_failed", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="쿠폰 목록 조회에 실패했습니다.")
 
     coupons = []
-    for row in res.data or []:
+    for row in rows:
         # 조인된 facility 는 dict/list 어느 형태로 와도 안전 추출(PostgREST 임베딩 편차 대비).
         f = row.get("facility")
         if isinstance(f, list):
@@ -98,20 +108,22 @@ async def issue_coupon(
     user_id = current_user["id"]
 
     # 1) 시설의 현재 제휴 할인율 조회 — 발급 시점 값을 스냅샷으로 굳힌다.
+    #    공개 지역(경주) 시설만 — 서울(개발자 전용) 시설은 없는 시설과 같은 404(쿼리 안에서 거른다).
+    def _read(with_region: bool) -> list[dict]:
+        query = supabase_admin.table("facilities").select("id, name, coupon_rate").eq("id", req.facility_id)
+        if with_region:
+            query = apply_region(query, PUBLIC_REGION)
+        return query.execute().data or []
+
     try:
-        fac_res = await asyncio.to_thread(
-            supabase_admin.table("facilities")
-            .select("id, name, coupon_rate")
-            .eq("id", req.facility_id)
-            .execute
-        )
+        fac_rows = await arun_region_scoped(_read, region=PUBLIC_REGION)
     except Exception as e:
         logger.error("coupon_issue_facility_fetch_failed", facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="시설 정보 조회에 실패했습니다.")
 
-    if not fac_res.data:
+    if not fac_rows:
         raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
-    facility = fac_res.data[0]
+    facility = fac_rows[0]
     coupon_rate = facility.get("coupon_rate") or 0
     if coupon_rate <= 0:
         raise HTTPException(status_code=422, detail="제휴 할인이 없는 시설이라 쿠폰을 발급할 수 없습니다.")

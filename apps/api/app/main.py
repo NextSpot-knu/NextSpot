@@ -13,7 +13,8 @@ from app.core.config import settings
 from app.core.executors import shutdown_executors
 from app.core.memory_guard import HeavyAdminGateMiddleware
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration, warmup
+from app.core.region import REGION_ISOLATION_VERSION
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration, warmup, internal_regions
 
 
 # 로깅 설정 초기화
@@ -333,6 +334,7 @@ app.include_router(lab.router)  # 거절 실험실 — 보류된 거절 사유�
 app.include_router(account.router)  # 기존 계정 로그인 시 소유 증명된 게스트 데이터 승계
 app.include_router(dev.router)  # 개발자 콘솔 — 역할 임명·가게 소유권·사업자 인증 심사·감사 로그.
                                 #   /admin(정부기관 관제)과 경로부터 분리한다 — 권한 운영은 팀 전용.
+app.include_router(internal_regions.router)  # 내부 지역(서울) — developer 전용 시설·구역·지역 요약(Cache-Control: private, no-store)
 
 # 1. Health Check Endpoint
 # Render 는 /health 가 5초 안에 답하지 않으면 인스턴스를 재시작한다. 동기 def 는 anyio 스레드풀
@@ -353,6 +355,9 @@ async def health_check():
             "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:12] or None,
             "service": os.environ.get("RENDER_SERVICE_NAME") or None,
         },
+        # 이 API 가 아는 안전 장치의 판 번호. region_isolation ≥ 1 = 시설 읽기가 지역으로 걸러진다(서울은 developer
+        # 전용). region-guard 워크플로가 이 값을 보고, 없으면(지역 격리 이전 코드로 되돌아갔으면) 서울 행을 끈다.
+        "capabilities": {"region_isolation": REGION_ISOLATION_VERSION},
     }
     # 참조 스냅샷 상태(준비 여부·부분별 나이·실패 수·판 번호) — 메모리 읽기만 한다. 오류 원문은 싣지 않는다
     # (공개 엔드포인트 — 예외 종류 이름만). 스냅샷이 준비 전이어도 헬스는 healthy 다: 그동안은 실시간 경로가

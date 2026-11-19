@@ -27,6 +27,7 @@ import structlog
 from fastapi import APIRouter
 
 from app.core.memory_guard import release_memory
+from app.core.region import PUBLIC_REGION
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["system"])
@@ -171,7 +172,8 @@ async def _warm_all() -> None:
 
     async def _load_facilities() -> None:
         nonlocal facilities
-        facilities = await fetch_all_facilities(with_availability=False)
+        # 예열은 공개 지역(경주) 풀 — 캐시 키 ('all',) 를 채운다. 서울 풀(개발자 전용)은 데우지 않는다(S3).
+        facilities = await fetch_all_facilities(with_availability=False, region=PUBLIC_REGION)
 
     await _step("facilities", _load_facilities())
 

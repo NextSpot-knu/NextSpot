@@ -7,7 +7,7 @@
 // 지도(/main)에서 핀·검색으로 연 장소의 '대신 갈 곳 보기'(P1-5)도 같은 주소를 쓴다 — 가려던 붐비는 곳 대신 고를
 // 곳이 이 서비스의 핵심 동작인데, 예전에는 그 입구가 대기 보드 상위 8곳에만 있었다.
 
-import { REGION } from './region';
+import { GYEONGJU_PACK, type RegionPack } from './regionPacks';
 import type { CongestionKey } from './congestionScale';
 import { measurementIsCurrentFallback } from './congestionEstimate';
 
@@ -53,6 +53,11 @@ export interface RecommendHrefOptions {
   from?: RecommendEntry;
   /** 'pick' 에서만 쓰는 지금 내 위치. 모르면 null — 그때는 그 장소에서 잰다. */
   user?: { lat: number; lng: number } | null;
+  /**
+   * 좌표를 모를 때 쓰는 지역 중심. 주지 않으면 경주(GYEONGJU_PACK — lib/region.ts REGION.center 와 같은 값)라 경주 주소는
+   * 오늘과 같다. 내부 검증 지역 화면은 그 지역 묶음을 넘긴다.
+   */
+  pack?: Pick<RegionPack, 'center'>;
 }
 
 function validPoint(lat: unknown, lng: unknown): lat is number {
@@ -72,8 +77,9 @@ export function buildRecommendHref(row: RecommendOriginRow, options: RecommendHr
   const from = options.from ?? 'waiting';
   const placeKnown = validPoint(row.latitude, row.longitude);
   const user = from === 'pick' && options.user && validPoint(options.user.lat, options.user.lng) ? options.user : null;
-  const lat = user ? user.lat : placeKnown ? (row.latitude as number) : REGION.center.lat;
-  const lng = user ? user.lng : placeKnown ? (row.longitude as number) : REGION.center.lng;
+  const center = (options.pack ?? GYEONGJU_PACK).center;
+  const lat = user ? user.lat : placeKnown ? (row.latitude as number) : center.lat;
+  const lng = user ? user.lng : placeKnown ? (row.longitude as number) : center.lng;
   const params = new URLSearchParams();
   if (row.facilityId) params.set('facilityId', row.facilityId);
   else if (row.name) params.set('name', row.name);

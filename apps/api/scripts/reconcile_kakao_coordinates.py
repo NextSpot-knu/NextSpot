@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.region import KNOWN_REGIONS, PUBLIC_REGION, apply_region
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 from app.services.spot.travel import calculate_haversine_distance
@@ -39,18 +40,32 @@ def parse_args() -> argparse.Namespace:
         "--report", default="scratch/kakao_coordinate_audit.json",
         help="감사 결과 JSON 경로(저장소 루트 기준)",
     )
+    parser.add_argument(
+        "--region", default=PUBLIC_REGION, choices=sorted(KNOWN_REGIONS),
+        help=f"감사할 지역(기본 {PUBLIC_REGION} — 서울은 개발자 전용 지역이라 명시해야 한다)",
+    )
     return parser.parse_args()
+
+
+def load_rows(region: str = PUBLIC_REGION) -> list[dict]:
+    """contentid 가 있는 ``region`` 시설 전량 — 지역은 쿼리 안에서 건다(SEOUL_TESTBED_PLAN S3)."""
+    # 전량 조회 — 잘리면 좌표 보정에서 빠진 시설이 '대상 아님' 으로 조용히 넘어간다.
+    return fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id,name,address,latitude,longitude,features,contentid",
+        apply_filters=lambda q: apply_region(q.not_.is_("contentid", "null"), region).order("id"),
+    )
+
+
+def update_coordinates(facility_id, payload: dict, *, region: str = PUBLIC_REGION) -> None:
+    apply_region(supabase_admin.table("facilities").update(payload).eq("id", facility_id), region).execute()
 
 
 async def main() -> int:
     args = parse_args()
-    # 전량 조회 — 잘리면 좌표 보정에서 빠진 시설이 '대상 아님' 으로 조용히 넘어간다.
-    rows = fetch_all_rows(
-        supabase_admin,
-        "facilities",
-        "id,name,address,latitude,longitude,features,contentid",
-        apply_filters=lambda q: q.not_.is_("contentid", "null").order("id"),
-    )
+    region = args.region
+    rows = load_rows(region=region)
     matched = 0
     changed = 0
     report: list[dict] = []
@@ -64,7 +79,7 @@ async def main() -> int:
             is_changed = is_coordinate_changed(before, after)
             changed += int(is_changed)
             if args.apply and is_changed:
-                supabase_admin.table("facilities").update(payload).eq("id", row["id"]).execute()
+                update_coordinates(row["id"], payload, region=region)
             status = "apply" if args.apply and is_changed else "match"
             print(f"[{status}] {row['name']} -> Kakao {row['latitude']},{row['longitude']}")
             report.append({

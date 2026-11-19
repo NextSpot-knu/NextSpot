@@ -193,28 +193,51 @@ def _isolate_response_cache(monkeypatch):
 
 ADMIN_USER_ID = "aaaaaaaa-0000-4000-8000-00000000adm1"
 DEVELOPER_USER_ID = "dddddddd-0000-4000-8000-00000000dev1"
+MERCHANT_USER_ID = "mmmmmmmm-0000-4000-8000-00000000mer1"
+TOURIST_USER_ID = "tttttttt-0000-4000-8000-00000000tou1"
 
 # uid → 역할. 여기 없는 사용자는 tourist 로 떨어진다(서버와 같은 fail-closed 방향).
 _TEST_ROLES = {
     ADMIN_USER_ID: "admin",
     DEVELOPER_USER_ID: "developer",
+    MERCHANT_USER_ID: "merchant",
+    TOURIST_USER_ID: "tourist",
+}
+_ROLE_USER_IDS = {
+    "admin": ADMIN_USER_ID,
+    "developer": DEVELOPER_USER_ID,
+    "merchant": MERCHANT_USER_ID,
+    "tourist": TOURIST_USER_ID,
 }
 
 
-def make_test_jwt(sub: str) -> str:
-    """테스트용 Supabase 호환 액세스 토큰(HS256 — get_current_user 의 legacy 경로)."""
+def make_test_jwt(sub: str, **claims) -> str:
+    """테스트용 Supabase 호환 액세스 토큰(HS256 — get_current_user 의 legacy 경로).
+
+    ``claims`` 는 페이로드에 더해진다(예: ``email=...``, ``is_anonymous=True``). 주지 않으면 종전과 같은 토큰이다.
+    """
     from app.core.config import settings
 
-    return jwt.encode(
-        {
-            "sub": sub,
-            "aud": "authenticated",
-            "role": "authenticated",
-            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
-        },
-        settings.JWT_SECRET,
-        algorithm="HS256",
-    )
+    payload = {
+        "sub": sub,
+        "aud": "authenticated",
+        "role": "authenticated",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    payload.update({key: value for key, value in claims.items() if value is not None})
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+
+
+def role_headers(role: str, *, is_anonymous: bool = False, email: str | None = None) -> dict:
+    """그 역할의 테스트 사용자로 요청을 태우는 헤더(역할은 _TEST_ROLES 가 정한다 — DB 대신).
+
+    ``is_anonymous`` 는 JWT 클레임(게스트 세션), ``email`` 은 인증된 이메일(심사용 관리자 판정 등)이다.
+    """
+    sub = _ROLE_USER_IDS[role]
+    claims: dict = {"email": email}
+    if is_anonymous:
+        claims["is_anonymous"] = True
+    return {"Authorization": f"Bearer {make_test_jwt(sub, **claims)}"}
 
 
 def admin_headers(sub: str | None = None) -> dict:
@@ -240,3 +263,22 @@ def _authz_role_source():
     with patch.object(authz, "_load_profile", new=AsyncMock(side_effect=_fake_load)):
         yield
     authz.invalidate_profile_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_region_caches(monkeypatch):
+    """구역 근거(crowd/zone_evidence)·내부 지역 시설 목록(routers/internal_regions)의 프로세스 캐시를 테스트마다 비운다.
+
+    load_zone_readings 자체는 **패치하지 않는다** — 경주 경로는 원래 호출 0회이고, 서울 테스트는 각자 대역을 건다.
+    '평소' 기준선 갱신(_start_background)은 기본으로 그 자리에서 돈다 — 라우터 테스트가 진짜 데몬 스레드를 띄워
+    결과가 스레드 타이밍에 흔들리지 않게. 진짜 스레드가 필요한 테스트만 ``_start_background_thread`` 로 되돌린다.
+    """
+    from app.routers import internal_regions
+    from app.services.crowd import zone_evidence
+
+    monkeypatch.setattr(zone_evidence, "_start_background", lambda fn: fn())
+    zone_evidence.reset_cache()
+    internal_regions.reset_cache_for_tests()
+    yield
+    zone_evidence.reset_cache()
+    internal_regions.reset_cache_for_tests()

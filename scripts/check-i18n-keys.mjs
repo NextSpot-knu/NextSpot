@@ -14,6 +14,10 @@
 //      동적 부분은 정적 분석으로 확정할 수 없지만, 네임스페이스 자체가 통째로 없는 사고
 //      (위 optimization 사례가 정확히 이것)는 이 검사로 걸린다.
 //
+// 앱(apps/mobile)도 같은 JSON·사이드 사전을 읽는다(계획 MOBILE_APP_PLAN §5.2 · §9.1). 그래서 앱 소스
+// (app · features · lib · components)도 같은 두 검사로 훑는다 — 웹에서 안 쓰는 키를 정리하다 앱이 쓰는 키를
+// 지우면 여기서 걸린다. 웹 검사 범위·판정은 그대로다.
+//
 // 실행: node scripts/check-i18n-keys.mjs   (npm run check:i18n)
 // 종료코드: 누락 0 이면 0, 하나라도 있으면 1.
 
@@ -23,6 +27,9 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WEB = path.join(ROOT, "apps", "web");
+const MOBILE = path.join(ROOT, "apps", "mobile");
+// 앱에서 화면·로직이 있는 폴더만(네이티브 산출물 android/ios · 번들 .expo-export · node_modules 는 보지 않는다).
+const MOBILE_DIRS = ["app", "features", "lib", "components"];
 const I18N = path.join(WEB, "lib", "i18n");
 const MESSAGES = path.join(I18N, "messages");
 const BASE_LOCALE = "ko"; // 원본 로케일 — 나머지는 parity.test.ts 가 담당한다.
@@ -81,6 +88,7 @@ function hasNamespace(obj, root) {
 }
 
 function* walk(dir) {
+  if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
@@ -100,8 +108,19 @@ const sideKeys = loadSideKeys();
 const missingLiteral = new Map();
 const missingNamespace = new Map();
 let scanned = 0;
+let scannedMobile = 0;
 
-for (const file of walk(WEB)) {
+function* sourceFiles() {
+  yield* walk(WEB);
+  for (const dir of MOBILE_DIRS) {
+    for (const file of walk(path.join(MOBILE, dir))) {
+      scannedMobile += 1;
+      yield file;
+    }
+  }
+}
+
+for (const file of sourceFiles()) {
   const src = fs.readFileSync(file, "utf8");
   scanned += 1;
   const rel = path.relative(ROOT, file).replaceAll(path.sep, "/");
@@ -129,7 +148,7 @@ for (const file of walk(WEB)) {
 const totalMissing = missingLiteral.size + missingNamespace.size;
 
 console.log(
-  `i18n key coverage — ${scanned} files scanned against ${BASE_LOCALE}.json` +
+  `i18n key coverage — ${scanned} files scanned (web ${scanned - scannedMobile} · mobile ${scannedMobile}) against ${BASE_LOCALE}.json` +
   ` + ${sideKeys.size} keys from ${SIDE_MODULES.length} side modules`
 );
 

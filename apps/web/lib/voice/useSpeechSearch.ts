@@ -6,6 +6,7 @@
 // 폴백 우선: 미지원 브라우저는 supported=false → 호출부가 마이크를 '준비 중' 비활성으로 유지(크래시 없음).
 // (STT 패턴은 lib/voice/useVoiceAssistant.ts / app/explore/recommend 와 일관되게 맞춤 — 해당 파일은 건드리지 않음.)
 import { useEffect, useRef, useState } from "react";
+import { logVoice } from "@/lib/actionLog";
 
 export interface SpeechSearch {
   /** 브라우저가 Web Speech STT 를 지원하는지(런타임 감지, 마운트 후 확정) */
@@ -82,7 +83,9 @@ export function useSpeechSearch(
           if (r.isFinal) transcript += r[0]?.transcript || "";
         }
         transcript = transcript.trim();
-        if (transcript) onTranscriptRef.current(transcript);
+        if (!transcript) return;
+        logVoice(transcript, "search"); // 알아들은 검색어만(가려서) — 녹음은 남기지 않는다(lib/actionLog)
+        onTranscriptRef.current(transcript);
       };
       // 에러(마이크 거부·no-speech 등)/종료 시 듣기 상태 해제 — 마이크가 '듣는 중'으로 고착되지 않게.
       // e.error 로 종류를 구분해 사용자에게 알린다. 'aborted'(사용자가 다시 탭해 취소)는 정상 흐름이므로 조용히 넘어간다.

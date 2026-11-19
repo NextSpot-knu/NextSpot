@@ -9,6 +9,7 @@ import {
   canEnterMerchantConsole,
   canRequestBusinessVerification,
   canRequestRoleChange,
+  canSeeInternalRegions,
   normalizeRole,
   parseAccount,
   resolveRefreshFailure,
@@ -369,3 +370,18 @@ console.log('isRoleRequestPending tests passed');
 }
 
 console.log('shouldRefreshAccountOnAuthEvent tests passed');
+
+// ── canSeeInternalRegions — 내부 검증 지역은 developer 만(2026-10-31 사용자 결정) ──────────────
+{
+  assert.equal(canSeeInternalRegions(account('developer')), true);
+  // admin 은 외부 기관 관제 역할이자 심사위원 공용 데모 계정 — 내부 지역을 보지 않는다.
+  assert.equal(canSeeInternalRegions(account('admin')), false, 'admin 에게 내부 지역이 열린다');
+  assert.equal(canSeeInternalRegions(account('tourist')), false);
+  assert.equal(canSeeInternalRegions(account('merchant')), false);
+  assert.equal(canSeeInternalRegions(account('developer', { isAnonymous: true })), false, '익명 developer 는 열리지 않는다');
+  assert.equal(canSeeInternalRegions(null), false);
+  // 서버가 모르는 역할을 내려주면 tourist 로 떨어지고, 그래서 닫힌다.
+  assert.equal(canSeeInternalRegions(parseAccount(keysToCamel({ id: 'x', role: 'superuser', is_anonymous: false }))), false);
+}
+
+console.log('canSeeInternalRegions tests passed');

@@ -50,6 +50,7 @@ from typing import Any
 import structlog
 
 from app.core.executors import run_heavy
+from app.core.region import PUBLIC_REGION, apply_region, run_region_scoped
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import congestion_calibration_service as calibration
 from app.services.area_demand_service import _PARKING_WEIGHT, _TOURISM_WEIGHT
@@ -377,11 +378,17 @@ def _load_base_facilities() -> list[dict[str, Any]]:
     now = time.monotonic()
     if _facility_cache and now - _facility_cache[0] < _FACILITY_TTL_SECONDS:
         return _facility_cache[1]
-    rows = fetch_all_rows(
-        supabase_admin,
-        "facilities",
-        "id,name,type,latitude,longitude,is_active",
-        apply_filters=lambda query: query.order("id"),
+    # 주차 기반 추정은 경주 전용 — region 은 쿼리 안에서(컬럼이 없으면 필터 없이).
+    rows = run_region_scoped(
+        lambda with_region: fetch_all_rows(
+            supabase_admin,
+            "facilities",
+            "id,name,type,latitude,longitude,is_active",
+            apply_filters=lambda query: (
+                apply_region(query, PUBLIC_REGION) if with_region else query
+            ).order("id"),
+        ),
+        region=PUBLIC_REGION,
     )
     active = [row for row in rows if row.get("is_active", True)]
     _facility_cache = (now, active)

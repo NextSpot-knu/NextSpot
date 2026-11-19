@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { useAccount, canSeeInternalRegions } from '@/lib/account';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
 import { FacilityTable } from '@/components/admin/FacilityTable';
 import { CouponPolicyPanel } from '@/components/admin/CouponPolicyPanel';
@@ -612,6 +613,9 @@ async function fetchBriefing(): Promise<{ text: string; llmStatus: string } | nu
 }
 
 function DashboardPage() {
+  // 실시간 데이터 리허설(서울) 바로가기는 developer 에게만 — admin(외부 기관 관제 · 공용 심사 계정)은 서울 데이터를 보지 않는다(사용자 결정 1).
+  const { account } = useAccount();
+  const showRehearsalLink = canSeeInternalRegions(account);
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
   // failed:true 는 '조회 실패' 전용 표식이다 — 표본 부족(hasLogs=false)과 반드시 구분해 그린다.
@@ -1678,17 +1682,20 @@ function DashboardPage() {
           <div className="flex flex-col gap-3 pb-10">
             <ModelTrustPanel />
             {/* 엔진 검증 화면 바로가기 — 메뉴에서는 심사 기간 동안 감췄다(AdminSidebar HIDDEN_FROM_MENU).
-                정확도는 여기서 주장하지 않고, 검증 화면이 근거를 든다. 데이터를 불러오지 않는 링크 한 줄이다. */}
-            <Link
-              href="/admin/engine-validation"
-              className="group flex items-center gap-3 rounded-xl border border-hanok-line bg-hanok-card/40 px-4 py-2.5 text-sm hover:border-gold/40 hover:bg-hanok-card transition-colors"
-            >
-              <FlaskConical size={16} className="text-gold-deep flex-shrink-0" />
-              <span className="text-hanok-muted">혼잡 추정 엔진의 정확도 검증</span>
-              <span className="ml-auto flex items-center gap-1 font-semibold text-gold-deep whitespace-nowrap">
-                검증 화면 <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
-              </span>
-            </Link>
+                정확도는 여기서 주장하지 않고, 검증 화면이 근거를 든다. 데이터를 불러오지 않는 링크 한 줄이다.
+                서울 데이터 화면이라 developer 에게만 보인다(사용자 결정 1). */}
+            {showRehearsalLink && (
+              <Link
+                href="/admin/engine-validation"
+                className="group flex items-center gap-3 rounded-xl border border-hanok-line bg-hanok-card/40 px-4 py-2.5 text-sm hover:border-gold/40 hover:bg-hanok-card transition-colors"
+              >
+                <FlaskConical size={16} className="text-gold-deep flex-shrink-0" />
+                <span className="text-hanok-muted">혼잡 추정 엔진의 정확도 검증</span>
+                <span className="ml-auto flex items-center gap-1 font-semibold text-gold-deep whitespace-nowrap">
+                  검증 화면 <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </Link>
+            )}
           </div>
         </div>
       </main>

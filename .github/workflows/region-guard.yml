@@ -1,0 +1,60 @@
+# NextSpot — 지역 격리 감시(region-guard, 킬 스위치) — SEOUL_TESTBED_PLAN §6 S3.
+# 서울 시설은 내부(개발자) 전용이다. 30분마다 DB 격리(region_isolation_status()=1) · 운영 API 의 격리 칸
+# (/health capabilities.region_isolation ≥ 1) · anon 키로 경주 아닌 행이 안 보이는지를 확인한다.
+# 깨졌으면 DB 쪽 깨짐(상태 0 · anon 이 서울 행을 봄)은 RPC region_guard_contain() 으로 RLS·제한 정책을 되살린 뒤
+# anon 탐침을 다시 돌리고(아직 보이면 containment_failed — 사람이 마이그레이션을 다시 적용), 서울 행을 is_active=false 로
+# 내리고, app_events 에 'region_guard_tripped'(숫자만)를 남긴 뒤 실패로 끝난다(GitHub 실패 메일).
+# 비활성화만으로는 브라우저 노출이 멈추지 않는다(브라우저 경로는 is_active 로 거르지 않는다) — 그래서 봉쇄가 먼저다.
+# main·Render 를 S3 이전 커밋으로 되돌렸거나 옛 마이그레이션을 다시 돌린 경우를 잡는다.
+#   · /health 에 닿지 못하면 쓰기 없이 실패(경보)만 한다.
+#   · 마이그레이션 적용 전에는 'not_applied' 로 통과한다(region 컬럼이 없으면 서울 행도 없다).
+#   · 출력은 숫자·참거짓·종료 코드뿐이다(공개 저장소 로그 — 시설 id·이름·좌표를 찍지 않는다).
+# 주의: schedule 은 기본 브랜치(main)에서만 발화한다 — 다른 브랜치는 workflow_dispatch 로 돌린다.
+# 필요한 GitHub Secrets(ingest.yml 과 같은 값): SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+# Repository Variables: BACKEND_HEALTH_URL(운영 /health 전체 주소 — deploy-verify.yml 과 같은 변수),
+#   선택 REGION_GUARD_AUTO_DEACTIVATE=false(봉쇄·비활성화·기록 없이 경보만. 기본은 봉쇄·비활성화한다).
+# 트립 뒤 복구: 격리를 되살린 다음 ingest-seoul.yml 을 reactivate=true 로 돌린다(DEPLOY_AND_ENV §4).
+name: Region Guard
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: region-guard
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: guard (지역 격리 확인)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            apps/api/scripts/region_isolation_guard.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # 감시 스크립트는 app 패키지를 import 하지 않는다 — httpx 하나만 설치한다(requirements.txt 와 같은 하한).
+      - run: pip install "httpx>=0.27.0"
+
+      - name: Check region isolation
+        run: python scripts/region_isolation_guard.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
+          REGION_GUARD_AUTO_DEACTIVATE: ${{ vars.REGION_GUARD_AUTO_DEACTIVATE }}

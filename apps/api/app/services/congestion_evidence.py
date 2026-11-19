@@ -8,8 +8,18 @@
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 import structlog
+
+from app.services.crowd.zone_evidence import (
+    ZONE_EVIDENCE_TIER,
+    ZONE_FORECAST_MATCH_WINDOW,
+    ZONE_FORECAST_MAX_ISSUE_AGE,
+    ZONE_NOW_WINDOW,
+    band_for_level,
+    zone_reading_is_current,
+)
 
 logger = structlog.get_logger()
 
@@ -98,6 +108,10 @@ def evidence_is_current(evidence: dict | None, *, now: datetime | None = None) -
       켜진다. 게다가 그 후보는 scoring_mode='model' 로 **그 숫자가 순위를 만든다** — 화면이 다른
       숫자(추정)를 보여 주면 "이 숫자 때문에 이 순위" 라는 설명이 어긋난다.
     · none → False. 채울 값이 없다는 뜻이고, 추정이 채우려던 자리가 바로 여기다.
+    · measured + 구역 관측(``zone_measured``, 서울 S3) → 구역 규칙(매핑된 구역 **전부**가
+      0 ≤ 벽시계 − 관측 ≤ 30분, ``zone_evidence_all_current``). 신뢰 등급 표(TRUSTED_EVIDENCE_TIERS)는 건드리지 않는다 —
+      구역 관측은 '지금' 을 말할 수는 있어도 ``rankable_measured_level`` 의 문은 통과하지 않는다(순위는
+      도착 시각 규칙 ``zone_arrival_level`` 로만 들어간다).
     """
     if not evidence:
         return False
@@ -106,9 +120,168 @@ def evidence_is_current(evidence: dict | None, *, now: datetime | None = None) -
         return True
     if source != "measured":
         return False
+    if evidence.get("evidence_tier") == ZONE_EVIDENCE_TIER:
+        return zone_evidence_all_current(evidence, wall_now=(now or datetime.now(timezone.utc)))
     return measurement_is_current(
         evidence.get("evidence_tier"), evidence.get("timestamp"), now=now
     )
+
+
+# ── 구역 근거의 도착 시각 혼잡(서울 S3 — docs/SEOUL_TESTBED_PLAN.md) ───────────────
+
+
+class ZoneArrival(NamedTuple):
+    """구역 근거가 **도착 시각**에 말하는 혼잡 — 순위·재배치 기여·코스 표시가 모두 이 값을 쓴다."""
+
+    level: float
+    basis: str            # 'persistence'(지금 관측을 그대로) | 'provider_forecast'(공급원 예측)
+    band: str | None      # relaxed | normal | slightly_busy | busy
+    zone_id: str
+    zone_name: str | None
+    level_scale: str | None
+    observed_at: str | None
+    forecast_target_at: str | None
+
+
+# 구역 혼잡의 자체 모델은 아직 없다. 자리만 남겨 둔다(호출해도 언제나 None — 순위에 닿지 않는다).
+def own_model_zone_level(_zone: dict, _arrival: datetime) -> float | None:
+    return None
+
+
+def _utc(moment: datetime) -> datetime:
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
+def _unit_level(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        level = float(value)
+    except (TypeError, ValueError):
+        return None
+    return level if 0.0 <= level <= 1.0 else None
+
+
+def _zone_arrival(zone: dict, arrival: datetime, wall_now: datetime) -> ZoneArrival | None:
+    """구역 하나의 도착 시각 혼잡. 지금 관측(persistence)과 공급원 예측 중 **시간상 더 가까운 쪽**.
+
+      · persistence — 0 ≤ 도착 − 관측 ≤ 30분 **그리고** 0 ≤ 벽시계 − 관측 ≤ 30분. 간격 gap_p = 도착 − 관측.
+      · 예측 — 벽시계 − 관측(=발행) ≤ 90분이고, 단계가 있는 예측점 가운데 도착에 가장 가까운 점의
+        간격 gap_f = |대상 − 도착| ≤ 30분.
+      · 둘 다 되면 gap_p ≤ gap_f 일 때 persistence(동점은 persistence), 아니면 예측.
+      · 도착이 관측보다 앞서면(음의 지평) 이 구역은 말하지 않는다.
+    """
+    observed = _parse_timestamp(zone.get("observed_at"))
+    if observed is None:
+        return None
+    horizon = arrival - observed
+    if horizon < timedelta(0):
+        return None
+    issue_age = wall_now - observed
+    if issue_age < timedelta(0):
+        return None  # 미래 관측(시계 어긋남)은 근거가 아니다
+
+    scale = zone.get("level_scale")
+    persistence = None
+    current_level = _unit_level(zone.get("level"))
+    if current_level is not None and horizon <= ZONE_NOW_WINDOW and issue_age <= ZONE_NOW_WINDOW:
+        persistence = (horizon, current_level, zone.get("level_band") or band_for_level(current_level, scale))
+
+    forecast = None
+    if issue_age <= ZONE_FORECAST_MAX_ISSUE_AGE:
+        for point in zone.get("forecast") or []:
+            if not isinstance(point, dict):
+                continue
+            target = _parse_timestamp(point.get("target_at"))
+            level = _unit_level(point.get("level"))
+            if target is None or level is None or target < observed:
+                continue
+            gap = abs(target - arrival)
+            if gap > ZONE_FORECAST_MATCH_WINDOW:
+                continue
+            band = point.get("level_band") or band_for_level(level, scale)
+            if forecast is None or (gap, target) < (forecast[0], forecast[3]):
+                forecast = (gap, level, band, target)
+
+    common = {
+        "zone_id": str(zone.get("id") or ""),
+        "zone_name": zone.get("name"),
+        "level_scale": scale,
+        "observed_at": observed.isoformat(),
+    }
+    if persistence is not None and (forecast is None or persistence[0] <= forecast[0]):
+        return ZoneArrival(
+            level=persistence[1], basis="persistence", band=persistence[2],
+            forecast_target_at=None, **common,
+        )
+    if forecast is not None:
+        return ZoneArrival(
+            level=forecast[1], basis="provider_forecast", band=forecast[2],
+            forecast_target_at=forecast[3].isoformat(), **common,
+        )
+    return None
+
+
+def zone_evidence_is_partial(evidence: dict | None) -> bool:
+    """구역 근거인데 매핑된 구역 가운데 관측이 빠진 구역이 있는가(``mapped_zone_count`` > 관측 구역 수)."""
+    if not evidence or evidence.get("evidence_tier") != ZONE_EVIDENCE_TIER:
+        return False
+    mapped = evidence.get("mapped_zone_count")
+    if isinstance(mapped, bool) or not isinstance(mapped, int):
+        return False
+    zones = [z for z in (evidence.get("zones") or []) if isinstance(z, dict)]
+    return mapped > len(zones)
+
+
+def zone_evidence_all_current(evidence: dict | None, *, wall_now: datetime) -> bool:
+    """구역 근거가 시설의 '지금' 을 말할 수 있는가 — 매핑된 구역이 전부 관측되었고(부분 아님) 전부 30분 안이다.
+
+    조용한 '지금' 구역 하나와 30분을 넘긴(2시간 조회 범위 안) 붐비는 구역이 섞이면 '지금' 이 아니다 —
+    빈 구역(``zone_evidence_is_partial``)과 같은 규칙이다(`zone_evidence.facility_zones_current` 와 같은 판정).
+    """
+    if not evidence or evidence.get("evidence_tier") != ZONE_EVIDENCE_TIER:
+        return False
+    if zone_evidence_is_partial(evidence):
+        return False
+    zones = [z for z in (evidence.get("zones") or []) if isinstance(z, dict)]
+    if not zones:
+        return zone_reading_is_current(_parse_timestamp(evidence.get("timestamp")), wall_now=wall_now)
+    return all(
+        zone_reading_is_current(_parse_timestamp(z.get("observed_at")), wall_now=wall_now) for z in zones
+    )
+
+
+def zone_arrival_level(
+    evidence: dict | None, arrival: datetime, *, wall_now: datetime
+) -> ZoneArrival | None:
+    """구역 근거(``zone_measured``)가 도착 시각에 말하는 혼잡. 말할 수 없으면 ``None``.
+
+    시계가 둘이다 — ``arrival`` 은 기준 시각(지금·가정 시각·코스 누적 출발) + 이동이고, ``wall_now`` 는
+    실제 벽시계다. 관측·예측 발행의 나이는 언제나 벽시계로 잰다(가정 시각으로 재면 방금 받은 관측이
+    낡은 것으로, 또는 한 달 전 관측이 신선한 것으로 보인다).
+
+    여러 구역에 걸친 시설은 **도착 시각의 최댓값**(보수적)을 쓴다 — 지금 덜 붐비는 구역이 도착할 때는
+    더 붐빌 수 있으므로 미리 하나로 줄이지 않는다. 동점은 구역 ID 로 결정적으로 깬다.
+    최댓값이 보수적이려면 **매핑된 구역이 전부** 도착 시각을 말해야 한다 — 한 구역이라도 관측이 없거나
+    (``mapped_zone_count`` > 관측 구역 수) 도착 시각을 말할 수 없으면 ``None`` 이다(조용한 구역 하나만으로
+    순위를 매기지 않는다). 그 후보는 순위에서 근거 없음이 되고 카드는 'N분 전 관측' 만 보여 준다.
+    """
+    if not evidence or evidence.get("evidence_tier") != ZONE_EVIDENCE_TIER:
+        return None
+    if zone_evidence_is_partial(evidence):
+        return None
+    arrival_utc, now_utc = _utc(arrival), _utc(wall_now)
+    best: ZoneArrival | None = None
+    zones = [z for z in (evidence.get("zones") or []) if isinstance(z, dict)]
+    for zone in sorted(zones, key=lambda z: str(z.get("id") or "")):
+        candidate = _zone_arrival(zone, arrival_utc, now_utc)
+        if candidate is None:
+            return None
+        if best is None or candidate.level > best.level:
+            best = candidate
+    return best
 
 
 # ── 추정 모드(docs/CONGESTION_ENGINE_PLAN.md §5.2) ─────────────────────────────

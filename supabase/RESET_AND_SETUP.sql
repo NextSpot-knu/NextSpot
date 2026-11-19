@@ -49,6 +49,8 @@ DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
 DROP TABLE IF EXISTS public.seoul_citydata_snapshots CASCADE;
 -- 익명 이용 기록(제품 분석, FK 없음 — 20261023090000).
 DROP TABLE IF EXISTS public.usage_events CASCADE;
+-- 사용자 행동 기록(FK 없음 — 20261112090000). 수정·삭제·TRUNCATE 를 막는 트리거는 DROP TABLE 을 막지 않는다.
+DROP TABLE IF EXISTS public.action_logs CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
@@ -58,6 +60,12 @@ DROP FUNCTION IF EXISTS public.clear_merchant_photo(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.owns_facility_folder(TEXT) CASCADE;
 -- 익명 이용 기록 집계(20261024100000).
 DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
+-- 사용자 행동 기록(20261112090000) — 서버 도장 · 추가만 가드 트리거 함수와 개발자 전용 읽기 RPC 둘.
+DROP FUNCTION IF EXISTS public.action_logs_stamp() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_guard() CASCADE;
+DROP FUNCTION IF EXISTS public.action_logs_batch_cap() CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
 DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;
@@ -71,6 +79,13 @@ DROP FUNCTION IF EXISTS public.purge_expired_network_hashes() CASCADE;
 DROP FUNCTION IF EXISTS public.guest_crowd_answer_shadow_metrics(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+-- 시설 지역 격리(20261101090000) — 자식 표 트리거 함수 · 지역 고정 트리거 함수 · 격리 상태 점검 · 감시 봉쇄.
+DROP FUNCTION IF EXISTS public.reject_non_public_region_facility() CASCADE;
+DROP FUNCTION IF EXISTS public.freeze_facility_region() CASCADE;
+DROP FUNCTION IF EXISTS public.region_isolation_status() CASCADE;
+DROP FUNCTION IF EXISTS public.region_guard_contain() CASCADE;
+-- 구역 '평소와 비교' 기준선(20261101091000, 화면 문구 전용).
+DROP FUNCTION IF EXISTS public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
@@ -5484,3 +5499,1114 @@ GRANT EXECUTE ON FUNCTION public.guest_crowd_answer_shadow_metrics(INTEGER) TO s
 
 -- 적용 후 SQL Editor 에서 `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1) —
 -- 빼먹으면 API 가 새 RPC 인자를 못 찾아 옛 인자로 다시 부르고, 그동안 게스트 답은 저장하지 않는다(평가만 저장).
+
+-- ============================= migrations/20261101090000_facility_region_isolation.sql =============================
+-- 시설 지역 격리 — 서울 시설은 어떤 브라우저 역할에도 보이지 않는다(docs/SEOUL_TESTBED_PLAN.md §6 S3 · §7 A1).
+--
+-- 왜: S3 에서 서울 시설을 같은 facilities 표에 적재한다. 서울은 내부(개발자) 전용 테스트베드라
+--   관광객·게스트·사장님·관제(admin)·심사 계정 화면에는 한 행도 나오면 안 된다. 그런데 관제 화면 약 20곳이
+--   facilities·congestion_logs 를 지역 조건 없이 브라우저에서 바로 읽는다. 그래서 화면을 고치는 대신
+--   **DB 가 브라우저 역할(anon·authenticated)에게 경주 행만 돌려주게** 한다(설계 B). 내부 서울 화면은
+--   역할을 확인하는 API 코드(service_role)만 그린다.
+--
+-- 무엇을 하나:
+--   1) facilities.region TEXT NOT NULL DEFAULT 'gyeongju' — 지금 행과 기존 적재기는 그대로 경주다.
+--   2) 서울 좌표 상자(위도 37.41~37.72 · 경도 126.76~127.19)와 region 이 서로를 요구하는 CHECK 두 개.
+--      위반 행이 있으면 경고가 아니라 **예외로 멈춘다**(사람 작업 '사전 점검' 쿼리가 0행이어야 한다).
+--   3) **새 RESTRICTIVE 정책** facilities_public_region_only — anon·authenticated 는 region='gyeongju' 만.
+--      제한 정책은 허용 정책과 AND 로 묶이므로, 옛 마이그레이션(20260602130000 · 20260827140000)을 다시 돌려
+--      USING (true) 허용 정책이 되살아나도 서울은 열리지 않는다. 이름이 새것이라 옛 파일이 지우지도 못한다.
+--      허용 정책 세 개(select_facilities · anon_select_facilities · admin_all_facilities)에도 같은 조건을 넣는다(두 겹).
+--      service_role 은 RLS 를 우회한다(API·적재기).
+--   4) 자식 표 6개 트리거 — 경주가 아닌 시설을 가리키는 행을 막는다(P0001 'facility_region_not_public').
+--      congestion_logs 는 공개 혼잡 기록이라 서울 행이 들어가면 관제·지도 숫자가 섞인다. 나머지는 브라우저
+--      임베드(facilities!...)와 제보·타임세일·가게 소유·사업자 인증 경로를 닫는다.
+--   5) 방문 확인 투영(project_outcome_congestion_log)을 경주 시설로 한정 — 20261031130000 본문을 그대로 옮기고
+--      facilities 조인에 한 줄만 더했다. 서울 방문 확인의 체감 혼잡 답은 recommendation_outcomes 에만 남고
+--      공개 congestion_logs 로 가지 않는다(4 의 트리거에 걸려 500 이 나는 대신 조용히 건너뛴다).
+--   6) region 은 바뀌지 않는다(freeze 트리거) — 경주 행이 서울로, 서울 행이 경주로 넘어가는 일이 없다.
+--   7) 추천 이력(recommendations · user_feedback) RESTRICTIVE 정책 — 관제(admin·심사 계정)는 '전체 조회' 정책
+--      (is_admin_or_dev)으로 남의 추천 행을 읽는다. 개발자의 서울 추천 행에는 시설 이름·구역 이름이 JSON 으로
+--      복사돼 있어 facilities 정책이 닿지 않는다. 그래서 본인 행이 아니면 '서울 표시가 없고 + 가리키는 시설이
+--      호출자에게 보이는' 행만 남긴다. 경주 행은 언제나 통과한다(시설이 지워져 NULL 이어도).
+--   8) 격리 상태 점검 함수 region_isolation_status() — 위 장치가 전부 살아 있을 때만 1. service_role 전용.
+--      이 마이그레이션 끝, 서울 적재 사전 점검, 30분마다 도는 region-guard 워크플로가 읽는다.
+--   9) 봉쇄 함수 region_guard_contain() — region-guard 가 DB 쪽 깨짐(상태 0 · anon 이 서울 행을 봄)을 찾으면
+--      부른다. RLS 를 다시 켜고 위 RESTRICTIVE 정책 세 개를 이 파일과 같은 정의로 다시 만든다(service_role 전용).
+--
+-- 다른 SQL 쓰기 경로 점검(바꿀 필요 없음): apply_localdata_sync 는 경주 LOCALDATA 출처만 맞춘다 ·
+--   record_facility_availability_report 는 /reports/availability 로만 닿고 API 가 지역을 거른다(P0001 → 404) ·
+--   시드 INSERT 는 경주 행이다.
+--
+-- 멱등: 컬럼 IF NOT EXISTS, 제약은 pg_constraint 확인 후 추가, 정책·트리거는 DROP IF EXISTS 후 생성,
+--   함수는 CREATE OR REPLACE. 마지막 DO 블록이 격리 완료를 확인하고, 아니면 예외로 멈춘다.
+-- ⚠️ 사람이 Supabase SQL Editor 에 붙여넣어 적용한다. 서울 적재 전에 반드시 먼저. 적용 후
+--    `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1).
+
+-- ── 1. 지역 컬럼 ─────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.facilities
+    ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT 'gyeongju';
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.facilities'::regclass
+           AND conname = 'facilities_region_known'
+    ) THEN
+        ALTER TABLE public.facilities
+            ADD CONSTRAINT facilities_region_known CHECK (region IN ('gyeongju', 'seoul'));
+    END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_facilities_region_active
+    ON public.facilities (region, is_active);
+
+COMMENT ON COLUMN public.facilities.region IS
+    '서비스 지역(20261101090000). gyeongju = 공개 서비스, seoul = 내부 테스트베드(개발자 전용 — 브라우저 역할에는 '
+    'RESTRICTIVE 정책 facilities_public_region_only 가 경주 행만 돌려준다). 한 번 정하면 바뀌지 않는다(freeze 트리거).';
+
+-- ── 2. 서울 좌표 상자 ↔ 지역 CHECK ─────────────────────────────────────────────────────────
+-- 서울 상자 안의 시설은 서울이어야 하고, 서울 시설은 서울 상자 안에 있어야 한다. 경주 적재기가 실수로 서울 좌표를
+-- 경주로 넣거나, 서울 적재기가 좌표가 틀린 행을 넣는 일을 DB 가 막는다.
+-- NOT VALID 로 붙인 뒤 VALIDATE 한다. 위반 행이 남아 있으면 반쯤 걸린 제약을 남기지 않고 **예외로 멈춘다** —
+-- VALIDATE 못 한 제약을 그대로 두면 경주 야간 upsert 가 나중에 엉뚱하게 실패한다.
+DO $$
+DECLARE
+    v_violators INTEGER;
+BEGIN
+    SELECT count(*) INTO v_violators
+      FROM public.facilities AS f
+     WHERE (f.region <> 'seoul'
+            AND f.latitude BETWEEN 37.41 AND 37.72
+            AND f.longitude BETWEEN 126.76 AND 127.19)
+        OR (f.region = 'seoul'
+            AND NOT (f.latitude BETWEEN 37.41 AND 37.72
+                     AND f.longitude BETWEEN 126.76 AND 127.19));
+    IF v_violators > 0 THEN
+        RAISE EXCEPTION 'facilities_seoul_bbox_violation: % row(s) break the Seoul bbox/region rule — fix or hide them first (HANDOVER pre-check)', v_violators
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.facilities'::regclass
+           AND conname = 'facilities_seoul_coords_need_seoul_region'
+    ) THEN
+        ALTER TABLE public.facilities
+            ADD CONSTRAINT facilities_seoul_coords_need_seoul_region CHECK (
+                region = 'seoul'
+                OR NOT (latitude BETWEEN 37.41 AND 37.72 AND longitude BETWEEN 126.76 AND 127.19)
+            ) NOT VALID;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.facilities'::regclass
+           AND conname = 'facilities_seoul_region_needs_seoul_coords'
+    ) THEN
+        ALTER TABLE public.facilities
+            ADD CONSTRAINT facilities_seoul_region_needs_seoul_coords CHECK (
+                region <> 'seoul'
+                OR (latitude BETWEEN 37.41 AND 37.72 AND longitude BETWEEN 126.76 AND 127.19)
+            ) NOT VALID;
+    END IF;
+
+    ALTER TABLE public.facilities VALIDATE CONSTRAINT facilities_seoul_coords_need_seoul_region;
+    ALTER TABLE public.facilities VALIDATE CONSTRAINT facilities_seoul_region_needs_seoul_coords;
+END;
+$$;
+
+-- ── 3. 브라우저 역할은 경주 행만 — RESTRICTIVE 정책 + 허용 정책 다시 쓰기 ──────────────────────────
+ALTER TABLE public.facilities ENABLE ROW LEVEL SECURITY;
+
+-- 핵심. 제한 정책은 모든 허용 정책과 AND 로 묶인다. 이 이름은 이전 마이그레이션 어디에도 없다.
+DROP POLICY IF EXISTS facilities_public_region_only ON public.facilities;
+CREATE POLICY facilities_public_region_only ON public.facilities
+    AS RESTRICTIVE
+    FOR ALL
+    TO anon, authenticated
+    USING (region = 'gyeongju')
+    WITH CHECK (region = 'gyeongju');
+
+-- 두 겹: 허용 정책에도 같은 조건(제한 정책이 사라져도 지금 정책만으로 서울이 닫힌다).
+DROP POLICY IF EXISTS select_facilities ON public.facilities;
+CREATE POLICY select_facilities ON public.facilities FOR SELECT TO authenticated
+    USING (region = 'gyeongju');
+
+DROP POLICY IF EXISTS anon_select_facilities ON public.facilities;
+CREATE POLICY anon_select_facilities ON public.facilities FOR SELECT TO anon
+    USING (region = 'gyeongju');
+
+DROP POLICY IF EXISTS admin_all_facilities ON public.facilities;
+CREATE POLICY admin_all_facilities ON public.facilities FOR ALL TO authenticated
+    USING (region = 'gyeongju' AND public.is_admin_or_dev())
+    WITH CHECK (region = 'gyeongju' AND public.is_admin_or_dev());
+
+-- ── 4. 자식 표 — 경주가 아닌 시설을 가리키는 행을 막는다 ─────────────────────────────────────────
+-- SECURITY DEFINER: 호출자(authenticated)는 RLS 때문에 서울 행을 못 보므로, 함수 소유자 권한으로 region 을 읽는다.
+-- facility_id 가 NULL 이거나(사업자 인증 요청은 NULL 허용) 시설이 없으면(FK 가 따로 막는다) 통과시킨다.
+CREATE OR REPLACE FUNCTION public.reject_non_public_region_facility()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_region TEXT;
+BEGIN
+    IF NEW.facility_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT f.region INTO v_region FROM public.facilities AS f WHERE f.id = NEW.facility_id;
+    IF v_region IS NOT NULL AND v_region <> 'gyeongju' THEN
+        RAISE EXCEPTION 'facility_region_not_public' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.reject_non_public_region_facility() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_congestion_logs_public_region ON public.congestion_logs;
+CREATE TRIGGER trg_congestion_logs_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.congestion_logs
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+DROP TRIGGER IF EXISTS trg_facility_source_refs_public_region ON public.facility_source_refs;
+CREATE TRIGGER trg_facility_source_refs_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.facility_source_refs
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+DROP TRIGGER IF EXISTS trg_merchant_timesales_public_region ON public.merchant_timesales;
+CREATE TRIGGER trg_merchant_timesales_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.merchant_timesales
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+DROP TRIGGER IF EXISTS trg_facility_owners_public_region ON public.facility_owners;
+CREATE TRIGGER trg_facility_owners_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.facility_owners
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+DROP TRIGGER IF EXISTS trg_facility_availability_reports_public_region ON public.facility_availability_reports;
+CREATE TRIGGER trg_facility_availability_reports_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.facility_availability_reports
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+-- bvr_insert_own 정책은 로그인 사용자가 아무 facility_id 로나 요청을 넣게 둔다 — 서울 시설 id 는 여기서 막는다.
+DROP TRIGGER IF EXISTS trg_business_verification_requests_public_region ON public.business_verification_requests;
+CREATE TRIGGER trg_business_verification_requests_public_region
+    BEFORE INSERT OR UPDATE OF facility_id ON public.business_verification_requests
+    FOR EACH ROW EXECUTE FUNCTION public.reject_non_public_region_facility();
+
+-- ── 5. 방문 확인 투영 — 경주 시설만 공개 혼잡 기록으로 옮긴다 ─────────────────────────────────────
+-- 20261031130000_guest_crowd_answer_shadow.sql §5 본문 그대로 + facilities 조인의 `AND f.region = 'gyeongju'` 한 줄.
+-- 서울 시설이면 target_facility_id 가 NULL 이 되어 아무것도 넣지 않고 돌아간다(답은 방문 결과 행에 남는다).
+-- 트리거는 같은 함수를 가리키므로 다시 만들지 않는다.
+CREATE OR REPLACE FUNCTION public.project_outcome_congestion_log()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    target_facility_id UUID;
+    target_capacity INTEGER;
+    normalized_level DOUBLE PRECISION;
+    is_guest_answer BOOLEAN;
+BEGIN
+    -- rated 멱등 재요청이나 다른 필드 갱신으로 동일 관측을 중복 적재하지 않는다.
+    IF NEW.observed_congestion IS NULL
+       OR (TG_OP = 'UPDATE' AND OLD.observed_congestion IS NOT NULL) THEN
+        RETURN NEW;
+    END IF;
+
+    -- 게스트 그림자 답은 방문 결과 행에만 남는다 — 지도·추천·corroborated 판정에 들어가지 않는다.
+    IF NEW.observed_answer_mode = 'guest_shadow' THEN
+        RETURN NEW;
+    END IF;
+    is_guest_answer := NEW.observed_answer_mode = 'guest_live';
+
+    normalized_level := CASE NEW.observed_congestion
+        WHEN 'quiet' THEN 0.2
+        WHEN 'normal' THEN 0.5
+        WHEN 'busy' THEN 0.8
+        ELSE NULL
+    END;
+    IF normalized_level IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT r.recommended_facility_id, f.capacity
+      INTO target_facility_id, target_capacity
+      FROM public.recommendations AS r
+      JOIN public.facilities AS f ON f.id = r.recommended_facility_id
+                                 AND f.region = 'gyeongju'
+     WHERE r.id = NEW.recommendation_id;
+
+    IF target_facility_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.congestion_logs (
+        facility_id, timestamp, current_count, congestion_level,
+        source, evidence_tier, reporter_user_id, origin_outcome_id,
+        reporter_is_guest, reporter_network_hash
+    ) VALUES (
+        target_facility_id,
+        COALESCE(NEW.observed_at, NEW.updated_at, timezone('utc', now())),
+        round(COALESCE(target_capacity, 0) * normalized_level),
+        normalized_level,
+        'user_report',
+        'single_report',
+        NEW.user_id,
+        NEW.recommendation_id,
+        COALESCE(is_guest_answer, false),
+        CASE WHEN is_guest_answer THEN NEW.observed_network_hash END
+    ) ON CONFLICT (origin_outcome_id) WHERE origin_outcome_id IS NOT NULL DO NOTHING;
+
+    -- congestion_logs 의 correlate_congestion_report_evidence 트리거가 교차검증(corroborated 승격)을 맡는다.
+    RETURN NEW;
+END;
+$$;
+
+-- ── 6. 지역은 바뀌지 않는다 ───────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.freeze_facility_region()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+    IF OLD.region IS DISTINCT FROM NEW.region THEN
+        RAISE EXCEPTION 'facility_region_immutable' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.freeze_facility_region() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_facilities_freeze_region ON public.facilities;
+CREATE TRIGGER trg_facilities_freeze_region
+    BEFORE UPDATE OF region ON public.facilities
+    FOR EACH ROW EXECUTE FUNCTION public.freeze_facility_region();
+
+-- ── 7. 추천 이력 — 남의 서울 추천 행은 어떤 브라우저 역할에도 보이지 않는다 ──────────────────────────
+-- select_recommendations · select_feedback(20260827140000)은 `user_id = auth.uid() OR is_admin_or_dev()` 라 관제
+-- 계정이 개발자의 서울 추천 행(스냅샷의 시설 이름 · breakdown 의 구역 이름)을 브라우저에서 바로 읽는다.
+-- 제한 정책은 허용 정책과 AND 로 묶인다 — 본인 행이거나, 다음을 모두 만족할 때만 남는다:
+--   · 스냅샷에 지역 표시가 없다(API 는 경주가 아닌 추천에만 recommendation_snapshot.region 을 적는다) —
+--     서울 시설이 지워져 id 가 NULL 이 돼도 스냅샷의 이름은 이 조건이 막는다.
+--   · 가리키는 시설이 호출자에게 보인다(EXISTS 는 호출자의 facilities RLS 로 돈다 → 서울 시설은 안 보인다).
+-- 경주 행은 표시가 없고 시설이 보이거나(또는 지워져 NULL) — 관제 숫자는 그대로다.
+-- 피드백은 자기 추천 행이 호출자에게 보일 때만(recommendations RLS 를 그대로 따른다).
+ALTER TABLE public.recommendations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS recommendations_public_region_only ON public.recommendations;
+CREATE POLICY recommendations_public_region_only ON public.recommendations
+    AS RESTRICTIVE
+    FOR SELECT
+    TO anon, authenticated
+    USING (
+        user_id = auth.uid()
+        OR (
+            (recommendation_snapshot ->> 'region') IS NULL
+            AND (recommended_facility_id IS NULL
+                 OR EXISTS (SELECT 1 FROM public.facilities AS f WHERE f.id = recommendations.recommended_facility_id))
+            AND (original_facility_id IS NULL
+                 OR EXISTS (SELECT 1 FROM public.facilities AS f WHERE f.id = recommendations.original_facility_id))
+        )
+    );
+
+ALTER TABLE public.user_feedback ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_feedback_public_region_only ON public.user_feedback;
+CREATE POLICY user_feedback_public_region_only ON public.user_feedback
+    AS RESTRICTIVE
+    FOR SELECT
+    TO anon, authenticated
+    USING (
+        user_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM public.recommendations AS r WHERE r.id = user_feedback.recommendation_id)
+    );
+
+-- ── 8. 격리 상태 점검 — 장치가 전부 살아 있을 때만 1 ─────────────────────────────────────────────
+-- 상수를 돌려주지 않고 카탈로그를 직접 본다. 누가 옛 마이그레이션을 다시 돌리거나 트리거를 끄거나 투영 함수를
+-- 옛 본문으로 덮으면 0 이 된다. region-guard 워크플로가 30분마다 읽고, 0 이면 봉쇄(§9)를 부르고 서울 행을 비활성화한다.
+--   · facilities RLS 켜짐
+--   · facilities_public_region_only 가 RESTRICTIVE 이고 anon·authenticated 를 덮으며 USING·WITH CHECK 둘 다 지역 조건
+--   · 자식 트리거 6개 + freeze 트리거가 있고 꺼져 있지 않음(tgenabled <> 'D'), 올바른 함수를 가리킴
+--   · recommendations · user_feedback 의 제한 정책(§7)이 RESTRICTIVE 로 있고 두 표의 RLS 가 켜짐
+--   · 방문 확인 투영 본문에 경주 조건이 있음
+CREATE OR REPLACE FUNCTION public.region_isolation_status()
+RETURNS INTEGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_facilities REGCLASS := to_regclass('public.facilities');
+    v_guard_fn REGPROCEDURE := to_regprocedure('public.reject_non_public_region_facility()');
+    v_freeze_fn REGPROCEDURE := to_regprocedure('public.freeze_facility_region()');
+    v_projection_fn REGPROCEDURE := to_regprocedure('public.project_outcome_congestion_log()');
+    v_ok BOOLEAN;
+    v_child_triggers INTEGER;
+BEGIN
+    IF v_facilities IS NULL OR v_guard_fn IS NULL OR v_freeze_fn IS NULL OR v_projection_fn IS NULL THEN
+        RETURN 0;
+    END IF;
+
+    SELECT c.relrowsecurity INTO v_ok FROM pg_class AS c WHERE c.oid = v_facilities;
+    IF NOT COALESCE(v_ok, false) THEN
+        RETURN 0;
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1
+          FROM pg_policy AS p
+         WHERE p.polrelid = v_facilities
+           AND p.polname = 'facilities_public_region_only'
+           AND NOT p.polpermissive
+           AND p.polcmd = '*'
+           AND (SELECT array_agg(r.rolname::TEXT) FROM pg_roles AS r WHERE r.oid = ANY (p.polroles))
+               @> ARRAY['anon', 'authenticated']
+           AND pg_get_expr(p.polqual, p.polrelid) LIKE '%region = ''gyeongju''%'
+           AND pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%region = ''gyeongju''%'
+    ) INTO v_ok;
+    IF NOT v_ok THEN
+        RETURN 0;
+    END IF;
+
+    SELECT count(*) INTO v_child_triggers
+      FROM pg_trigger AS t
+     WHERE NOT t.tgisinternal
+       AND t.tgenabled <> 'D'
+       AND t.tgfoid = v_guard_fn::OID
+       AND (t.tgrelid, t.tgname) IN (
+           (to_regclass('public.congestion_logs')::OID, 'trg_congestion_logs_public_region'::NAME),
+           (to_regclass('public.facility_source_refs')::OID, 'trg_facility_source_refs_public_region'::NAME),
+           (to_regclass('public.merchant_timesales')::OID, 'trg_merchant_timesales_public_region'::NAME),
+           (to_regclass('public.facility_owners')::OID, 'trg_facility_owners_public_region'::NAME),
+           (to_regclass('public.facility_availability_reports')::OID, 'trg_facility_availability_reports_public_region'::NAME),
+           (to_regclass('public.business_verification_requests')::OID, 'trg_business_verification_requests_public_region'::NAME)
+       );
+    IF v_child_triggers <> 6 THEN
+        RETURN 0;
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1
+          FROM pg_trigger AS t
+         WHERE t.tgrelid = v_facilities
+           AND t.tgname = 'trg_facilities_freeze_region'
+           AND NOT t.tgisinternal
+           AND t.tgenabled <> 'D'
+           AND t.tgfoid = v_freeze_fn::OID
+    ) INTO v_ok;
+    IF NOT v_ok THEN
+        RETURN 0;
+    END IF;
+
+    -- 추천 이력 제한 정책 두 개(§7) — RESTRICTIVE · SELECT · anon·authenticated · 본인 조건과 시설/추천 가시성 조건.
+    SELECT count(*) = 2 INTO v_ok
+      FROM pg_policy AS p
+     WHERE NOT p.polpermissive
+       AND p.polcmd = 'r'
+       AND (SELECT array_agg(r.rolname::TEXT) FROM pg_roles AS r WHERE r.oid = ANY (p.polroles))
+           @> ARRAY['anon', 'authenticated']
+       AND (
+           (p.polrelid = to_regclass('public.recommendations')
+            AND p.polname = 'recommendations_public_region_only'
+            AND pg_get_expr(p.polqual, p.polrelid) LIKE '%auth.uid()%'
+            AND pg_get_expr(p.polqual, p.polrelid) LIKE '%''region''%'
+            AND pg_get_expr(p.polqual, p.polrelid) LIKE '%facilities%')
+        OR (p.polrelid = to_regclass('public.user_feedback')
+            AND p.polname = 'user_feedback_public_region_only'
+            AND pg_get_expr(p.polqual, p.polrelid) LIKE '%auth.uid()%'
+            AND pg_get_expr(p.polqual, p.polrelid) LIKE '%recommendations%')
+       );
+    IF NOT COALESCE(v_ok, false) THEN
+        RETURN 0;
+    END IF;
+    SELECT bool_and(c.relrowsecurity) AND count(*) = 2 INTO v_ok
+      FROM pg_class AS c
+     WHERE c.oid IN (to_regclass('public.recommendations'), to_regclass('public.user_feedback'));
+    IF NOT COALESCE(v_ok, false) THEN
+        RETURN 0;
+    END IF;
+
+    SELECT position('f.region = ''gyeongju''' IN p.prosrc) > 0 INTO v_ok
+      FROM pg_proc AS p
+     WHERE p.oid = v_projection_fn;
+    IF NOT COALESCE(v_ok, false) THEN
+        RETURN 0;
+    END IF;
+
+    RETURN 1;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.region_isolation_status() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.region_isolation_status() TO service_role;
+
+-- ── 9. 봉쇄 — region-guard 가 DB 쪽 깨짐을 찾았을 때 부른다(service_role 전용) ─────────────────────────
+-- 서울 행을 is_active=false 로 내려도 행은 facilities 에 남는다. 브라우저 경로(anon 탐침 · 관제 시설 목록)는
+-- is_active 로 거르지 않으므로 비활성화만으로는 노출이 멈추지 않는다. 브라우저에서 서울을 가리는 장치는
+-- RESTRICTIVE 정책뿐이라, 감시가 그것을 이 파일과 **같은 정의**로 되살린다(테스트가 두 정의가 같은지 잠근다).
+-- 트리거·투영 함수 같은 쓰기 쪽 장치는 되살리지 않는다 — 상태가 1 로 돌아오지 않으면 감시가 계속 실패로 알린다.
+-- 돌려주는 값: 봉쇄 뒤의 region_isolation_status().
+CREATE OR REPLACE FUNCTION public.region_guard_contain()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    ALTER TABLE public.facilities ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS facilities_public_region_only ON public.facilities;
+    CREATE POLICY facilities_public_region_only ON public.facilities
+        AS RESTRICTIVE
+        FOR ALL
+        TO anon, authenticated
+        USING (region = 'gyeongju')
+        WITH CHECK (region = 'gyeongju');
+
+    ALTER TABLE public.recommendations ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS recommendations_public_region_only ON public.recommendations;
+    CREATE POLICY recommendations_public_region_only ON public.recommendations
+        AS RESTRICTIVE
+        FOR SELECT
+        TO anon, authenticated
+        USING (
+            user_id = auth.uid()
+            OR (
+                (recommendation_snapshot ->> 'region') IS NULL
+                AND (recommended_facility_id IS NULL
+                     OR EXISTS (SELECT 1 FROM public.facilities AS f WHERE f.id = recommendations.recommended_facility_id))
+                AND (original_facility_id IS NULL
+                     OR EXISTS (SELECT 1 FROM public.facilities AS f WHERE f.id = recommendations.original_facility_id))
+            )
+        );
+
+    ALTER TABLE public.user_feedback ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS user_feedback_public_region_only ON public.user_feedback;
+    CREATE POLICY user_feedback_public_region_only ON public.user_feedback
+        AS RESTRICTIVE
+        FOR SELECT
+        TO anon, authenticated
+        USING (
+            user_id = auth.uid()
+            OR EXISTS (SELECT 1 FROM public.recommendations AS r WHERE r.id = user_feedback.recommendation_id)
+        );
+
+    RETURN public.region_isolation_status();
+END;
+$$;
+REVOKE ALL ON FUNCTION public.region_guard_contain() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.region_guard_contain() TO service_role;
+
+-- ── 10. 끝까지 격리됐는지 확인 — 아니면 예외로 멈춘다(반쯤 적용된 상태로 서울 적재가 시작되지 않게) ─────────
+DO $$
+BEGIN
+    IF public.region_isolation_status() <> 1 THEN
+        RAISE EXCEPTION 'region isolation incomplete';
+    END IF;
+END;
+$$;
+
+-- 적용 후 SQL Editor 에서 `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1).
+
+-- ============================= migrations/20261101091000_zone_population_baseline.sql =============================
+-- 구역 '평소와 비교' 기준선 — 화면 문구 전용(docs/SEOUL_TESTBED_PLAN.md §6 S3).
+--
+-- 추천 순위는 **절대 혼잡 단계**(서울시 4등급 → 0~1)로 정한다. 이 함수는 순위에 들어가지 않고, 내부 서울 화면의
+-- '평소보다 붐빔 · 평소 수준 · 평소보다 한산' 한 줄만 만든다(엔진 score 는 읽지 않는다).
+--
+-- 기준선 = 같은 구역 · 같은 KST 시(hour) · 같은 요일 구분(평일 / 주말)의 지난 p_days 일 인구 중간값 분포.
+--   · 인구 = 서울시 실시간 인구 구간의 가운데 (population_min + population_max) / 2.
+--   · 먼저 겹친 관측을 하나로 합친다 — DISTINCT ON (zone_id, observed_at). 서울시 PPLTN_TIME 은 10분 버킷 여러 개에
+--     같은 값으로 반복되고, 홍대는 10분마다 · 나머지는 30분마다 모은다. 합치지 않으면 자주 모은 구역·시각이
+--     기준선을 끌고 간다. 같은 관측이 여러 번이면 가장 늦게 받은(fetched_at) 행을 쓴다.
+--   · 서울시가 실측 대신 대체값을 넣은 관측(quality.replaced = true)과 인구 구간이 빈 관측은 뺀다.
+--   · p_at 에서 1시간 안쪽의 관측은 뺀다 — '지금'이 자기 기준선에 섞이지 않게.
+--   · samples = 합친 뒤의 서로 다른 관측 수. 표본이 몇 개면 문구를 띄울지는 API 가 정한다.
+--   · 표본이 0인 구역은 행이 없다.
+--
+-- 권한: service_role 전용(서울은 내부 전용 — §7 A1). SECURITY INVOKER 라 호출자의 RLS 를 그대로 따른다
+--   (zone_crowd_snapshots 는 service_role 정책만 있다).
+-- 의존: 20261031120000_crowd_zones.sql(zone_crowd_snapshots).
+-- 멱등: CREATE OR REPLACE. 적용 후 `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1).
+
+CREATE OR REPLACE FUNCTION public.zone_population_baseline(
+    p_zone_ids TEXT[],
+    p_at TIMESTAMPTZ,
+    p_days INTEGER DEFAULT 28
+)
+RETURNS TABLE (
+    zone_id TEXT,
+    samples INTEGER,
+    p25 DOUBLE PRECISION,
+    p50 DOUBLE PRECISION,
+    p75 DOUBLE PRECISION
+)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+    WITH target AS (
+        SELECT (p_at AT TIME ZONE 'Asia/Seoul') AS local_at,
+               LEAST(GREATEST(COALESCE(p_days, 28), 1), 90) AS days
+    ),
+    deduped AS (
+        SELECT DISTINCT ON (s.zone_id, s.observed_at)
+               s.zone_id AS zone_id,
+               s.observed_at AS observed_at,
+               (s.population_min::DOUBLE PRECISION + s.population_max::DOUBLE PRECISION) / 2 AS population_mid
+          FROM public.zone_crowd_snapshots AS s, target AS t
+         WHERE s.zone_id = ANY (p_zone_ids)
+           AND s.observed_at >= p_at - make_interval(days => t.days)
+           AND s.observed_at < p_at - interval '1 hour'
+           AND s.population_min IS NOT NULL
+           AND s.population_max IS NOT NULL
+           AND (s.quality ->> 'replaced') IS DISTINCT FROM 'true'
+         ORDER BY s.zone_id, s.observed_at, s.fetched_at DESC, s.id
+    ),
+    matched AS (
+        SELECT d.zone_id AS zone_id, d.population_mid AS population_mid
+          FROM deduped AS d, target AS t
+         WHERE extract(hour FROM (d.observed_at AT TIME ZONE 'Asia/Seoul')) = extract(hour FROM t.local_at)
+           AND (extract(isodow FROM (d.observed_at AT TIME ZONE 'Asia/Seoul')) IN (6, 7))
+               = (extract(isodow FROM t.local_at) IN (6, 7))
+    )
+    SELECT m.zone_id,
+           count(*)::INTEGER,
+           percentile_cont(0.25) WITHIN GROUP (ORDER BY m.population_mid),
+           percentile_cont(0.50) WITHIN GROUP (ORDER BY m.population_mid),
+           percentile_cont(0.75) WITHIN GROUP (ORDER BY m.population_mid)
+      FROM matched AS m
+     GROUP BY m.zone_id
+     ORDER BY m.zone_id;
+$$;
+
+REVOKE ALL ON FUNCTION public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) TO service_role;
+
+COMMENT ON FUNCTION public.zone_population_baseline(TEXT[], TIMESTAMPTZ, INTEGER) IS
+    '구역 인구의 평소 분포(같은 KST 시 · 평일/주말, 관측 중복 제거) — 화면의 ''평소와 비교'' 문구 전용, 추천 순위에 쓰지 않는다. service_role 전용.';
+
+-- ============================= migrations/20261112090000_action_logs.sql =============================
+-- 사용자 행동 기록(action_logs) — 화면 방문·누름·입력·검색·음성·지도 조작 등 웹의 모든 동작을 행 단위로 남긴다.
+--
+-- 왜(2026-11-12): 부처 조사 뒤 공모전 재심사가 예정돼 있다. 심사위원이 서비스를 실제로 썼는지(언제 · 어느 기기로 ·
+--   어느 계정으로 · 무엇을 눌렀는지)를 나중에 행으로 보여 줄 수 있어야 한다. usage_events(20261023090000)는 계정과
+--   잇지 않고 추천 카드 이벤트 몇 개만 남겨 이 질문에 답하지 못한다.
+--   결정(사용자, 11-12): 모든 방문을 남긴다 · 로그인 상태면 계정과 잇는다 · 원본 IP 를 남기고 1년 보관한다 ·
+--   입력 내용은 검색·음성 문장만(브라우저가 가린 뒤) 남긴다.
+--
+-- 쓰기: 브라우저(apps/web/lib/actionLog.ts)가 공개 anon 키로 직접 INSERT 한다 — usage_events 와 같은 길.
+--   · 브라우저가 정하는 칼럼은 9개뿐이다(occurred_at · device_id · session_id · seq · event · page · host · locale · props).
+--     칼럼 GRANT 라 다른 칼럼을 보내면 그 INSERT 는 권한 오류로 거절된다.
+--   · 나머지(received_at · user_id · is_anonymous · account_role · ip · ip_chain · user_agent)는 BEFORE INSERT 트리거가
+--     보낸 값을 무시하고 서버에서 찍는다 — 수신 시각은 now(), 계정은 JWT(auth.uid · is_anonymous 클레임)와
+--     public.users.role, IP·UA 는 PostgREST 가 넘기는 요청 헤더. 헤더가 없거나 깨져도 기록은 남긴다(그 칸만 NULL).
+--   · 이벤트 이름은 아래 CHECK 목록뿐(lib/actionLog.ts 의 ACTION_LOG_EVENTS 와 같은 순서 — 하나를 더하면 둘 다 고친다).
+-- 읽기: 브라우저 역할(anon·authenticated)에는 SELECT 가 없다. service_role(SQL Editor·API)과, users.role = 'developer'
+--   만 통과하는 읽기 RPC 둘(action_log_devices · action_log_rows). 심사위원이 관리자 계정을 쓰므로 admin 은 통과하지 않는다.
+-- 추가만(위·변조 방지): UPDATE 는 언제나, DELETE 는 365일이 안 된 행이면, TRUNCATE 는 언제나 트리거가 거절한다.
+--   service_role 도 SELECT·INSERT 만 갖는다. 테이블 소유자(SQL Editor 의 postgres)는 트리거를 끄거나 표를 지울 수 있다 —
+--   이 장치는 앱 역할과 실수로부터 기록을 지키는 것이지 DB 소유자를 막는 것은 아니다.
+-- 보관: 1년. 매일 pg_cron 이 365일 지난 행을 지운다(DELETE 가드는 그 행들만 통과시킨다).
+-- user_id 에 FK 를 걸지 않는다 — 계정이 지워져도 그 기간의 기록은 남아야 하고, ON DELETE SET NULL 이었다면 UPDATE 가드에
+--   막혀 계정 삭제 자체가 실패한다. 이메일은 읽을 때 auth.users 에서 찾는다(지워진 계정이면 NULL).
+-- 멱등: 표·인덱스 IF NOT EXISTS, 함수 CREATE OR REPLACE(읽기 RPC 는 DROP IF EXISTS 후 생성), 정책·트리거 DROP IF EXISTS
+--   후 생성, cron 은 같은 이름을 먼저 지우고 다시 건다.
+
+-- ── 1. 표 ───────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.action_logs (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 브라우저가 쓰는 칼럼
+    occurred_at TIMESTAMPTZ,
+    device_id TEXT NOT NULL CHECK (char_length(device_id) BETWEEN 8 AND 64),
+    session_id TEXT NOT NULL CHECK (char_length(session_id) BETWEEN 8 AND 64),
+    seq INTEGER CHECK (seq IS NULL OR seq >= 0),
+    event TEXT NOT NULL CHECK (event IN (
+        'session_start',
+        'page_view',
+        'click',
+        'input',
+        'submit',
+        'search',
+        'voice',
+        'key',
+        'swipe',
+        'scroll',
+        'map',
+        'visibility',
+        'heartbeat',
+        'api',
+        'error',
+        'auth'
+    )),
+    page TEXT CHECK (page IS NULL OR char_length(page) <= 200),
+    host TEXT CHECK (host IS NULL OR char_length(host) <= 100),
+    locale TEXT CHECK (locale IS NULL OR char_length(locale) <= 16),
+    props JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(props) = 'object' AND pg_column_size(props) <= 4096),
+    -- 서버가 찍는 칼럼(트리거가 덮어쓴다)
+    user_id UUID,
+    is_anonymous BOOLEAN,
+    account_role TEXT,
+    ip TEXT CHECK (ip IS NULL OR char_length(ip) <= 64),
+    ip_chain TEXT CHECK (ip_chain IS NULL OR char_length(ip_chain) <= 300),
+    user_agent TEXT CHECK (user_agent IS NULL OR char_length(user_agent) <= 400)
+);
+
+-- ── 2. 서버 도장(BEFORE INSERT) — 브라우저가 보낸 서버 칼럼 값은 쓰지 않는다 ─────────────────────────────
+-- SECURITY DEFINER: anon·authenticated 는 public.users 를 못 읽는다(RLS). auth.uid()·auth.jwt()·request.headers 는
+-- 세션 설정이라 소유자 권한으로 돌아도 호출한 요청의 값이다.
+CREATE OR REPLACE FUNCTION public.action_logs_stamp()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid UUID := auth.uid();
+    v_role TEXT;
+    v_raw TEXT;
+    v_headers JSONB := '{}'::jsonb;
+    v_xff TEXT;
+BEGIN
+    NEW.received_at := now();
+    -- supabase-js 묶음 INSERT 는 한 행에 없는 키를 NULL 로 채운다 — props 하나 때문에 묶음 전체를 잃지 않게 한다.
+    NEW.props := COALESCE(NEW.props, '{}'::jsonb);
+
+    -- 계정: 로그인(게스트 익명 세션 포함) 상태면 잇는다. 로그인 전 방문은 user_id·is_anonymous·account_role 이 NULL.
+    NEW.user_id := v_uid;
+    IF v_uid IS NULL THEN
+        NEW.is_anonymous := NULL;
+        NEW.account_role := NULL;
+    ELSE
+        NEW.is_anonymous := COALESCE((auth.jwt() ->> 'is_anonymous')::boolean, false);
+        SELECT u.role INTO v_role FROM public.users AS u WHERE u.id = v_uid;
+        NEW.account_role := v_role;
+    END IF;
+
+    -- 요청 헤더: PostgREST 가 소문자 이름의 JSON 문자열로 넘긴다. SQL Editor·cron 에서는 없다. 없거나 깨져도 '{}'.
+    BEGIN
+        v_raw := current_setting('request.headers', true);
+        IF v_raw IS NOT NULL AND btrim(v_raw) <> '' THEN
+            v_headers := v_raw::jsonb;
+        END IF;
+        IF jsonb_typeof(v_headers) IS DISTINCT FROM 'object' THEN
+            v_headers := '{}'::jsonb;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        v_headers := '{}'::jsonb;
+    END;
+
+    -- ip: cf-connecting-ip → x-real-ip → x-forwarded-for 첫 값(앞뒤 공백 제거) 중 처음 비어 있지 않은 것.
+    -- ip_chain: x-forwarded-for 원문 — 배포 뒤 어느 헤더가 실제 손님 IP 를 싣는지 사람이 대조한다(파일 끝 확인 쿼리).
+    v_xff := NULLIF(v_headers ->> 'x-forwarded-for', '');
+    NEW.ip := left(COALESCE(
+        NULLIF(btrim(v_headers ->> 'cf-connecting-ip'), ''),
+        NULLIF(btrim(v_headers ->> 'x-real-ip'), ''),
+        NULLIF(btrim(split_part(v_xff, ',', 1)), '')
+    ), 64);
+    NEW.ip_chain := left(v_xff, 300);
+    NEW.user_agent := left(NULLIF(btrim(v_headers ->> 'user-agent'), ''), 400);
+
+    -- 남용 방지: anon 키는 번들에 공개돼 있고, 이 표는 1년 동안 지울 수 없다. 같은 IP 에서 1분에 600줄을 넘으면
+    -- 조용히 버린다(탭 하나는 1분에 많아야 수십 줄 — 심사장처럼 IP 를 함께 써도 닿기 어렵다). 묶음 크기 상한은
+    -- 아래 action_logs_batch_cap. IP 를 꾸밀 수 있는 헤더라면 이 문턱도 우회된다 — 배포 뒤 헤더 확인(파일 끝).
+    IF NEW.ip IS NOT NULL AND (
+        SELECT count(*) FROM public.action_logs AS l
+         WHERE l.ip = NEW.ip AND l.received_at > now() - interval '1 minute'
+    ) >= 600 THEN
+        RETURN NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+-- 트리거 함수는 직접 부를 수 없고, 트리거 발화는 EXECUTE 권한을 보지 않는다 — 호출 권한은 아무에게도 주지 않는다.
+REVOKE ALL ON FUNCTION public.action_logs_stamp() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS action_logs_stamp ON public.action_logs;
+CREATE TRIGGER action_logs_stamp
+    BEFORE INSERT ON public.action_logs
+    FOR EACH ROW EXECUTE FUNCTION public.action_logs_stamp();
+
+-- 요청 하나에 50줄까지(웹 묶음 상한과 같다 — lib/actionLog.ts ACTION_LOG_LIMITS.batchRows). 넘으면 묶음 전체 거절.
+CREATE OR REPLACE FUNCTION public.action_logs_batch_cap()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- 브라우저 경유 두 역할에만 건다(SQL Editor·service_role 의 정리·이관은 막지 않는다).
+    IF current_user IN ('anon', 'authenticated') AND (SELECT count(*) FROM new_rows) > 50 THEN
+        RAISE EXCEPTION 'action_logs_batch_too_large' USING ERRCODE = '22023';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.action_logs_batch_cap() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS action_logs_batch_cap ON public.action_logs;
+CREATE TRIGGER action_logs_batch_cap
+    AFTER INSERT ON public.action_logs
+    REFERENCING NEW TABLE AS new_rows
+    FOR EACH STATEMENT EXECUTE FUNCTION public.action_logs_batch_cap();
+
+-- ── 3. 추가만 — UPDATE 언제나 · 365일 안 DELETE · TRUNCATE 거절 ─────────────────────────────────────────
+-- SECURITY INVOKER(기본값): OLD 와 now() 만 본다.
+CREATE OR REPLACE FUNCTION public.action_logs_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.received_at > now() - interval '365 days' THEN
+            RAISE EXCEPTION 'action_logs_retained_365_days' USING ERRCODE = '42501',
+                HINT = '365일이 지난 행만 지울 수 있다(보관 cron nextspot-action-logs-retention).';
+        END IF;
+        RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'action_logs_append_only' USING ERRCODE = '42501',
+        DETAIL = format('%s is not allowed on public.action_logs', TG_OP);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.action_logs_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS action_logs_no_update ON public.action_logs;
+CREATE TRIGGER action_logs_no_update
+    BEFORE UPDATE ON public.action_logs
+    FOR EACH ROW EXECUTE FUNCTION public.action_logs_guard();
+
+DROP TRIGGER IF EXISTS action_logs_no_recent_delete ON public.action_logs;
+CREATE TRIGGER action_logs_no_recent_delete
+    BEFORE DELETE ON public.action_logs
+    FOR EACH ROW EXECUTE FUNCTION public.action_logs_guard();
+
+DROP TRIGGER IF EXISTS action_logs_no_truncate ON public.action_logs;
+CREATE TRIGGER action_logs_no_truncate
+    BEFORE TRUNCATE ON public.action_logs
+    FOR EACH STATEMENT EXECUTE FUNCTION public.action_logs_guard();
+
+-- ── 4. RLS · 권한 ────────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.action_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS action_logs_insert_any ON public.action_logs;
+CREATE POLICY action_logs_insert_any ON public.action_logs
+    FOR INSERT TO anon, authenticated WITH CHECK (true);
+DROP POLICY IF EXISTS action_logs_service_select ON public.action_logs;
+CREATE POLICY action_logs_service_select ON public.action_logs
+    FOR SELECT TO service_role USING (true);
+DROP POLICY IF EXISTS action_logs_service_insert ON public.action_logs;
+CREATE POLICY action_logs_service_insert ON public.action_logs
+    FOR INSERT TO service_role WITH CHECK (true);
+
+-- 2026-10-30부터 새 public 표는 Data API 권한을 자동으로 받지 않지만, 옛 기본 권한(ALL — UPDATE·DELETE·TRUNCATE 포함)이
+-- 남은 DB 에서도 같은 결과가 되도록 service_role 까지 먼저 회수하고 필요한 것만 준다.
+-- 브라우저: 고른 9칼럼 INSERT 만(읽기 없음 — supabase-js insert 는 return=minimal 이라 SELECT 가 필요 없다).
+REVOKE ALL ON TABLE public.action_logs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.action_logs FROM PUBLIC, service_role;
+GRANT INSERT (occurred_at, device_id, session_id, seq, event, page, host, locale, props)
+    ON TABLE public.action_logs TO anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.action_logs TO service_role;
+
+-- id 는 IDENTITY 라 INSERT 에 시퀀스 권한이 필요 없다(Postgres 가 권한 검사 없이 nextval 한다 — usage_events 도 같다).
+-- 옛 기본 권한이 시퀀스에 준 것이 있으면 회수한다(setval 로 번호를 되돌리지 못하게).
+DO $$
+BEGIN
+    EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM anon, authenticated',
+                   pg_get_serial_sequence('public.action_logs', 'id'));
+END;
+$$;
+
+-- ── 5. 인덱스 ────────────────────────────────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_action_logs_received_at
+    ON public.action_logs (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_action_logs_device_received_at
+    ON public.action_logs (device_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_action_logs_user_received_at
+    ON public.action_logs (user_id, received_at)
+    WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_logs_event_received_at
+    ON public.action_logs (event, received_at DESC);
+-- 브라우저 전송은 '적어도 한 번'이다(재시도·탭 복제). 같은 (session_id, seq) 가 두 번 오면 409 — 웹은 그 줄만 버린다
+-- (lib/actionLog.ts 의 묶음 반 나누기). 기록이 두 번 세지지 않게 한다.
+CREATE INDEX IF NOT EXISTS idx_action_logs_ip_received_at
+    ON public.action_logs (ip, received_at)
+    WHERE ip IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_action_logs_session_seq
+    ON public.action_logs (session_id, seq)
+    WHERE seq IS NOT NULL;
+
+COMMENT ON TABLE public.action_logs IS
+    '사용자 행동 기록(20261112090000) — 방문자(심사위원 포함)가 서비스를 실제로 썼는지 행 단위로 확인하는 용도. '
+    '저장: 기기·세션 번호(브라우저가 만든 무작위 값), 이벤트·순번·브라우저 시각, 화면 경로·호스트·언어, 작은 속성(props 4 KB 이하 — '
+    '입력 내용은 검색·음성 문장만, 브라우저가 가린 뒤), 서버가 찍는 수신 시각 · 로그인 상태일 때 계정(user_id·게스트 여부·역할) · '
+    '원본 IP · x-forwarded-for 원문 · User-Agent. '
+    '저장 안 함: 비밀번호, 검색·음성 밖의 입력 내용, 인증 토큰·apikey·쿠키 등 나머지 요청 헤더. '
+    '추가만 가능(UPDATE · 365일 안 DELETE · TRUNCATE 는 트리거가 거절). 읽기는 service_role 과 developer 전용 RPC. 1년 보관(pg_cron).';
+COMMENT ON COLUMN public.action_logs.ip IS
+    '서버가 찍는 손님 IP — 요청 헤더 cf-connecting-ip → x-real-ip → x-forwarded-for 첫 값 순서로 처음 있는 값.';
+COMMENT ON COLUMN public.action_logs.ip_chain IS
+    '서버가 찍는 x-forwarded-for 원문(300자까지) — ip 가 어느 홉에서 왔는지 사람이 대조하는 용도.';
+
+-- ── 6. 1년 보관 — 매일 03:37 KST(18:37 UTC) ──────────────────────────────────────────────────────────
+-- 재적용해도 같은 이름 예약이 겹치지 않게 먼저 지운다. cron 은 소유자(postgres)로 돌아 칼럼 권한이 필요 없고,
+-- 지우는 행은 모두 365일이 지나 DELETE 가드를 통과한다.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+DO $$
+DECLARE
+    v_job_id BIGINT;
+BEGIN
+    FOR v_job_id IN
+        SELECT jobid FROM cron.job WHERE jobname = 'nextspot-action-logs-retention'
+    LOOP
+        PERFORM cron.unschedule(v_job_id);
+    END LOOP;
+END;
+$$;
+
+SELECT cron.schedule(
+    'nextspot-action-logs-retention',
+    '37 18 * * *',
+    $command$DELETE FROM public.action_logs WHERE received_at < now() - interval '365 days';$command$
+);
+
+-- ── 7. 개발자 전용 읽기 RPC ───────────────────────────────────────────────────────────────────────
+-- users.role = 'developer' 만 통과한다(get_auth_user_role — 20250523120001). is_admin_or_dev 를 쓰지 않는다:
+-- 심사위원이 admin 계정을 쓰므로 admin 이 자기 기록을 볼 수 있으면 안 된다.
+-- 기간은 received_at(서버 시각) 기준 [p_from, p_to). NULL 이면 그쪽 끝을 열어 둔다.
+
+-- 기기별 요약 — 마지막 활동이 최근인 기기부터. limit 1..1000(기본 300).
+--   accounts  게스트가 아닌 계정 행의 {user_id, email, role} 중복 없이(role 은 그 행을 찍을 때의 역할)
+--   ips       서로 다른 IP 최대 10개(최근에 쓴 것부터)
+--   user_agent 가장 최근 값 · landing/referrer 기간 안 첫 session_start 의 page 와 props.referrer
+DROP FUNCTION IF EXISTS public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER);
+CREATE OR REPLACE FUNCTION public.action_log_devices(
+    p_from TIMESTAMPTZ,
+    p_to TIMESTAMPTZ,
+    p_accounts_only BOOLEAN DEFAULT false,
+    p_limit INTEGER DEFAULT 300
+)
+RETURNS TABLE (
+    device_id TEXT,
+    first_at TIMESTAMPTZ,
+    last_at TIMESTAMPTZ,
+    sessions INTEGER,
+    events INTEGER,
+    page_views INTEGER,
+    clicks INTEGER,
+    heartbeats INTEGER,
+    accounts JSONB,
+    ips TEXT[],
+    user_agent TEXT,
+    landing TEXT,
+    referrer TEXT
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_from TIMESTAMPTZ;
+    v_to TIMESTAMPTZ;
+    v_accounts_only BOOLEAN;
+    v_limit INTEGER;
+BEGIN
+    IF public.get_auth_user_role() IS DISTINCT FROM 'developer' THEN
+        RAISE EXCEPTION 'developer_only' USING ERRCODE = '42501';
+    END IF;
+    v_from := COALESCE(p_from, '-infinity'::timestamptz);
+    v_to := COALESCE(p_to, 'infinity'::timestamptz);
+    v_accounts_only := COALESCE(p_accounts_only, false);
+    v_limit := LEAST(GREATEST(COALESCE(p_limit, 300), 1), 1000);
+
+    RETURN QUERY
+    WITH per_device AS (
+        SELECT l.device_id AS dev,
+               min(l.received_at) AS first_seen,
+               max(l.received_at) AS last_seen,
+               count(DISTINCT l.session_id)::integer AS n_sessions,
+               count(*)::integer AS n_events,
+               (count(*) FILTER (WHERE l.event = 'page_view'))::integer AS n_page_views,
+               (count(*) FILTER (WHERE l.event = 'click'))::integer AS n_clicks,
+               (count(*) FILTER (WHERE l.event = 'heartbeat'))::integer AS n_heartbeats,
+               COALESCE(bool_or(l.is_anonymous = false), false) AS has_account
+          FROM public.action_logs AS l
+         WHERE l.received_at >= v_from AND l.received_at < v_to
+         GROUP BY l.device_id
+    ),
+    picked AS (
+        SELECT pd.*
+          FROM per_device AS pd
+         WHERE NOT v_accounts_only OR pd.has_account
+         ORDER BY pd.last_seen DESC, pd.dev
+         LIMIT v_limit
+    )
+    SELECT p.dev,
+           p.first_seen,
+           p.last_seen,
+           p.n_sessions,
+           p.n_events,
+           p.n_page_views,
+           p.n_clicks,
+           p.n_heartbeats,
+           COALESCE(acc.accounts_json, '[]'::jsonb),
+           COALESCE(ipl.ip_list, ARRAY[]::text[]),
+           ua.last_ua,
+           land.landing_page,
+           land.landing_referrer
+      FROM picked AS p
+      LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+                     jsonb_build_object('user_id', a.user_id, 'email', au.email, 'role', a.account_role)
+                     ORDER BY a.first_seen, a.user_id
+                 ) AS accounts_json
+            FROM (
+                SELECT l.user_id, l.account_role, min(l.received_at) AS first_seen
+                  FROM public.action_logs AS l
+                 WHERE l.device_id = p.dev
+                   AND l.received_at >= v_from AND l.received_at < v_to
+                   AND l.is_anonymous = false
+                 GROUP BY l.user_id, l.account_role
+            ) AS a
+            LEFT JOIN auth.users AS au ON au.id = a.user_id
+      ) AS acc ON true
+      LEFT JOIN LATERAL (
+          SELECT (array_agg(i.ip ORDER BY i.last_used DESC, i.ip))[1:10] AS ip_list
+            FROM (
+                SELECT l.ip, max(l.received_at) AS last_used
+                  FROM public.action_logs AS l
+                 WHERE l.device_id = p.dev
+                   AND l.received_at >= v_from AND l.received_at < v_to
+                   AND l.ip IS NOT NULL
+                 GROUP BY l.ip
+            ) AS i
+      ) AS ipl ON true
+      LEFT JOIN LATERAL (
+          SELECT l.user_agent AS last_ua
+            FROM public.action_logs AS l
+           WHERE l.device_id = p.dev
+             AND l.received_at >= v_from AND l.received_at < v_to
+             AND l.user_agent IS NOT NULL
+           ORDER BY l.received_at DESC, l.id DESC
+           LIMIT 1
+      ) AS ua ON true
+      LEFT JOIN LATERAL (
+          SELECT l.page AS landing_page, l.props ->> 'referrer' AS landing_referrer
+            FROM public.action_logs AS l
+           WHERE l.device_id = p.dev
+             AND l.received_at >= v_from AND l.received_at < v_to
+             AND l.event = 'session_start'
+           ORDER BY l.received_at, l.id
+           LIMIT 1
+      ) AS land ON true
+     ORDER BY p.last_seen DESC, p.dev;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.action_log_devices(TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, INTEGER) TO authenticated;
+
+-- 행 그대로 — id 오름차순 키셋(p_after_id 다음부터). 기기 하나로 좁힐 수 있다. limit 1..5000(기본 2000).
+-- email 은 게스트가 아닌 계정 행에만 채운다.
+DROP FUNCTION IF EXISTS public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER);
+CREATE OR REPLACE FUNCTION public.action_log_rows(
+    p_from TIMESTAMPTZ,
+    p_to TIMESTAMPTZ,
+    p_device_id TEXT DEFAULT NULL,
+    p_after_id BIGINT DEFAULT 0,
+    p_limit INTEGER DEFAULT 2000
+)
+RETURNS TABLE (
+    id BIGINT,
+    received_at TIMESTAMPTZ,
+    occurred_at TIMESTAMPTZ,
+    device_id TEXT,
+    session_id TEXT,
+    seq INTEGER,
+    event TEXT,
+    page TEXT,
+    host TEXT,
+    locale TEXT,
+    props JSONB,
+    user_id UUID,
+    email TEXT,
+    is_anonymous BOOLEAN,
+    account_role TEXT,
+    ip TEXT,
+    ip_chain TEXT,
+    user_agent TEXT
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_device TEXT;
+    v_limit INTEGER;
+BEGIN
+    IF public.get_auth_user_role() IS DISTINCT FROM 'developer' THEN
+        RAISE EXCEPTION 'developer_only' USING ERRCODE = '42501';
+    END IF;
+    v_device := NULLIF(p_device_id, '');
+    v_limit := LEAST(GREATEST(COALESCE(p_limit, 2000), 1), 5000);
+
+    RETURN QUERY
+    SELECT l.id,
+           l.received_at,
+           l.occurred_at,
+           l.device_id,
+           l.session_id,
+           l.seq,
+           l.event,
+           l.page,
+           l.host,
+           l.locale,
+           l.props,
+           l.user_id,
+           CASE WHEN l.is_anonymous = false THEN au.email::text END,
+           l.is_anonymous,
+           l.account_role,
+           l.ip,
+           l.ip_chain,
+           l.user_agent
+      FROM public.action_logs AS l
+      LEFT JOIN auth.users AS au ON l.is_anonymous = false AND au.id = l.user_id
+     WHERE l.received_at >= COALESCE(p_from, '-infinity'::timestamptz)
+       AND l.received_at < COALESCE(p_to, 'infinity'::timestamptz)
+       AND (v_device IS NULL OR l.device_id = v_device)
+       AND l.id > COALESCE(p_after_id, 0)
+     ORDER BY l.id
+     LIMIT v_limit;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.action_log_rows(TIMESTAMPTZ, TIMESTAMPTZ, TEXT, BIGINT, INTEGER) TO authenticated;
+
+-- ── 적용 후(사람 작업) ────────────────────────────────────────────────────────────────────────────
+-- 1) SQL Editor 에서 이 파일 전체를 실행한 뒤 `NOTIFY pgrst, 'reload schema';` 를 따로 실행한다(DEPLOY_AND_ENV §1-1).
+--    빼먹으면 브라우저 INSERT 와 개발자 RPC 가 한동안 404(표·함수 없음)로 실패한다.
+-- 2) 운영 주소에서 한두 번 눌러 본 뒤 확인(읽기 전용 — SQL Editor):
+--    -- 최근 행과 IP 헤더 대조. ip 는 cf-connecting-ip → x-real-ip → x-forwarded-for 첫 값 순서로 고른 값이고
+--    -- ip_chain 은 x-forwarded-for 원문이다. 그 시각 내 공인 IP(브라우저로 '내 IP' 확인)와 ip 가 같아야 한다.
+--    -- ip_is_first_forwarded 가 false 면 x-forwarded-for 첫 값이 손님 IP 가 아니다(cf-connecting-ip·x-real-ip 쪽이 맞다).
+--    select id, received_at, event, page, user_id, is_anonymous, account_role, ip, ip_chain,
+--           ip = btrim(split_part(ip_chain, ',', 1)) as ip_is_first_forwarded, left(user_agent, 60) as ua
+--      from public.action_logs order by id desc limit 20;
+--    -- 1년 보관 예약이 하나 있는가:
+--    select jobid, jobname, schedule, command from cron.job where jobname = 'nextspot-action-logs-retention';
+--    -- 가드 트리거 넷(action_logs_stamp · action_logs_no_update · action_logs_no_recent_delete · action_logs_no_truncate):
+--    select tgname from pg_trigger where tgrelid = 'public.action_logs'::regclass and not tgisinternal order by 1;  -- 5개
+--
+-- 스팸이 쌓였을 때(사람 판단 뒤, 표 소유자 postgres 로 SQL Editor 에서):
+--    ALTER TABLE public.action_logs DISABLE TRIGGER action_logs_no_recent_delete;
+--    DELETE FROM public.action_logs WHERE <범위 — ip·device_id·received_at>;
+--    ALTER TABLE public.action_logs ENABLE TRIGGER action_logs_no_recent_delete;
+--    지운 범위·이유는 HANDOVER 에 남긴다(증빙 표라 지운 사실 자체가 기록이어야 한다).

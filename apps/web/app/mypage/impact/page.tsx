@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { readImpactSummary, type ImpactSummary } from '@/lib/impactSummary';
+import { useRegion } from '@/lib/regionContext';
 
 // 백엔드 GET /api/v1/impact/summary 응답(snake_case)을 api-client 가 camelCase 로 변환해 주고, lib/impactSummary 가
 // 화면이 쓸 숫자로 읽는다. '방문(visit_history)' 지표는 여기 없다 — apps/web/lib/visits.ts 의 localStorage 전용
@@ -23,6 +24,10 @@ const fmt = (n: number) => n.toLocaleString();
 export default function ImpactPage() {
   const router = useRouter();
   const t = useT();
+  // 지역(S3) — 공유가 꺼진 지역(내부 검증 지역: 받는 사람이 볼 수 없다)에서는 공유 버튼을 그리지 않고, 카드 제목도 경주가
+  // 아니라 그 지역 이름으로 말한다. 경주는 오늘과 같다.
+  const { pack, isPublic, regionName } = useRegion();
+  const canShare = pack.features.share;
   const [summary, setSummary] = useState<ImpactSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   // 시작 상태 — 비로그인(401)·서버 미가용·신규 사용자(센 기록 없음)일 때 켜진다. 숫자 대신 '추천받은 곳으로
@@ -65,7 +70,7 @@ export default function ImpactPage() {
 
   // 공유 — Web Share API 우선, 미지원/실패 시 클립보드 복사 + 토스트로 폴백.
   const handleShare = useCallback(async () => {
-    if (!summary) return;
+    if (!summary || !canShare) return;
     // 공유 문구도 센 숫자만 — 도착 확인을 모르면(null) 그 조각 없이.
     const shareText = summary.arrivalsConfirmed !== null
       ? t('impact.shareText', { departures: fmt(summary.accepted), arrivals: fmt(summary.arrivalsConfirmed) })
@@ -89,7 +94,7 @@ export default function ImpactPage() {
       console.warn('clipboard copy failed', err);
       toast.error(t('impact.shareCopyFail'));
     }
-  }, [summary, t]);
+  }, [summary, t, canShare]);
 
   return (
     <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
@@ -188,7 +193,7 @@ export default function ImpactPage() {
 
               <div className="relative z-10 flex flex-col items-center text-center">
                 <p className="text-xs font-semibold text-gold-deep tracking-widest uppercase mb-2">NextSpot</p>
-                <h2 className="text-2xl font-bold font-serif text-muk mb-1">{t('impact.cardTitle')}</h2>
+                <h2 className="text-2xl font-bold font-serif text-muk mb-1">{isPublic ? t('impact.cardTitle') : t('region.impactCardTitle', { region: regionName })}</h2>
                 <p className="text-xs text-muk-soft mb-6">{t('impact.cardSubtitle')}</p>
 
                 {/* 지표 타일 — 근거가 있는 값만(위 머리말). 출발은 언제나, 도착 확인은 서버가 셌을 때, 나머지는 0 보다 클 때. */}
@@ -238,15 +243,17 @@ export default function ImpactPage() {
               </div>
             </div>
 
-            {/* 공유 버튼 */}
-            <button
-              type="button"
-              onClick={() => void handleShare()}
-              className="mt-6 w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-gold hover:bg-gold-deep text-white font-semibold transition-colors"
-            >
-              <Share2 size={18} />
-              <span>{t('impact.shareButton')}</span>
-            </button>
+            {/* 공유 버튼 — 공유가 꺼진 지역에서는 그리지 않는다. */}
+            {canShare && (
+              <button
+                type="button"
+                onClick={() => void handleShare()}
+                className="mt-6 w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-gold hover:bg-gold-deep text-white font-semibold transition-colors"
+              >
+                <Share2 size={18} />
+                <span>{t('impact.shareButton')}</span>
+              </button>
+            )}
           </div>
         ) : null}
       </main>

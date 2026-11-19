@@ -28,6 +28,7 @@ sys.path.append(API_DIR)
 load_dotenv(os.path.join(API_DIR, ".env"))
 
 from app.core.config import settings
+from app.core.region import PUBLIC_REGION, apply_region, run_region_scoped
 from app.core.supabase import fetch_all_rows
 from app.services.predict_service import (
     CANONICAL_TYPES,
@@ -91,8 +92,40 @@ def _baseline_predictions(
     ]
 
 
+class _RegionScopedClient:
+    """facilities 읽기마다 지역 필터를 거는 얇은 감싸개 — fetch_all_rows 가 페이지마다 만드는 select 에 건다.
+
+    학습 모델은 경주 모델이다(SEOUL_TESTBED_PLAN S3). 서울 시설(개발자 전용)의 종류가 활성 종류 목록에
+    섞이지 않게 시설 읽기를 공개 지역으로 고정한다. 혼잡 로그는 트리거가 경주 시설만 받는다.
+    """
+
+    def __init__(self, client, region: str) -> None:
+        self._client, self._region = client, region
+
+    def table(self, name: str):
+        table = self._client.table(name)
+        if name != "facilities":
+            return table
+        region = self._region
+
+        class _Scoped:
+            def select(self, *args, **kwargs):
+                return apply_region(table.select(*args, **kwargs), region)
+
+        return _Scoped()
+
+
+def _load_facilities(client, region: str = PUBLIC_REGION) -> list[dict]:
+    return run_region_scoped(
+        lambda with_region: fetch_all_rows(
+            _RegionScopedClient(client, region) if with_region else client, "facilities", "id,type,is_active"
+        ),
+        region=region,
+    )
+
+
 def collect_rows(client) -> tuple[list[tuple[datetime, str, float]], dict, list[str]]:
-    facilities = fetch_all_rows(client, "facilities", "id,type,is_active")
+    facilities = _load_facilities(client, region=PUBLIC_REGION)
     facility_types = {str(row["id"]): normalize_facility_type(str(row["type"])) for row in facilities}
     active_types = sorted({
         normalize_facility_type(str(row["type"])) for row in facilities if row.get("is_active", True)

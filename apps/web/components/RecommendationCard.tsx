@@ -39,6 +39,8 @@ import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 import { PlacePhotoFallback } from '@/components/PlacePhotoFallback';
 import { placeVisual } from '@/lib/placeVisual';
 import { isCompactMapViewportNow, useCompactMapViewport } from '@/lib/useCompactMapViewport';
+import { useRegion } from '@/lib/regionContext';
+import { zoneEvidenceLines, zoneKeyGrade, type ZoneEvidence } from '@/lib/zoneEvidence';
 
 // 이만큼(세로 px) 이상 움직여야 '밀기' 로 보고 뒤따르는 click 을 무시한다. 이보다 작게 흔들린 터치는
 // 탭이다 — 브라우저가 click 을 보내면 그대로 받는다(handleDrag 주석 참조).
@@ -227,6 +229,11 @@ interface RecommendationCardProps {
   desktopFill?: boolean;
   /** 간결한 지도 미리보기(true) ↔ 펼친 카드(false)가 바뀔 때 혼잡 예측 줄을 조정한다. */
   onPeekChange?: (peek: boolean) => void;
+  /**
+   * 내부 검증 지역의 구역 혼잡 근거(lib/zoneEvidence) — 추천 breakdown 의 zone_* 키나 지도 시설의 zone 에서 부모가 만든다.
+   * 경주에는 없다(아무것도 그리지 않는다).
+   */
+  zoneEvidence?: ZoneEvidence | null;
 }
 
 export function RecommendationCard({
@@ -290,6 +297,7 @@ export function RecommendationCard({
   peekRequest,
   desktopFill = false,
   onPeekChange,
+  zoneEvidence = null,
 }: RecommendationCardProps) {
   // 익명 이용 기록 — 카드가 새 장소를 보여 줄 때 한 건(화면 경로가 /main·/saved 등을 가른다, lib/usageEvents).
   // 같은 장소의 순위·데이터가 바뀌어 다시 그려질 때는 세지 않는다.
@@ -298,6 +306,21 @@ export function RecommendationCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facility?.id]);
   const { t, locale } = useI18n();
+  // 지금 지역 — 카카오 주소 검사의 지역 토큰(경주는 '경주' 그대로)과, 경주 전용 기능(혼잡 제보·자리 현황·타임세일·
+  // 경주 예측 모델의 최적 방문 시각)을 내부 검증 지역에서 감추는 기능 표.
+  const { pack: regionPack } = useRegion();
+  const regionFeatures = regionPack.features;
+  const addressToken = regionPack.addressToken || '경주';
+  // 구역 근거의 'N분 전' 은 실제 시계로 센다(가정 시각·mockHour 와 무관). 근거가 있을 때만 1분 박자로 돈다.
+  const [zoneNowMs, setZoneNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!zoneEvidence) return;
+    const tick = () => setZoneNowMs(Date.now());
+    tick();
+    const timer = setInterval(tick, 60000);
+    return () => clearInterval(timer);
+  }, [zoneEvidence]);
+  const zoneLines = zoneEvidence && zoneNowMs !== null ? zoneEvidenceLines(zoneEvidence, zoneNowMs) : null;
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
   // congestionKey(level, busyAt) 로 칠하므로, 같은 추정이 지도에서는 '혼잡' 인데 카드에서는 '보통' 이면
   // 한 화면이 두 말을 한다. 기존 실측 배지(아래 congestionKey 0.75 고정)는 이 변경 범위 밖이다.
@@ -530,7 +553,7 @@ export function RecommendationCard({
                 ? String(p.id || '') === expectedPlaceId
                 : normalizedName === normalizedTitle;
               const closeEnough = p.distance !== undefined && Number(p.distance) <= 150;
-              return address.includes('경주') && sameIdentity && closeEnough;
+              return address.includes(addressToken) && sameIdentity && closeEnough;
             })
           : [];
         const place = candidates[0] || null;
@@ -553,14 +576,14 @@ export function RecommendationCard({
       console.error("Kakao Places API search error:", e);
     }
     return () => { active = false; };
-  }, [title, facility]);
+  }, [title, facility, addressToken]);
 
   // 펼쳐졌을 때만 '최적 방문 시각'(오늘 24시간 예측)을 지연 로드한다 — 접힌 카드까지 백엔드를 때리지 않게.
   // 예측 모델이 학습돼 있을 때만 부른다(세션당 한 번 묻는다, lib/predictModel.ts) — 미학습이면 /predict/day 는
   // 언제나 503 이라, 펼칠 때마다 실패 요청만 쌓였다.
   const dayFacilityType = facilityType || facility?.type;
   useEffect(() => {
-    if (!isExpanded || !dayFacilityType) return;
+    if (!isExpanded || !dayFacilityType || !regionFeatures.predictBatch) return;
     let active = true;
     isPredictModelTrained()
       .then((trained) => {
@@ -578,7 +601,7 @@ export function RecommendationCard({
     return () => {
       active = false;
     };
-  }, [isExpanded, dayFacilityType]);
+  }, [isExpanded, dayFacilityType, regionFeatures.predictBatch]);
 
   // 스크롤 영역 가장자리 흐림 — 위·아래로 더 볼 내용이 있는지.
   const updateScrollEdges = useCallback(() => {
@@ -731,7 +754,7 @@ export function RecommendationCard({
     /^http:\/\/place\.map\.kakao\.com/i,
     'https://place.map.kakao.com',
   ) ?? (needsHoursConfirmation
-    ? `https://map.kakao.com/?q=${encodeURIComponent(`${title} ${facility?.address ?? '경주'}`)}`
+    ? `https://map.kakao.com/?q=${encodeURIComponent(`${title} ${facility?.address ?? addressToken}`)}`
     : null);
 
   const applyHoursAnswer = (status: 'open' | 'closed') => {
@@ -746,6 +769,12 @@ export function RecommendationCard({
 
   const submitHoursStatus = async (status: 'open' | 'closed') => {
     if (!facility?.id || hoursSubmitting) return;
+    // 내부 검증 지역은 자리·영업 제보를 받지 않는다(서버도 404) — 그 사람의 답은 이 카드의 판단에만 쓴다(게스트 403 과 같은 길).
+    if (!regionFeatures.availabilityReports) {
+      setLocalHoursAnswer(status);
+      applyHoursAnswer(status);
+      return;
+    }
     setHoursSubmitting(true);
     setHoursSubmitError(false);
     try {
@@ -915,13 +944,14 @@ export function RecommendationCard({
   const facilityRaw = facility as unknown as Record<string, unknown> | undefined;
   const timesaleRateRaw = (facilityRaw?.timesaleRate ?? facilityRaw?.timesale_rate) as number | undefined;
   // 타임세일이 기본 쿠폰율보다 클 때만 존재한다는 계약이지만, 방어적으로 0보다 큰 수치만 표시.
+  // 내부 검증 지역은 타임세일·자리 현황(사장님 기능)을 끈다 — 값이 실려 와도 그리지 않는다(경주는 기능 표가 켜져 있어 그대로).
   const timesaleRatePct =
-    typeof timesaleRateRaw === 'number' && timesaleRateRaw > 0 ? Math.round(timesaleRateRaw * 100) : null;
+    regionFeatures.timesale && typeof timesaleRateRaw === 'number' && timesaleRateRaw > 0 ? Math.round(timesaleRateRaw * 100) : null;
   const couponRateRaw = (facilityRaw?.couponRate ?? facilityRaw?.coupon_rate) as number | undefined;
   const couponRatePct =
     typeof couponRateRaw === 'number' && couponRateRaw > 0 ? Math.round(couponRateRaw * 100) : null;
 
-  const seatStatusFreshRaw = (facilityRaw?.seatStatusFresh ?? facilityRaw?.seat_status_fresh) as
+  const seatStatusFreshRaw = (regionFeatures.seatStatus ? facilityRaw?.seatStatusFresh ?? facilityRaw?.seat_status_fresh : undefined) as
     | { level?: string; minutesAgo?: number; minutes_ago?: number }
     | null
     | undefined;
@@ -1054,8 +1084,14 @@ export function RecommendationCard({
         dashed: false,
       }
     : null;
+  // 내부 검증 지역의 구역 근거(lib/zoneEvidence) — 있으면 칩이 그 구역 단계를 먼저 말한다(경주에는 없다).
+  const zoneChip = zoneLines
+    ? { grade: zoneKeyGrade(zoneLines.band.key), text: `${t('card.congestion')}: ${t(zoneLines.band.key)}`, dashed: false }
+    : null;
   const crowdChipData: { grade: 'busy' | 'moderate' | 'relaxed' | 'quiet'; text: string; dashed: boolean } | null =
-    forecastCrowdLevel !== null
+    zoneChip
+      ? zoneChip
+      : forecastCrowdLevel !== null
       // 가정 시각의 예측 — 지도의 점선 고리 핀처럼 점선(추정)으로.
       ? { grade: gradeKey(forecastCrowdLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastCrowdLevel, busyAt)}`) }), dashed: true }
       : ownerSeatChip
@@ -1124,6 +1160,8 @@ export function RecommendationCard({
 
   // ── 하나의 신선도 표(I10 one-stamp) — '추천 근거 자세히' 안에 한 개만 ─────────────────────────────
   const freshnessStamp = (() => {
+    // 구역 근거: '{zone} 일대 실시간 인구 기준 · N분 전 관측'(또는 '{time} 도착 기준 예측').
+    if (zoneLines) return [t(zoneLines.source.key, zoneLines.source.params), ...(zoneLines.basis ? [t(zoneLines.basis.key, zoneLines.basis.params)] : [])].join(' · ');
     if (seatStatusFreshMinutes !== null) return `✅ ${t('card.seatConfirmed', { n: seatStatusFreshMinutes })}`;
     if (observedLevel !== null && displayDataSource && !displayDataSource.isStale) {
       const parts = relativeParts(displayDataSource.lastUpdated);
@@ -1969,6 +2007,12 @@ export function RecommendationCard({
                       {freshnessStamp}
                     </span>
                   )}
+                  {/* 평소 대비는 보조 문장만 — 단계(칩)를 바꾸지 않는다(lib/zoneEvidence). */}
+                  {zoneLines?.usual && (
+                    <span data-testid="zone-usual" className="px-2 py-0.5 text-[10px] font-medium text-muk-soft">
+                      {t(zoneLines.usual.key)}
+                    </span>
+                  )}
                   {facility.currentCount != null && facility.capacity != null && (
                     <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
                       {t('card.remainingLabel')}: {t('card.remainingValue', {
@@ -2258,7 +2302,10 @@ export function RecommendationCard({
                 {t('card.drive')}
               </button>
             ) : <span className="flex-1" />}
-            {facility?.id && (
+            {facility?.id && !regionFeatures.crowdReports && (
+              <p data-testid="card-report-disabled" className="max-w-[10rem] text-right text-[12px] leading-snug text-muk-soft">{t('card.reportDisabledRegion')}</p>
+            )}
+            {facility?.id && regionFeatures.crowdReports && (
               <CongestionReportButton
                 facility={{ id: facility.id!, name: facility.name ?? title }}
                 isFirst={displayCongestionSource === 'none'}

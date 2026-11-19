@@ -21,6 +21,7 @@ import {
   describeCalibrationState,
   describeFetchFailure,
   describeQualityDelta,
+  describeRankGate,
   formatKst,
   formatQualityNumber,
   hourShapeRows,
@@ -187,6 +188,8 @@ export function SeoulCalibrationPanel({ targets = [] }: { targets?: PipelineTarg
             </div>
           </div>
 
+          {data.rank_gate && <RankGateRow view={describeRankGate(data.rank_gate)} />}
+
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div>
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
@@ -231,6 +234,25 @@ function QualityTile({
       <p className="text-lg font-bold text-hanok-ink mt-1">{calibrated}</p>
       <p className="text-[11px] text-hanok-muted mt-1">기준선 {identity} · {delta}</p>
       <p className="text-[11px] text-hanok-muted/80">{hint}</p>
+    </div>
+  );
+}
+
+/** 순위 관문 — 보고 전용. 경주 적용 판정(위 '경주 추정에 적용')과 따로 둔다. */
+function RankGateRow({ view }: { view: ReturnType<typeof describeRankGate> }) {
+  return (
+    <div className="bg-hanok-card border border-hanok-line rounded-xl p-3 space-y-1 min-w-0" data-testid="calibration-rank-gate">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs font-semibold text-hanok-ink">{view.title}</p>
+        <span className={`inline-block px-2 py-0.5 rounded-md border text-[11px] font-semibold ${TONE_BOX[view.badge.tone]}`}>
+          {view.badge.label}
+        </span>
+      </div>
+      {view.lines.map((line) => (
+        <p key={line} className="text-[11px] text-hanok-muted tabular-nums break-words">{line}</p>
+      ))}
+      {view.reason && <p className="text-[11px] text-hanok-muted break-words">{view.reason}</p>}
+      {view.definition && <p className="text-[11px] text-hanok-muted/80 break-words">{view.definition}</p>}
     </div>
   );
 }

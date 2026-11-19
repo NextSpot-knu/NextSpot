@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from app.core.region import PUBLIC_REGION, REGION_HEADER
 from app.services.spot.preference import get_category_average_vector
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import (
@@ -117,6 +118,18 @@ def classify_culture_indoor_evidence(facilities: list[dict]) -> dict[str, list[s
     }
 
 
+# 품질 게이트는 공개 지역(경주) 추천을 잰다. 지역 헤더를 보내지 않으면 서버는 언제나 경주로 답한다
+# (SEOUL_TESTBED_PLAN S3 — 서울은 개발자 계정이 헤더를 보낼 때만). 그래서 요청 헤더에 지역을 싣지 않는다.
+QUALITY_REGION = PUBLIC_REGION
+
+
+def live_headers(bearer: str) -> dict[str, str]:
+    """by-type 요청 헤더 — 지역 헤더(X-NextSpot-Region)는 일부러 없다(공개 지역 고정)."""
+    headers = {"Authorization": f"Bearer {bearer}", "Content-Type": "application/json"}
+    assert REGION_HEADER not in headers
+    return headers
+
+
 def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dict:
     url = f"{base_url.rstrip('/')}/api/v1/infrastructures"
     with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 - explicit CLI URL
@@ -150,7 +163,7 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
             }).encode()
             request = urllib.request.Request(
                 f"{base_url.rstrip('/')}/api/v1/recommendations/by-type", data=body,
-                headers={"Authorization": f"Bearer {bearer}", "Content-Type": "application/json"},
+                headers=live_headers(bearer),
             )
             with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - explicit CLI URL
                 ranked = json.load(response)

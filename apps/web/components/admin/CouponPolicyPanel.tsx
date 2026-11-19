@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { fetchAllPages } from '@/lib/adminLoadState';
+import { logSearchTyping } from '@/lib/actionLog';
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from 'shared-types';
 
 // 개입 폐루프(B2G 관제→개입): POI 별 제휴 할인율(coupon_rate)을 슬라이더로 조정하면
@@ -177,8 +178,9 @@ export function CouponPolicyPanel() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={14} />
           <input
             type="text"
+            data-log-value="search"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); logSearchTyping(e.target.value, 'admin-coupons'); }}
             placeholder="시설명 검색"
             className="pl-8 pr-3 py-1.5 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 w-full lg:w-40"
           />
