@@ -1,4 +1,13 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-11-10 — Play 주력 = 웹 TWA(`feat/twa`) · Expo 앱 패키지 `kr.nextspot.expo` 로
+
+- 도구·브랜치: Claude Code(클라우드) / `feat/twa`(origin/main 기준) `80ed3ce`·`479af46` · `yunseong` 이 기록 + 패키지명 커밋
+- 결정(사용자): App Store 를 접어 'WebView 감싸기 금지' 이유가 사라졌다 → **Play 주력은 운영 웹을 Bubblewrap TWA 로 감싼 앱**, Expo 앱은 병렬 유지. 패키지 `kr.nextspot.app` 은 TWA, Expo 는 `kr.nextspot.expo`(한 폰에 둘 다). iOS `bundleIdentifier` 는 iOS 를 접어 그대로 둔다(App Store 로 다시 가면 그때 정한다).
+- 한 것: ① `apps/twa` — `@bubblewrap/core` 1.27.0 으로 생성(standalone·portrait·`#faf5ec`·위치 위임 켬·알림 위임 끔·1/1.0.0·minSdk 24·폴백 customtabs). 클라우드가 운영 호스트를 막아 아이콘은 `apps/web/public` 을 로컬 서빙해 만들었다. 서명키는 `.gitignore`. ② `.github/workflows/twa-debug-apk.yml`(`feat/twa` push + dispatch, 디버그 APK 14일) — 첫 실행은 minSdk 21 이 androidbrowserhelper 2.7.4(최소 24)와 맞지 않아 실패 → 24 로 고쳐 [run 42736007454](https://github.com/NextSpot-knu/NextSpot/actions/runs/42736007454) 초록 · 아티팩트 `nextspot-twa-debug-479af46…`(5.2MB, 11-24 만료). ③ `apps/mobile/app.json` `android.package` → `kr.nextspot.expo`.
+- 검증: check-docs · mobile tsc · 테스트 68 · expo-doctor 19/21(실패 2 = exp.host·RN Directory 접속 차단, 네트워크 — CI mobile 잡에서 본다).
+- 다음·미결: `feat/twa` → main PR(팀장 승인). 그 뒤 Play 앱 서명 지문으로 `apps/web/public/.well-known/assetlinks.json`(PR) → 릴리스 서명·AAB·Play 업로드. 디버그 APK 는 assetlinks 가 없어 주소창이 보이는 게 정상.
+- 사람 작업: "사람 작업 대기" 11-10 ①~③(EAS 새 키 빌드 · Maps 키 앱 제한 · 옛 Expo 빌드 지우기).
+
 ## 2026-11-09b — 모바일 앱 웹 판(디자이너용) · EAS Hosting `https://nextspot.expo.app` · 시트 반영 preview APK
 
 - 도구·브랜치: Claude Code(i7, 구현 2 · 독립 검토 1) / `yunseong` · 커밋 `fc99dcd`·`dbe498f`·`3a38113` + 이 기록.

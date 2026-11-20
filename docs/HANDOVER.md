@@ -314,6 +314,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-21 — 첫 화면 디자인 수정(디자이너 팀원) — 기와 돌담 배경 · 로그인 버튼 · 문구 정리
+
+- 도구·브랜치: Claude Code / `yunseong` — `rejudge` 의 같은 커밋을 cherry-pick(디자인 수정은 영구 반영이라 두 브랜치 모두)
+- 커밋: 웹 1건 + 이 기록
+- 한 것: 디자이너 팀원의 수정 캡처·배경 원화대로 첫 화면(`app/page.tsx`)을 고쳤다. ① 배경을 그라데이션·광원·고분 능선에서 기와 돌담으로(원화 16:9 에서 담장 띠만 잘라 `public/landing-wall.webp` 36KB, `.landing-wall` — 폭 비율로 서고 폰은 104px, 폰 본문은 그 높이만큼 아래를 비워 링크가 기와와 겹치지 않는다) ② 지역 배지('천년고도') 삭제(`landing.badge` 4로케일 삭제) ③ '바로 시작' 화살표 빼고 가운데 정렬, 그 옆에 '로그인 / 회원가입' 버튼(`cta-secondary`) — 맨 아래 로그인·서비스 소개 줄 삭제 ④ 서비스 소개는 데이터 띠 안으로(폰은 콘솔 링크 줄 앞) ⑤ 오른쪽 바로가기 판의 제목·안내 줄 삭제(`FeatureShortcuts heading={false}` — 구역 이름은 aria-label), 1~4번 줄에 '이동'(`featureMap.go` 4로케일), 5번 줄 콘솔 버튼 글자 가운데. 반딧불이는 그대로. DEMO_SCENARIO 가 말하는 '바로 시작' 이름은 그대로다.
+- 검증: web lint(0 error)·typecheck·test 122·build · e2e `landing`·`console-entries`·`service-guide`·`doc-crosswalk`·`judge-surfaces`·`fixed-overlays` 86 통과(다크 3건 skip) · check-docs. 스크린샷 1920·1536·1366(ko·en)·390(ko·en)·360.
+- 다음·미결: 다크 모드는 꺼져 있어(`DARK_MODE_ENABLED=false`) 야간 돌담(`brightness(0.3)`)은 눈으로 못 봤다 — 켤 때 확인. 소개 모달의 '이렇게 써 보세요' 제목·안내 줄은 그대로 뒀다(수정 지시는 첫 화면 캡처 기준).
+- 사람 작업: 없음.
+
 ## 2026-11-12b — 재심사 안 2 확정 · `rejudge` 브랜치(main `0747801` + 되돌림 + 행동 기록)
 
 - 도구·브랜치: Claude Code / `rejudge`(worktree) · `yunseong`
@@ -362,15 +371,6 @@ from checks order by seq;
 - 결정(사용자, 11-10 오후): **Play 주력을 Expo 앱으로 되돌렸다.** TWA 는 보류. 이어서 **패키지명도 Expo 가 `kr.nextspot.app` 을 되찾기로**(코드 반영은 i7 — 절차는 "우선순위").
 - 다음·미결: **i7 에서** Expo 앱을 웹앱과 같은 모습으로 맞춘다(기준 = `yunseong` 의 `apps/web` 관광객 화면 390px. 일부러 다르게 만든 곳은 없다 — 11-09 추천 시트·여정 카드도 웹과 다르면 웹에 맞춘다. 지도 바탕 타일만 예외).
 - 사람 작업: 11-10 ①~③ 은 하지 않는다(패키지명 복귀로 불필요 — i7 에서 코드 반영 뒤 지운다).
-
-## 2026-11-10 — Play 주력 = 웹 TWA(`feat/twa`) · Expo 앱 패키지 `kr.nextspot.expo` 로
-
-- 도구·브랜치: Claude Code(클라우드) / `feat/twa`(origin/main 기준) `80ed3ce`·`479af46` · `yunseong` 이 기록 + 패키지명 커밋
-- 결정(사용자): App Store 를 접어 'WebView 감싸기 금지' 이유가 사라졌다 → **Play 주력은 운영 웹을 Bubblewrap TWA 로 감싼 앱**, Expo 앱은 병렬 유지. 패키지 `kr.nextspot.app` 은 TWA, Expo 는 `kr.nextspot.expo`(한 폰에 둘 다). iOS `bundleIdentifier` 는 iOS 를 접어 그대로 둔다(App Store 로 다시 가면 그때 정한다).
-- 한 것: ① `apps/twa` — `@bubblewrap/core` 1.27.0 으로 생성(standalone·portrait·`#faf5ec`·위치 위임 켬·알림 위임 끔·1/1.0.0·minSdk 24·폴백 customtabs). 클라우드가 운영 호스트를 막아 아이콘은 `apps/web/public` 을 로컬 서빙해 만들었다. 서명키는 `.gitignore`. ② `.github/workflows/twa-debug-apk.yml`(`feat/twa` push + dispatch, 디버그 APK 14일) — 첫 실행은 minSdk 21 이 androidbrowserhelper 2.7.4(최소 24)와 맞지 않아 실패 → 24 로 고쳐 [run 42736007454](https://github.com/NextSpot-knu/NextSpot/actions/runs/42736007454) 초록 · 아티팩트 `nextspot-twa-debug-479af46…`(5.2MB, 11-24 만료). ③ `apps/mobile/app.json` `android.package` → `kr.nextspot.expo`.
-- 검증: check-docs · mobile tsc · 테스트 68 · expo-doctor 19/21(실패 2 = exp.host·RN Directory 접속 차단, 네트워크 — CI mobile 잡에서 본다).
-- 다음·미결: `feat/twa` → main PR(팀장 승인). 그 뒤 Play 앱 서명 지문으로 `apps/web/public/.well-known/assetlinks.json`(PR) → 릴리스 서명·AAB·Play 업로드. 디버그 APK 는 assetlinks 가 없어 주소창이 보이는 게 정상.
-- 사람 작업: "사람 작업 대기" 11-10 ①~③(EAS 새 키 빌드 · Maps 키 앱 제한 · 옛 Expo 빌드 지우기).
 
 ## 기록 규칙
 
