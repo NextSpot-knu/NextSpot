@@ -130,9 +130,13 @@ class Settings(BaseSettings):
     # 아래 관광 데이터랩 상품은 KorService2와 별도 활용신청이 필요하지만 승인 후에는 같은
     # 공공데이터포털 인증키를 사용한다. 별도 키를 만들지 않아 운영 시크릿 수를 늘리지 않는다.
 
-    # --- LLM 어댑터(app/services/llm_client.py) — 국산 Upstage Solar, OpenAI 호환 ---
-    # 선택값: 비어 있으면 LLM 기능이 전부 조용히 비활성(기존 결정적 경로 그대로 — 무해 폴백).
-    # 제공자 교체는 BASE_URL/MODEL 만 바꾸면 된다(OpenAI 호환 chat completions 라면 무엇이든).
+    # --- LLM 어댑터(app/services/llm_client.py) — OpenAI 호환 chat completions ---
+    # 선택값: 키가 비어 있으면 LLM 기능이 전부 조용히 비활성(기존 결정적 경로 그대로 — 무해 폴백).
+    # 제공자 교체는 키·BASE_URL·MODEL 만 바꾸면 된다(OpenAI 호환 chat completions 라면 무엇이든).
+    # 2026-11-20 운영 제공자 = BizRouter(모두의 창업 사업지원비 결제, Upstage 크레딧 만료로 교체) —
+    # 운영값(BASE_URL·MODEL·TIMEOUT)은 Render env 가 덮어쓴다. 아래 기본값은 예전 Upstage 직결 값이다.
+    # 키는 제공자 중립 이름 LLM_API_KEY 가 정식. UPSTAGE_API_KEY 는 옛 이름 — LLM_API_KEY 가 비었을 때만 읽는다.
+    LLM_API_KEY: str = ""
     UPSTAGE_API_KEY: str = ""
     # 전체 스위치 — 기본 꺼짐(2026-10-22 PM "당분간 꺼놔"). 꺼져 있으면 키가 있어도 LLM 을 부르지 않는다.
     # 다시 켜려면 Render 환경변수 LLM_ENABLED=true(저장하면 재시작). render.yaml 에는 넣지 않았다 —

@@ -1,18 +1,20 @@
-"""제공자 독립 LLM 어댑터 — OpenAI 호환 chat completions (기본: 국산 Upstage Solar).
+"""제공자 독립 LLM 어댑터 — OpenAI 호환 chat completions.
 
 공모전 결정(2026-07-17, PM 확정): 국산 우선 + 비용 최소화 → Upstage solar-pro3
 (가입 $10 크레딧, $0.15/$0.60 per MTok, 실측 지연 0.8~1.1초, JSON 신뢰성 solar-mini 대비 우위).
+2026-11-20 Upstage 크레딧 만료(403) → 운영 제공자를 BizRouter(OpenAI 호환 라우터)로 교체, 모델은
+Claude Haiku 4.5(추론 단계 없는 소형 — 짧은 JSON 추출·5초 상한에 맞춤). 코드 변경 없이 env 로 전환됐다.
 2026 관광데이터 공모전 규정에 외부 AI API 제한 없음(TourAPI 필수 활용 조건은 별도 충족).
 
 설계 원칙 — 무해 폴백(이 저장소의 LLM 재도입 조건):
-  - LLM_ENABLED 꺼짐(기본, 2026-10-22~) 또는 UPSTAGE_API_KEY 미설정 → is_enabled() False,
+  - LLM_ENABLED 꺼짐(기본, 2026-10-22~) 또는 키(LLM_API_KEY, 옛 이름 UPSTAGE_API_KEY) 미설정 → is_enabled() False,
     호출은 네트워크 없이 즉시 None.
   - 전역 일일 예산(LLM_DAILY_BUDGET) 소진 → 네트워크 없이 즉시 None(비활성과 같은 결과).
   - 타임아웃(기본 3초)·HTTP 오류·JSON 파싱 실패 → 전부 None. 호출자는 None 이면 기존
     결정적 경로(키워드 분류기·템플릿)를 그대로 쓴다 — LLM 장애가 기능 장애로 승격되지 않는다.
   - 예외 원문·응답 본문은 서버 로그에만 남긴다(인증키·발화 원문 노출 방지).
 
-제공자 교체: settings.LLM_BASE_URL/LLM_MODEL 만 바꾸면 OpenAI 호환 제공자(Gemini OpenAI
+제공자 교체: 키와 settings.LLM_BASE_URL/LLM_MODEL 만 바꾸면 OpenAI 호환 제공자(Gemini OpenAI
 엔드포인트 등)로 전환된다 — 호출부는 이 모듈의 시그니처만 안다.
 
 전신(InduSpot)에서 Vertex Gemini 를 제거했던 이유(외부 의존·데모 리스크)를 기억할 것:
@@ -34,12 +36,17 @@ logger = structlog.get_logger()
 _client: Optional[httpx.AsyncClient] = None
 
 
+def api_key() -> str:
+    """LLM 인증키 — 제공자 중립 LLM_API_KEY 가 정식, 비어 있으면 옛 이름 UPSTAGE_API_KEY(운영 env 이전 호환)."""
+    return (settings.LLM_API_KEY or "").strip() or (settings.UPSTAGE_API_KEY or "").strip()
+
+
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
             base_url=settings.LLM_BASE_URL,
-            headers={"Authorization": f"Bearer {settings.UPSTAGE_API_KEY}"},
+            headers={"Authorization": f"Bearer {api_key()}"},
             timeout=settings.LLM_TIMEOUT_SECONDS,
             limits=httpx.Limits(max_connections=10),
         )
@@ -48,7 +55,7 @@ def _get_client() -> httpx.AsyncClient:
 
 def is_enabled() -> bool:
     """전체 스위치(LLM_ENABLED)가 켜져 있고 키가 설정돼 있을 때만 True — 호출자는 False 면 LLM 경로 자체를 건너뛴다."""
-    return settings.LLM_ENABLED and bool((settings.UPSTAGE_API_KEY or "").strip())
+    return settings.LLM_ENABLED and bool(api_key())
 
 
 # --- 전역 일일 LLM 예산(settings.LLM_DAILY_BUDGET) — 모든 호출자의 마지막 비용 안전판 ----------------

@@ -1011,7 +1011,7 @@ function DashboardPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-bold text-hanok-ink">오늘의 브리핑</span>
                   <span className="px-2 py-0.5 text-[10px] font-semibold text-gold-deep border border-gold/30 rounded-full bg-gold/5">
-                    AI 브리핑 · Solar
+                    AI 브리핑
                   </span>
                 </div>
                 <p className="text-sm text-hanok-muted leading-relaxed">{briefing}</p>

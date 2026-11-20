@@ -21,7 +21,7 @@ NextSpot을 로컬에서 띄우는 방법. 데이터 저장소는 팀 Supabase �
 |---|---|
 | 필수(없으면 부팅 실패) | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
 | 권장 | `SUPABASE_SERVICE_ROLE_KEY` — 관리자 쓰기·수집·증빙 서명 URL 등 service_role 경로 |
-| 선택 | `KAKAO_REST_API_KEY`(장소 검색·화장실) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `UPSTAGE_API_KEY`(LLM 보조 — 없으면 조용히 비활성) `ALLOWED_ORIGINS`(미설정 시 `*`; `.env.example` 값은 localhost 3000·3001) |
+| 선택 | `KAKAO_REST_API_KEY`(장소 검색·화장실) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `LLM_API_KEY`(LLM 보조 — 없으면 조용히 비활성. 옛 이름 `UPSTAGE_API_KEY` 도 읽힘) `ALLOWED_ORIGINS`(미설정 시 `*`; `.env.example` 값은 localhost 3000·3001) |
 
 - `ADMIN_API_TOKEN`은 사람 로그인용이 아니다. 기계 호출이 `X-Service-Token`(GitHub Actions) 또는 구 이름
   `X-Admin-Authorization: Bearer`(Supabase pg_cron)로 보내는 서비스 토큰이며(`SERVICE_API_TOKEN`이 있으면 그것만 유효),
@@ -111,5 +111,5 @@ curl -X POST http://localhost:8000/api/v1/voice/turn -H "Content-Type: applicati
 ## 7. 참고
 
 - 정적 export 빌드(`apps/web`에서 `npm run build`)는 `apps/web/out/`을 만든다. `next start`는 export 모드에서 쓰지 않는다.
-- LLM(Upstage Solar)은 `UPSTAGE_API_KEY`가 있을 때만 보조로 붙고, 없거나 타임아웃·오류면 결정적 경로(템플릿 사유·키워드 의도)로 돌아간다.
+- LLM(운영 2026-11-20~ BizRouter 경유 Claude Haiku 4.5)은 `LLM_API_KEY`(옛 이름 `UPSTAGE_API_KEY`)가 있고 `LLM_ENABLED=true` 일 때만 보조로 붙고, 없거나 타임아웃·오류면 결정적 경로(템플릿 사유·키워드 의도)로 돌아간다.
 - 검증 게이트 전체 목록은 `../AGENTS.md`.

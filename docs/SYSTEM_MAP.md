@@ -571,7 +571,7 @@ source_composition 에 synthetic/seed/simulated/single_report 가
 이 원칙 재검토 후에만."*
 
 ```
-UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 None
+LLM_ENABLED 꺼짐 또는 LLM_API_KEY(옛 UPSTAGE_API_KEY) 미설정 → is_enabled() False → 네트워크 없이 즉시 None
 타임아웃(3초) / HTTP 오류 / JSON 파싱 실패 → 전부 None
                     ↓
    호출자는 기존 결정적 경로(키워드 분류기·템플릿)를 그대로 사용
@@ -724,7 +724,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 **필수 env** — `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` (없으면 부팅 실패)
 + `SUPABASE_SERVICE_ROLE_KEY` (쓰기 경로에 필요)
 
-**선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `UPSTAGE_API_KEY`
+**선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `LLM_API_KEY`
 `SERVICE_API_TOKEN`(스케줄러 토큰 회전용 — 없으면 `ADMIN_API_TOKEN` 폴백)
 
 **콘솔에는 맞출 토큰이 없다.** 사장님·관리자 콘솔은 앱 계정 로그인 + `users.role` 로 들어간다
@@ -743,7 +743,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 | 확장 | 건드릴 곳 |
 |---|---|
 | **다른 지역** | `apps/web/lib/region.ts` + `ingest_tourapi.py --lat --lng` 재실행 |
-| **다른 LLM 제공자** | `LLM_BASE_URL` / `LLM_MODEL` env만 (OpenAI 호환이면 무엇이든) |
+| **다른 LLM 제공자** | `LLM_API_KEY` · `LLM_BASE_URL` / `LLM_MODEL` env만 (OpenAI 호환이면 무엇이든 — 2026-11-20 Upstage → BizRouter 가 이 방식) |
 | **SPOT 가중치 조정** | `score.py` **와** `shared-types/spot.ts` 동시 (한쪽만 바꾸면 CI 실패) |
 | **새 데이터 소스** | `services/`에 무해 폴백 갖춘 모듈 + `facility_source_refs`로 출처 추적 |
 | **새 언어** | `lib/i18n/messages/*.json` (parity 테스트가 키 누락 차단) |

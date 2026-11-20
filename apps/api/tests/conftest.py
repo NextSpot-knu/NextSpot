@@ -18,9 +18,11 @@ os.environ.setdefault("ADMIN_API_TOKEN", "placeholder-admin")
 # 머천트 토큰은 Settings 경유(.env 도 읽힘)라, 로컬 .env 에 값이 있으면 테스트가 환경에 좌우된다.
 # env var 가 .env 보다 우선하므로 데모 기본값으로 고정한다(테스트가 가정하는 값과 일치).
 os.environ.setdefault("MERCHANT_API_TOKEN", "nextspot-merchant-local")
-# LLM(Upstage Solar) 테스트 격리 — 로컬 .env 에 실키가 있어도 env var 가 .env 보다 우선하므로
-# 빈 값으로 고정해 is_enabled()=False(전 테스트 LLM 네트워크 차단). LLM 경로가 필요한 테스트는
+# LLM 테스트 격리 — 로컬 .env 에 실키가 있어도 env var 가 .env 보다 우선하므로
+# 빈 값으로 고정해 is_enabled()=False(전 테스트 LLM 네트워크 차단). 키 이름이 둘(정식 LLM_API_KEY,
+# 옛 이름 UPSTAGE_API_KEY)이라 둘 다 비운다. LLM 경로가 필요한 테스트는
 # llm_client 함수를 개별 monkeypatch 한다(TOURAPI 차단 픽스처와 동일 원칙).
+os.environ.setdefault("LLM_API_KEY", "")
 os.environ.setdefault("UPSTAGE_API_KEY", "")
 # 운영 기본값은 LLM 전체 스위치 꺼짐(2026-10-22)이다. 테스트는 키 monkeypatch 만으로 LLM 경로를 검증해 왔으므로
 # 스위치는 켜 두고, 네트워크 차단은 위의 빈 키가 계속 맡는다.

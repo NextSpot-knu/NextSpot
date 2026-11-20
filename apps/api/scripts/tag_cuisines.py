@@ -258,7 +258,7 @@ async def run(args: argparse.Namespace) -> int:
 
     if targets and not llm_client.is_enabled():
         # 무해 폴백 원칙(llm_client.py) — 키 미설정은 스크립트 오류가 아니라 조용한 스킵.
-        print("[tag] UPSTAGE_API_KEY 미설정 — LLM 비활성 상태입니다. 태깅 없이 종료합니다.")
+        print("[tag] LLM 키(LLM_API_KEY) 미설정 또는 LLM_ENABLED 꺼짐 — LLM 비활성 상태입니다. 태깅 없이 종료합니다.")
         return 0
 
     tagged_at = datetime.now(timezone.utc).isoformat()

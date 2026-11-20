@@ -5,7 +5,7 @@
 (전신 InduSpot 시절 Vertex AI Gemini 를 썼다가 외부 의존·데모 리스크로 제거한 이력이 있다 —
 LLM 은 어디까지나 백스톱이며 주 경로를 LLM 으로 바꾸지 않는다.)
 
-무해 폴백: UPSTAGE_API_KEY 미설정/타임아웃/파싱 실패/화이트리스트 전량 탈락 → 기존 키워드
+무해 폴백: LLM 키 미설정/타임아웃/파싱 실패/화이트리스트 전량 탈락 → 기존 키워드
 빈 결과 그대로(LLM 장애가 기능 장애로 승격 금지). LLM 출력은 enum 코드만 허용하고 8차원
 벡터는 항상 build_preference_vector() 가 결정적으로 생성한다(벡터 직접 출력 금지 — 기획 §4-⑥).
 
@@ -213,7 +213,7 @@ async def parse_preference(text: str, *, llm_gate: Callable[[], bool] | None = N
     elif not text:
         llm_status = "keyword"  # 빈 입력 — 애초에 LLM 시도 대상이 아니다
     elif not llm_client.is_enabled():
-        llm_status = "disabled"  # UPSTAGE_API_KEY 미설정
+        llm_status = "disabled"  # LLM 키(LLM_API_KEY·옛 UPSTAGE_API_KEY) 미설정
     elif not llm_client.budget_available() or (llm_gate is not None and not llm_gate()):
         # 전역 일일 예산 소진 또는 라우터의 IP별 LLM 리밋 초과(게이트는 LLM 직전에만 평가 —
         # 키워드로 끝난 요청은 리밋을 쓰지 않는다) → 키워드 빈 결과 유지(무해 폴백).

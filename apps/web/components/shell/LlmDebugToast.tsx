@@ -1,6 +1,6 @@
 'use client';
 
-// LLM 동작 디버그 배지 — 개발 단계 전용 도구. 'AI(Upstage Solar)가 실제로 돌았다 vs 폴백이
+// LLM 동작 디버그 배지 — 개발 단계 전용 도구. 'AI(LLM)가 실제로 돌았다 vs 폴백이
 // 나왔다'를 화면 좌하단에 잠깐 띄워 기능을 쓸 때마다 즉시 확인할 수 있게 한다.
 //
 // lib/api-client.ts 가 응답 파싱 직후 중앙에서 발행하는 'nextspot:llm-debug' CustomEvent 를
@@ -46,7 +46,7 @@ const FEATURE_LABELS = {
 function voiceLabLabel(feature: keyof typeof FEATURE_LABELS, status: string): string {
   const name = FEATURE_LABELS[feature];
   if (status === 'llm') {
-    return feature === 'lab' ? '🤖 실험실: Solar 분류' : `🤖 ${name}: Solar 응답`;
+    return feature === 'lab' ? '🤖 실험실: LLM 분류' : `🤖 ${name}: LLM 응답`;
   }
   switch (status) {
     case 'keyword':

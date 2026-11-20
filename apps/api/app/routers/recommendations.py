@@ -1260,8 +1260,8 @@ class RecommendationOutcomeRequest(BaseModel):
 #   1) 로컬 키워드 분류기가 먼저 판정한다(voice_intent_service._keyword_interpret). accept·next·
 #      stop·details·select·command 로 분류되면 외부 호출 0 — 네트워크가 발생하지 않는다.
 #   2) 그 결과가 filter(음식·조건 선호)이거나 unknown 이고, 후보가 1개 이상이며,
-#      UPSTAGE_API_KEY 가 설정돼 있고, IP 레이트리밋(_voice_llm_allowed)을 통과할 때만
-#      외부 LLM 제공자(settings.LLM_BASE_URL — 기본 api.upstage.ai)로 요청이 나간다.
+#      LLM 키(LLM_API_KEY·옛 UPSTAGE_API_KEY)가 설정돼 있고, IP 레이트리밋(_voice_llm_allowed)을 통과할 때만
+#      외부 LLM 제공자(settings.LLM_BASE_URL — 운영 2026-11-20~ BizRouter 경유 Claude Haiku 4.5)로 요청이 나간다.
 #   3) 그때 나가는 데이터: 발화 원문(300자 절단), 현재 추천 이름, 상위 15개 후보의 이름·종류·
 #      대표메뉴, app_context. **가게 이름이 외부로 나간다.**
 #   4) 키 미설정·게이트 차단·호출 실패면 외부 전송 없이 키워드 결과로 폴백한다(무해 폴백).

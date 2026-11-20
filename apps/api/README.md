@@ -16,7 +16,7 @@ py -3.11 -m uvicorn app.main:app --reload --port 8000
 환경변수(`apps/api/.env`, `.env.example` 복사 — 전체 목록과 기본값은 `app/core/config.py`):
 - 필수(미설정 시 부팅 실패): `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN`
 - 권장: `SUPABASE_SERVICE_ROLE_KEY`(관리자 쓰기·수집·증빙 서명 URL) · 선택: `SERVICE_API_TOKEN`(기계 토큰 회전용),
-  `KAKAO_REST_API_KEY`, `TOURAPI_KEY`, `KMA_API_KEY`, `PARKING_API_KEY`, `UPSTAGE_API_KEY`(+`LLM_BASE_URL`/`LLM_MODEL`), `ALLOWED_ORIGINS`.
+  `KAKAO_REST_API_KEY`, `TOURAPI_KEY`, `KMA_API_KEY`, `PARKING_API_KEY`, `LLM_API_KEY`(+`LLM_BASE_URL`/`LLM_MODEL` — 운영은 BizRouter, 옛 이름 `UPSTAGE_API_KEY` 도 폴백으로 읽음), `ALLOWED_ORIGINS`.
 
 ## 계층 구성
 

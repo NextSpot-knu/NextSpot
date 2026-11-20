@@ -336,7 +336,7 @@ def _coerce_command(raw) -> dict | None:
 # 원칙: 키워드 분류기 = 주 경로(결정적·지연 0). accept/next 같은 흔한 명령은 LLM 을 타지 않는다.
 # ⚠️ 개입 조건은 'unknown 일 때만'이 아니다 — 키워드가 **filter 로 분류한 턴도** 후보 문맥으로
 # search_query 를 정제하려고 LLM 을 탄다(interpret_turn 참조). 그때 외부 LLM 제공자
-# (settings.LLM_BASE_URL — 기본 api.upstage.ai)로
+# (settings.LLM_BASE_URL — 운영 2026-11-20~ BizRouter 경유 Claude Haiku 4.5)로
 # 나가는 데이터: 발화 원문(300자 절단), 현재 추천 이름, 상위 15개 후보의 이름·종류·대표메뉴,
 # app_context. **가게 이름이 포함된다.** 사용자 계정 정보는 이 경로에 없다(무인증 엔드포인트).
 # LLM 은 복합 발화("애들 데리고 조용하게 밥 먹을 데")도 받으며, 실패(비활성/타임아웃/파싱)는
@@ -521,7 +521,7 @@ async def interpret_turn(
     intent_category, spoken, llm_status} 반환(llm_status 는 개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지).
 
     외부 전송(개인정보 흐름): 로컬 키워드 분류가 먼저 판정한다. 그 결과가 filter 이거나 unknown 이고,
-    후보가 1개 이상이며, UPSTAGE_API_KEY 가 설정돼 있고, llm_gate 를 통과할 때만 Upstage Solar 로
+    후보가 1개 이상이며, LLM 키가 설정돼 있고, llm_gate 를 통과할 때만 외부 LLM 제공자(LLM_BASE_URL)로
     발화 원문·현재 추천 이름·상위 15개 후보(이름/종류/대표메뉴)·app_context 가 전송된다.
     그 외 모든 턴(accept/next/stop/details/select 로 분류된 턴, 키 미설정, 게이트 차단, 후보 0개)은
     네트워크 호출 없이 로컬에서 끝난다. 반환값의 llm_status 가 그 턴의 실제 경로다
@@ -559,7 +559,7 @@ async def interpret_turn(
     if parsed["action"] != "unknown":
         llm_status = "keyword"  # 키워드 분류기가 이미 판정 — LLM 시도 없음
     elif not llm_client.is_enabled():
-        llm_status = "disabled"  # UPSTAGE_API_KEY 미설정
+        llm_status = "disabled"  # LLM 키(LLM_API_KEY·옛 UPSTAGE_API_KEY) 미설정
     elif not candidates:
         llm_status = "gated"  # 후보 0개 — select/filter 가 성립 안 해 유료 호출 스킵
     elif llm_gate is not None and not llm_gate():

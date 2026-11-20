@@ -26,8 +26,41 @@ def test_extract_json_variants():
 
 
 def test_is_enabled_false_without_key():
-    # 2. conftest 가 UPSTAGE_API_KEY="" 로 고정 — 테스트 환경에선 항상 비활성
+    # 2. conftest 가 LLM_API_KEY·UPSTAGE_API_KEY 를 "" 로 고정 — 테스트 환경에선 항상 비활성
     assert llm_client.is_enabled() is False
+
+
+def test_api_key_prefers_neutral_name_and_falls_back(monkeypatch):
+    # 2b. 키 이름 이전(2026-11-20 BizRouter 교체) — LLM_API_KEY 가 정식, 비면 옛 UPSTAGE_API_KEY.
+    #     Render 에 옛 이름만 있어도 LLM 이 꺼지지 않아야 하고, 둘 다 있으면 새 이름이 이긴다.
+    monkeypatch.setattr(settings, "LLM_API_KEY", "")
+    monkeypatch.setattr(settings, "UPSTAGE_API_KEY", " legacy-key ")
+    assert llm_client.api_key() == "legacy-key"
+    assert llm_client.is_enabled() is True
+
+    monkeypatch.setattr(settings, "LLM_API_KEY", "new-key")
+    assert llm_client.api_key() == "new-key"
+
+    monkeypatch.setattr(settings, "UPSTAGE_API_KEY", "")
+    assert llm_client.api_key() == "new-key"
+    assert llm_client.is_enabled() is True
+
+    monkeypatch.setattr(settings, "LLM_API_KEY", "   ")  # 공백뿐이면 미설정과 같다
+    assert llm_client.api_key() == ""
+    assert llm_client.is_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_bearer_header_uses_resolved_key(monkeypatch):
+    # 2c. 실제 요청 헤더에 새 이름 키가 실린다(옛 이름은 무시).
+    monkeypatch.setattr(settings, "LLM_API_KEY", "new-key")
+    monkeypatch.setattr(settings, "UPSTAGE_API_KEY", "legacy-key")
+    monkeypatch.setattr(llm_client, "_client", None)
+    client = llm_client._get_client()
+    try:
+        assert client.headers["Authorization"] == "Bearer new-key"
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.asyncio

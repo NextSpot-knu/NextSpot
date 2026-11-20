@@ -1024,7 +1024,7 @@ export async function parseTravelContext(text: string): Promise<ParseTravelConte
 
 // --- 음성 비서 1턴 해석 ---
 // 로컬 전용이 아니다: 백엔드가 먼저 키워드로 판정하고(accept·next·stop·details·select·command 면
-// 외부 호출 0), **분류되지 않은 발화와 filter 턴만** Upstage 로 나간다(발화 원문·현재 추천 이름·
+// 외부 호출 0), **분류되지 않은 발화와 filter 턴만** 외부 LLM 제공자(운영 BizRouter 경유)로 나간다(발화 원문·현재 추천 이름·
 // 후보 가게 이름 포함). 키가 없거나 차단·실패면 전송 없이 폴백한다.
 
 export interface VoiceTurnCandidate {
