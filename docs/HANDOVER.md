@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **2026-11-21 KST main `4301c2f..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시. 웹·문서만: 첫 화면 디자인 수정, 아래 2026-11-21).** Vercel 자동 배포 — 라이브 확인은 사람. API·스키마 무변경(Render 재배포 불필요). 되돌림 = Vercel 이전 배포 또는 `773fc35` revert.
+- **2026-11-21 KST main `4301c2f..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시 두 번. 웹·문서만: 첫 화면 디자인 수정 `773fc35` + 바로가기 판 아랫선을 데이터 띠에 맞춤 `406e449`, 아래 2026-11-21).** Vercel 자동 배포 — 라이브 확인은 사람. API·스키마 무변경(Render 재배포 불필요). 되돌림 = Vercel 이전 배포 또는 두 커밋 revert. 남은 것: 영어·일본어·중국어 낮은 창(1366×650 등)에서 두 판 아래가 돌담 지붕에 걸린다(판은 불투명 — 글자는 읽힌다) — 돌담 높이를 창 높이 기준으로 줄이는 안은 사용자 결정 대기.
 - **2026-11-20 KST main `ac52e78..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시. API·웹 주석·문서: LLM 키 이름 `LLM_API_KEY` + BizRouter 기록, 아래 2026-11-20).** API 는 옛 키 이름도 읽어 동작 불변 — Render 는 `ac52e78` 그대로 두어도 된다(반영은 사람 작업 대기). 웹은 관제 'AI 브리핑' 꼬리표만.
 - **2026-11-19 KST main `0747801..e745993`(`rejudge` fast-forward, 사용자 지시) + 이어서 PR #13 이식 · 테스트 수정(아래 2026-11-19).** Vercel 웹 자동 배포 — 라이브 확인은 사람. Render `nextspot-t2ib` 는 11-19 사용자 Manual Deploy 로 `ac52e78`(`/health` healthy · 1,779곳, 11-20 확인).
 - **2026-11-12 KST main 갱신 계획 — `rejudge` fast-forward(웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
