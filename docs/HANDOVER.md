@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-11-21 KST main `4301c2f..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시. 웹·문서만: 첫 화면 디자인 수정, 아래 2026-11-21).** Vercel 자동 배포 — 라이브 확인은 사람. API·스키마 무변경(Render 재배포 불필요). 되돌림 = Vercel 이전 배포 또는 `773fc35` revert.
 - **2026-11-20 KST main `ac52e78..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시. API·웹 주석·문서: LLM 키 이름 `LLM_API_KEY` + BizRouter 기록, 아래 2026-11-20).** API 는 옛 키 이름도 읽어 동작 불변 — Render 는 `ac52e78` 그대로 두어도 된다(반영은 사람 작업 대기). 웹은 관제 'AI 브리핑' 꼬리표만.
 - **2026-11-19 KST main `0747801..e745993`(`rejudge` fast-forward, 사용자 지시) + 이어서 PR #13 이식 · 테스트 수정(아래 2026-11-19).** Vercel 웹 자동 배포 — 라이브 확인은 사람. Render `nextspot-t2ib` 는 11-19 사용자 Manual Deploy 로 `ac52e78`(`/health` healthy · 1,779곳, 11-20 확인).
 - **2026-11-12 KST main 갱신 계획 — `rejudge` fast-forward(웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
@@ -300,7 +301,7 @@ from checks order by seq;
 - 커밋: 웹 1건 + 이 기록
 - 한 것: 디자이너 팀원의 수정 캡처·배경 원화대로 첫 화면(`app/page.tsx`)을 고쳤다. ① 배경을 그라데이션·광원·고분 능선에서 기와 돌담으로(원화 16:9 에서 담장 띠만 잘라 `public/landing-wall.webp` 36KB, `.landing-wall` — 폭 비율로 서고 폰은 104px, 폰 본문은 그 높이만큼 아래를 비워 링크가 기와와 겹치지 않는다) ② 지역 배지('천년고도') 삭제(`landing.badge` 4로케일 삭제) ③ '바로 시작' 화살표 빼고 가운데 정렬, 그 옆에 '로그인 / 회원가입' 버튼(`cta-secondary`) — 맨 아래 로그인·서비스 소개 줄 삭제 ④ 서비스 소개는 데이터 띠 안으로(폰은 콘솔 링크 줄 앞) ⑤ 오른쪽 바로가기 판의 제목·안내 줄 삭제(`FeatureShortcuts heading={false}` — 구역 이름은 aria-label), 1~4번 줄에 '이동'(`featureMap.go` 4로케일), 5번 줄 콘솔 버튼 글자 가운데. 반딧불이는 그대로. DEMO_SCENARIO 가 말하는 '바로 시작' 이름은 그대로다.
 - 검증: web lint(0 error)·typecheck·test 122·build · e2e `landing`·`console-entries`·`service-guide`·`doc-crosswalk`·`judge-surfaces`·`fixed-overlays` 86 통과(다크 3건 skip) · check-docs. 스크린샷 1920·1536·1366(ko·en)·390(ko·en)·360.
-- 다음·미결: main 반영은 사용자 지시 뒤(웹만 — Vercel 자동 배포). 다크 모드는 꺼져 있어(`DARK_MODE_ENABLED=false`) 야간 돌담(`brightness(0.3)`)은 눈으로 못 봤다 — 켤 때 확인. 소개 모달의 '이렇게 써 보세요' 제목·안내 줄은 그대로 뒀다(수정 지시는 첫 화면 캡처 기준).
+- 다음·미결: main 반영 11-21(사용자 지시, 위 "배포 상태"). 다크 모드는 꺼져 있어(`DARK_MODE_ENABLED=false`) 야간 돌담(`brightness(0.3)`)은 눈으로 못 봤다 — 켤 때 확인. 소개 모달의 '이렇게 써 보세요' 제목·안내 줄은 그대로 뒀다(수정 지시는 첫 화면 캡처 기준).
 - 사람 작업: 없음.
 
 ## 2026-11-20 — LLM 제공자 Upstage → BizRouter(Claude Haiku 4.5) · 키 이름 `LLM_API_KEY`
