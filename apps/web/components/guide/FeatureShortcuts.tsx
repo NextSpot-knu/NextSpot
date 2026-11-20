@@ -25,7 +25,11 @@ const ICONS: Record<FeatureShortcutKey, LucideIcon> = {
   console: Building2,
 };
 
-export default function FeatureShortcuts({ onNavigate }: { onNavigate?: () => void }) {
+export default function FeatureShortcuts({ onNavigate, heading = true }: {
+  onNavigate?: () => void;
+  /** false: 제목·안내 줄을 그리지 않는다(데스크톱 랜딩 — 2026-11-21 디자인 수정). 구역 이름은 aria-label 로 남는다. */
+  heading?: boolean;
+}) {
   const t = useT();
   const { account } = useAccount();
   const rows = featureShortcuts(account);
@@ -34,11 +38,17 @@ export default function FeatureShortcuts({ onNavigate }: { onNavigate?: () => vo
   const onMain = isMainPath(usePathname());
 
   return (
-    <section className={styles.shortcuts} aria-labelledby={headingId}>
-      <div className={styles.shortcutsHead}>
-        <h2 id={headingId} className={styles.shortcutsTitle}>{t('featureMap.title')}</h2>
-        <p className={styles.shortcutsHint}>{t('featureMap.hint')}</p>
-      </div>
+    <section
+      className={styles.shortcuts}
+      aria-labelledby={heading ? headingId : undefined}
+      aria-label={heading ? undefined : t('featureMap.title')}
+    >
+      {heading && (
+        <div className={styles.shortcutsHead}>
+          <h2 id={headingId} className={styles.shortcutsTitle}>{t('featureMap.title')}</h2>
+          <p className={styles.shortcutsHint}>{t('featureMap.hint')}</p>
+        </div>
+      )}
       <ol className={styles.shortcutList}>
         {rows.map((row, index) => {
           const Icon = ICONS[row.key];
@@ -83,7 +93,11 @@ export default function FeatureShortcuts({ onNavigate }: { onNavigate?: () => vo
             <li key={row.key}>
               <Link href={row.href ?? '/main'} prefetch={false} onClick={onRowClick} className={styles.shortcutRow} data-shortcut={row.key}>
                 {text}
-                <ChevronRight size={18} aria-hidden className={styles.shortcutChevron} />
+                {/* '이동' — 줄 전체가 링크라는 것을 글자로도 알린다. 링크 이름은 기능 이름 그대로 두려고 읽기에서 뺀다. */}
+                <span className={styles.shortcutGo} aria-hidden>
+                  {t('featureMap.go')}
+                  <ChevronRight size={18} />
+                </span>
               </Link>
             </li>
           );

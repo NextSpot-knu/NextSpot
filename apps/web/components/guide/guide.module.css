@@ -434,9 +434,15 @@ a.shortcutRow:hover {
   word-break: keep-all;
 }
 
-.shortcutChevron {
+.shortcutGo {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   color: var(--color-muk-soft);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .shortcutConsoles {
@@ -450,6 +456,7 @@ a.shortcutRow:hover {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 5px 12px;
   border: 1.5px solid var(--color-line);

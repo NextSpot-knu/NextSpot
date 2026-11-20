@@ -5,7 +5,7 @@
 //   (1) '데스크톱이냐'를 JS 로 판정하는 미디어 쿼리가 Tailwind lg 와 같은 단위(rem)다. px 로 쓰면 브라우저 기본 글자
 //       크기가 16px 이 아닐 때(크롬 '글꼴 크게' = 20px → lg 는 1280px) 보이는 배치와 JS 판정이 갈린다 — 폰 배치가
 //       보이는데 화면 탭이 안 먹거나, 데스크톱 배치에서 소개 모달이 저절로 열린다(2026-10-07 리뷰).
-//   (2) 폰 첫 화면의 출처 줄은 '바로 시작'·축제 배너 바로 아래, 로그인 줄보다 위다 — 맨 아래에 두면 축제가 선 날
+//   (2) 폰 첫 화면의 출처 줄은 '바로 시작'·축제 배너 바로 아래, 콘솔 줄보다 위다 — 맨 아래에 두면 축제가 선 날
 //       390×844 첫 화면 밖으로 밀렸다(e2e/landing.spec.ts 가 위치를, 여기서는 순서를 잠근다).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,7 +26,7 @@ const lg = /--breakpoint-lg:\s*([^;]+);/.exec(globals)?.[1]?.trim() ?? '64rem';
 assert.equal(query, `(min-width: ${lg})`, `DESKTOP_QUERY 는 Tailwind lg(${lg})와 같은 단위·값이어야 한다`);
 assert.ok(!/min-width:\s*\d+px/.test(query), 'px 쿼리는 기본 글자 크기가 바뀌면 lg: 와 갈린다');
 
-// ── (2) 폰 첫 화면 순서: 바로 시작 → 축제 배너 → 출처 줄 → 로그인 ─────────────────────────────
+// ── (2) 폰 첫 화면 순서: 바로 시작 → 로그인(옆 버튼, 2026-11-21) → 축제 배너 → 출처 줄 → 콘솔 ─────────────
 const phone = page.slice(0, page.indexOf('lg:block'));
 const at = (needle: string) => {
   const index = phone.indexOf(needle);
@@ -35,11 +35,11 @@ const at = (needle: string) => {
 };
 const order = [
   at("t('landing.ctaStart')"),
+  at("t('landing.ctaLogin')"),
   at('<FestivalBanner variant="banner"'),
   at("t('landing.dataAttribution')"),
-  at("t('landing.ctaLogin')"),
   at("t('nav.merchantShort')"),
 ];
-assert.deepEqual([...order].sort((a, b) => a - b), order, '폰 첫 화면 순서가 바로 시작 → 축제 → 출처 → 로그인 → 콘솔이 아니다');
+assert.deepEqual([...order].sort((a, b) => a - b), order, '폰 첫 화면 순서가 바로 시작 → 로그인 → 축제 → 출처 → 콘솔이 아니다');
 
 console.log('landingWiring tests passed');

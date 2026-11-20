@@ -327,6 +327,26 @@ html:not(.nextspot-dark) .nextspot-main-map img:not([src^="data:"]) {
 .cta-primary:hover:not(:disabled) {
   filter: brightness(1.06);
 }
+/* 주 버튼 옆의 둘째 버튼(랜딩 '로그인 / 회원가입') — 그라데이션의 시작색 단색. 흰 글자 4.5:1 이상(#8a6a1c). */
+.cta-secondary {
+  background-color: var(--nextspot-cta-from);
+  color: #fff;
+}
+.cta-secondary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* 랜딩 바닥의 기와 돌담(app/page.tsx). 띠의 비율(3840:604)대로 폭에 맞춰 서고, 폰처럼 좁으면 최소 높이에서
+   좌우를 잘라 보여 준다. 낮고 넓은 창에서는 높이를 막고 위(기와)부터 보인다 — 기와가 잘리지 않게 top 정렬. */
+.landing-wall {
+  aspect-ratio: 3840 / 604;
+  min-height: 104px;
+  max-height: 34dvh;
+  background: url('/landing-wall.webp') center top / cover no-repeat;
+}
+html.nextspot-dark .landing-wall {
+  filter: brightness(0.3) saturate(0.8);
+}
 
 /* 사진 없는 장소의 표지 판 — --tile 은 컴포넌트가 장소마다 정한다(lib/placeVisual.ts). 문양 선은 currentColor. */
 .place-tile {
