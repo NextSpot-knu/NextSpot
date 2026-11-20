@@ -6,7 +6,8 @@
 
 ## 배포 상태
 
-- **2026-11-19 KST main `0747801..e745993`(`rejudge` fast-forward, 사용자 지시) + 이어서 PR #13 이식 · 테스트 수정(아래 2026-11-19).** Vercel 웹 자동 배포 — 라이브 확인은 사람. Render 는 아직 `a9ecd92` — Manual Deploy 대기("사람 작업 대기" 재심사 ③).
+- **2026-11-20 KST main `ac52e78..`(이 기록 커밋까지 — `rejudge` fast-forward, 사용자 지시. API·웹 주석·문서: LLM 키 이름 `LLM_API_KEY` + BizRouter 기록, 아래 2026-11-20).** API 는 옛 키 이름도 읽어 동작 불변 — Render 는 `ac52e78` 그대로 두어도 된다(반영은 사람 작업 대기). 웹은 관제 'AI 브리핑' 꼬리표만.
+- **2026-11-19 KST main `0747801..e745993`(`rejudge` fast-forward, 사용자 지시) + 이어서 PR #13 이식 · 테스트 수정(아래 2026-11-19).** Vercel 웹 자동 배포 — 라이브 확인은 사람. Render `nextspot-t2ib` 는 11-19 사용자 Manual Deploy 로 `ac52e78`(`/health` healthy · 1,779곳, 11-20 확인).
 - **2026-11-12 KST main 갱신 계획 — `rejudge` fast-forward(웹·API·스키마·문서).** 관광공모전 전면 재심사 안 2(아래 2026-11-12 · [`contest/REJUDGE_REVERT.md`](./contest/REJUDGE_REVERT.md) §5). 순서: **Supabase 마이그레이션 `20261031120000`·`20261031130000`·`20261112090000`(11-12 사용자 적용 · anon 키로 표·함수 존재 확인) → main(Vercel 웹) → KST 밤 Render Manual Deploy + `LLM_ENABLED=true`**. 웹의 관제·게스트 제보는 옛 API(`a9ecd92`)와도 맞는다. 되돌림 = Vercel 이전 배포(`0747801`, 태그 `pre-rejudge-main`).
 - **2026-10-31 KST main 갱신 예정(오늘 밤 KST — `yunseong` fast-forward, API·웹·스키마·문서).** 10-31b·c 작업(영업시간·관제·사장님 + 서울 S1·S2·S5·S6 + 게스트 답 그림자 모드). 순서는 **API(Render Manual Deploy) 먼저 → 웹 바로 뒤**, 마이그레이션 `20261031120000`·`20261031130000` 은 **API 배포 직후 적용**(그 전에도 깨지지는 않는다 — `130000` 전에는 API 가 옛 RPC 로 돌아가고, 그때 게스트 답은 평가만 남긴다 — 닫힌 쪽 폴백). API 배포 전에 Render `SEOUL_CITYDATA_TARGETS` 정리·종로 4곳 이름 확인(아래 "사람 작업 대기"). `feature/donggi`(3커밋, 10-30)는 LanguageSwitcher·NowChip·ShareButton 만 건드려 `git merge-tree` 로 겹침 없이 합쳐진다.
 - **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
@@ -76,7 +77,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **(11-12 재심사 ③ · KST 밤) Render `nextspot-t2ib` — Manual Deploy(main 머리) + `LLM_ENABLED=true`** — main 이 `rejudge` 로 올라간 뒤. 먼저 `UPSTAGE_API_KEY` · Upstage 잔액 · 월 지출 상한을 본다(PR #13 사용량 제한은 11-19 `rejudge` 에 이식 — 이 배포로 켜진다. 전역 상한 `LLM_DAILY_BUDGET` 기본 2000회/일). 배포 전 아래 10-31c ①(`SEOUL_CITYDATA_TARGETS` 옛 값 지우기) · ③(종로 이름). 뒤에 `/health` `deploy.commit` · 일요일 휴무 장소 하나 · 관제 첫 화면 · 게스트 혼잡 제보 · 음성 비서.
+- [ ] **(11-20) Render `nextspot-t2ib` LLM 키 이름 옮기기** — main 머리 Manual Deploy(KST 밤 권장) → `/health` `deploy.commit` 이 새 커밋인지 확인 **한 뒤에만** `LLM_API_KEY` 에 BizRouter 키를 넣고 `UPSTAGE_API_KEY` 를 지운다(순서가 바뀌면 옛 코드가 키를 못 읽어 LLM 이 조용히 꺼진다). 저장 뒤 `/api/v1/travel-context/parse` 한 번으로 `llm_status: "llm"` 확인.
 - [ ] **(11-12 재심사 ④) 행동 기록 확인** — SQL Editor 에서 `20261112090000` 파일 끝 확인 쿼리(트리거 5개)와 "마이그레이션 확인" 19·20·21번. main 반영 뒤 개발자 계정으로 운영 사이트를 몇 번 눌러 `/dev/activity` 에 기기 · 계정 · IP 가 맞게 찍히는지, IP 가 어느 헤더로 오는지(`ip_chain`) 본다.
 - [ ] **(11-12 재심사 ⑤) 제출 서류 · 법무** — 서류의 API 주소가 오리건(`nextspot-api.onrender.com`, 10-22 정지 · 503)인지 확인. 개인정보 안내 '접속·조작 기록' 절 법무 검토.
 - [ ] **(11-12 재심사 ⑥) 배치 D 다시** — D3 심사 가게 쿠폰율 · `system_settings` 재심사 주간 아침마다, D6 두 심사 계정 첫 화면, D7 전날 밤 Keep-Warm.
@@ -293,6 +294,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-20 — LLM 제공자 Upstage → BizRouter(Claude Haiku 4.5) · 키 이름 `LLM_API_KEY`
+
+- 도구·브랜치: Claude Code / `rejudge`(main `ac52e78` 위)
+- 커밋: API·웹 주석·문서 1건 + 이 기록
+- 한 것: 11-19 배포 뒤 LLM 이 전부 폴백 — Render 로그 `403 Forbidden`(api.upstage.ai, 크레딧 만료). 사용자가 모두의 창업 사업지원비로 결제한 BizRouter(OpenAI 호환)로 옮겼다 — 코드 변경 없이 Render env 만(`LLM_BASE_URL=https://api.bizrouter.ai/v1` · `LLM_MODEL`=Claude Haiku 4.5 · `LLM_TIMEOUT_SECONDS=5` · 키는 옛 이름 칸). 모델: Gemini 2.5 계열은 지원 종료 예정, Solar Pro 3 는 BizRouter 에 없고 Solar Pro 4 는 특성 미확인, 추론형(GPT-5 Mini·o 계열)은 150토큰·5초에서 빈 답 위험 → Haiku 4.5. 이어서 키를 제공자 중립 `LLM_API_KEY`(정식, 비면 `UPSTAGE_API_KEY`)로 읽게 하고(`llm_client.api_key()`), 데이터 흐름 주석·관제 'AI 브리핑 · Solar' 꼬리표·디버그 배지·env 문서를 고쳤다. `render.yaml` 은 Blueprint 가 오리건을 가리켜 손대지 않았다.
+- 검증: 운영 `/travel-context/parse` — 키워드로 풀리는 문장 0.32초 `keyword`, 아닌 문장 1.56초 `llm`(걷기 10분·이동 편의·문화). 로컬 게이트는 커밋 본문.
+- 다음·미결: 모델 종료 공지가 오면 `LLM_MODEL` 만 바꾼다(폴백이 조용해 종료돼도 티가 안 난다 — 바꿀 때마다 `llm_status` 확인). 사업지원비로 관광공모전 재심사 웹까지 쓰는 것이 집행 규정에 맞는지는 사용자 확인.
+- 사람 작업: "사람 작업 대기" 11-20 키 이름 옮기기. Upstage 잔액 문의(팀장)는 필요 없어졌다.
+
 ## 2026-11-19 — main 을 `rejudge` 로 · PR #13(LLM 호출 제한) 이식 · 리뷰 없는 main 반영 규칙
 
 - 한 일:
@@ -368,15 +378,6 @@ from checks order by seq;
 - 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
 - 다음·미결: 사진 내리기는 관제 > 인프라 맨 위 '사장님이 올린 가게 사진'(PR #29, 사진이 있을 때만 보인다). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
 - 사람 작업: 없음.
-
-## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
-
-- 도구·브랜치: Claude Code / `feat/usage-events-1023`(main `9cf767c` 위)
-- 커밋: 이 기록 포함 1건(웹·스키마·API 테스트·문서, API 코드 무변경)
-- 한 것: PM 결정(10-23) — 외부 분석 업체 없이 Supabase `public.usage_events` 에 익명 이벤트를 쌓는다. 브라우저는 고른 칼럼에 INSERT 만(읽기 없음, user_id 칼럼 없음), 이벤트 이름은 CHECK 화이트리스트(`lib/usageEvents.ts` 와 같은 목록 — `tests/migrations/test_usage_events_migration.py` 가 대조), 1년 보관(pg_cron 매일 삭제). 웹은 `page_view`(화면 이동) · `rec_shown`(카드) · `rec_accept`/`rec_drive`/`rec_next`/`rec_later`(카드 버튼) · `visit_arrived`/`visit_congestion`(도착 확인) · `congestion_report` 를 운영 주소에서만, 자동화(`navigator.webdriver`)·Do Not Track 은 빼고 2초씩 모아 보낸다. 실패하면 그 탭에서 멈춘다. 개인정보 안내(`/mypage/privacy`)에 '이용 기록' 절을 4로케일로 더하고 '수집하는 정보' 문장을 고쳤다(최종 업데이트 2026-10-23).
-- 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
-- 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
-- 사람 작업: 표 적용 1회(위).
 
 ## 기록 규칙
 
