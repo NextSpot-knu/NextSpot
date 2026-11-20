@@ -521,10 +521,13 @@ a.shortcutRow:hover {
   gap: clamp(40px, 5vw, 88px);
 }
 
-/* 오른쪽 '이렇게 써 보세요'는 왼쪽 로고 줄(40px + 20px)만큼 내려 제목과 윗선을 맞춘다 — 낮은 창(1366×650)에서
-   위로 붙은 판이 오른쪽 위 언어 선택과 겹치지 않는다. */
+/* 오른쪽 기능 바로가기 판은 아랫선을 왼쪽 칸의 맨 아래(데이터 띠 아랫선)에 맞춘다(2026-11-21 디자인 수정 —
+   예전에는 로고 줄만큼 내려 윗선을 맞췄고, 판이 띠보다 80px 남짓 아래로 내려와 바닥 돌담에 걸렸다).
+   왼쪽 칸은 그대로 위에 붙는다(align-items: start) — 늦게 온 축제 배너가 '바로 시작'을 움직이지 않는다. 배너가 서면
+   왼쪽이 아래로 자라고 판도 함께 내려가 아랫선이 계속 맞는다. 판이 왼쪽보다 키가 크면 맞출 수 없으므로
+   낮은 창에서는 판을 줄인다(아래 max-height 절). */
 .heroLanding .heroAside {
-  margin-top: 60px;
+  align-self: end;
 }
 
 .heroLanding .heroTitle {
@@ -553,9 +556,18 @@ a.shortcutRow:hover {
     line-height: 1.65;
   }
 
+  /* 판 높이를 왼쪽 칸(한국어 1280×720 에서 395px)보다 낮게 — 그래야 아랫선이 데이터 띠와 맞는다(420 → 384px). */
+  .heroLanding .shortcuts {
+    padding: 14px;
+  }
+
+  .heroLanding .shortcutList {
+    gap: 6px;
+  }
+
   .heroLanding .shortcutRow {
-    min-height: 64px;
-    padding-block: 9px;
+    min-height: 60px;
+    padding-block: 8px;
   }
 }
 
