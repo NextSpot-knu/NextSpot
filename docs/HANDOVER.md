@@ -294,6 +294,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-21 — 첫 화면 디자인 수정(디자이너 팀원) — 기와 돌담 배경 · 로그인 버튼 · 문구 정리
+
+- 도구·브랜치: Claude Code / `rejudge`(main `4301c2f` 위) — 같은 커밋을 `yunseong` 에도 cherry-pick(디자인 수정은 영구 반영)
+- 커밋: 웹 1건 + 이 기록
+- 한 것: 디자이너 팀원의 수정 캡처·배경 원화대로 첫 화면(`app/page.tsx`)을 고쳤다. ① 배경을 그라데이션·광원·고분 능선에서 기와 돌담으로(원화 16:9 에서 담장 띠만 잘라 `public/landing-wall.webp` 36KB, `.landing-wall` — 폭 비율로 서고 폰은 104px, 폰 본문은 그 높이만큼 아래를 비워 링크가 기와와 겹치지 않는다) ② 지역 배지('천년고도') 삭제(`landing.badge` 4로케일 삭제) ③ '바로 시작' 화살표 빼고 가운데 정렬, 그 옆에 '로그인 / 회원가입' 버튼(`cta-secondary`) — 맨 아래 로그인·서비스 소개 줄 삭제 ④ 서비스 소개는 데이터 띠 안으로(폰은 콘솔 링크 줄 앞) ⑤ 오른쪽 바로가기 판의 제목·안내 줄 삭제(`FeatureShortcuts heading={false}` — 구역 이름은 aria-label), 1~4번 줄에 '이동'(`featureMap.go` 4로케일), 5번 줄 콘솔 버튼 글자 가운데. 반딧불이는 그대로. DEMO_SCENARIO 가 말하는 '바로 시작' 이름은 그대로다.
+- 검증: web lint(0 error)·typecheck·test 122·build · e2e `landing`·`console-entries`·`service-guide`·`doc-crosswalk`·`judge-surfaces`·`fixed-overlays` 86 통과(다크 3건 skip) · check-docs. 스크린샷 1920·1536·1366(ko·en)·390(ko·en)·360.
+- 다음·미결: main 반영은 사용자 지시 뒤(웹만 — Vercel 자동 배포). 다크 모드는 꺼져 있어(`DARK_MODE_ENABLED=false`) 야간 돌담(`brightness(0.3)`)은 눈으로 못 봤다 — 켤 때 확인. 소개 모달의 '이렇게 써 보세요' 제목·안내 줄은 그대로 뒀다(수정 지시는 첫 화면 캡처 기준).
+- 사람 작업: 없음.
+
 ## 2026-11-20 — LLM 제공자 Upstage → BizRouter(Claude Haiku 4.5) · 키 이름 `LLM_API_KEY`
 
 - 도구·브랜치: Claude Code / `rejudge`(main `ac52e78` 위)
@@ -359,25 +368,6 @@ from checks order by seq;
 - 검증: check-docs. 일요일 휴무 오판은 `open_status_at_arrival` 직접 실행으로 재현했다(위 "알려진 이슈").
 - 다음·미결: 사용자 검토 뒤 Phase 0(일요일 휴무 버그 · 게스트 방문 확인 체감 혼잡 · 운영 시나리오 값 제거 · 안전 '판정 불가' · 문구 정리)부터.
 - 사람 작업: Phase 0-7 의 세 건(`JWT_SECRET` 시크릿 · Render Deploy Hook · 서울 수집 점검 SQL)은 이미 "사람 작업 대기"에 있는 항목이다.
-
-## 2026-10-30 — 게스트(익명 세션) 혼잡·영업 제보 차단 + IP·시설당 한 계정
-
-- 도구·브랜치: Claude Code / `yunseong`(main `168f979` 위)
-- 커밋: 이 기록 포함 1건(API·웹·API 테스트·문서, 스키마 무변경)
-- 한 것: 보안 진단 '중 — 게스트가 혼잡 근거를 오염'(사용자 결정: 완전 차단). `POST /reports/congestion`·`/reports/availability` 가 새 가드 `authz.get_registered_user`(JWT `is_anonymous`, DB 안 읽음)로 게스트를 403. 계정 여러 개를 한 단말에서 돌려 '두 사람의 일치' 를 꾸미지 못하게 **IP·시설당 한 계정 30분**(DB 교차검증 창과 같은 길이)을 더했다 — 처음엔 IP 쪽도 쿨다운 길이(5분·1분)로 걸었는데, 리뷰 에이전트가 '두 번째 계정이 5분 1초 뒤에 보내면 그대로 corroborated' 임을 짚어 바꿨다. 같은 리뷰로 검사→기록 사이 await 경합(동시 두 계정이 함께 통과)도 닫았다(`_reserve_report_slot` 이 await 없이 자리를 잡고, 저장 실패면 되돌린다). 네 라우터에 복제돼 있던 XFF 해석은 `app/core/client_ip.py` 하나로. 웹: 혼잡 제보 403 → '로그인 후 제보할 수 있어요'(기존 키). 영업 상태 확인이 403(게스트)·429(같은 네트워크 다른 계정)면 답을 서버에 남기지 않고 그 화면에서만 수락·제외를 잇는다(`RecommendationCard` · `explore/recommend` — 영업시간 미확인 가게의 '바로 갈래요' 가 막히지 않는다).
-  **동작 변경(공개)**: 게스트는 혼잡을 제보할 수 없고 '방문객 n분 전' 칩·제보 쿠폰 보상은 계정 사용자 제보로만 채워진다. 같은 와이파이·같은 공인 IP(통신사 CGNAT 포함)의 두 번째 계정은 같은 장소를 30분 동안 제보할 수 없다(혼잡 → '잠시 후 다시', 영업 → 그 화면에만 적용). 로그인 사용자의 제보에서 역할 조회가 빠졌다(전보다 DB 읽기 1회 적음).
-- 검증: api ruff · pytest 2497 · 새 테스트 6건(게스트 403 두 경로가 DB·프로필 조회 전에 끝남 · 30분 창이 사용자 쿨다운 뒤에도 유지되고 닫히면 풀림(두 경로) · IP 를 바꿔도 사용자 쿨다운 유지 · INSERT 시점에 자리가 이미 잡혀 있고 실패하면 되돌림) · OpenAPI 스냅샷은 두 경로 설명 문구만 · web lint(0 error)·typecheck·test·build · check-docs.
-- 다음·미결: main 반영은 사용자 확인 뒤 KST 밤(API 변경 — Render 자동 배포가 안 되므로 반영 뒤 Manual Deploy 또는 Deploy Hook, "사람 작업 대기" 첫 줄). XFF 방향 관측(보안 진단 '중')은 그대로 — Render 가 hop 을 덧붙인다면 IP 규칙이 '전원 한 키' 가 되어 한 장소를 30분에 한 계정만 제보하게 된다(관측 전 위험). IPv6 는 /64 안에서 주소를 바꿔 IP 규칙을 피할 수 있다(정규화 미구현). 영업 확인 안내문(`card.hoursCheckPrivacy` '…만 기록해요')은 게스트에게는 기록하지 않는 경우라 과소가 아닌 과대 진술 — 문구는 그대로 뒀다.
-- 사람 작업: 없음(위 배포 항목은 기존 줄).
-
-## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
-
-- 도구·브랜치: Claude Code / `feat/merchant-photos-1024` · `feat/admin-photo-takedown-1024` · `feat/usage-summary-1024` 외(PR #23~#26·#28 은 이미 main)
-- 커밋: 이 기록 포함(웹·스키마·API 테스트·문서, API 코드 무변경)
-- 한 것: 디벨롭 로드맵. ① 사장님 가게 사진(PM 10-24: 바로 공개 · 관리자 사후 관리) — 공개 버킷 `facility-photos/<가게 id>/`, 올리기·기록은 그 가게의 현재 사장님만(`owns_facility_folder` 스토리지 정책 · `set_merchant_photo` RPC), 내리기는 사장님 또는 관리자(`clear_merchant_photo`). 사진 자리는 `features.merchant_photo`(밤 적재가 `image_url` 은 지울 수 있지만 features 는 병합한다). 사장님 콘솔 '⑤ 가게 사진'(올리기·바꾸기·내리기, 데모는 토스트만), 추천 카드·'지금 출발하면?'은 이 사진을 첫 후보로. ② 같은 날 웹만: 혼잡 칩이 사장님 30분 안 좌석 상태('사장님 5분 전: 자리 여유', #26) · 방문객 2시간 안 제보('방문객 12분 전: 한산', #25)를 먼저 말한다 · `/guide` '이런 분께'·'자주 묻는 질문'(#24, 펼친 채) · `/waiting` 대표 카드 3장 폰 가로 넘김(#23). ⑥ 관제 대시보드 '서비스 이용 현황'(③ 분산 효과 차트 아래) — 관리자 전용 집계 RPC `usage_summary(p_days)`(1~90일, KST): 방문 → 추천 카드 확인 → 바로 갈래요 → 도착 확인 방문자 수와 날짜별 방문자. 행·익명 번호는 밖으로 나가지 않고, 조회가 안 되면 패널이 숨는다.
-- 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
-- 다음·미결: 사진 내리기는 관제 > 인프라 맨 위 '사장님이 올린 가게 사진'(PR #29, 사진이 있을 때만 보인다). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
-- 사람 작업: 없음.
 
 ## 기록 규칙
 
