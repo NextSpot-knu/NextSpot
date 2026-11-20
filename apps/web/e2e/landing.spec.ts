@@ -121,7 +121,9 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 1366, height: 650
       await expectInViewport(page, row, KO_LABELS[index]);
       await expect(row).toContainText(KO_LABELS[index]);
     }
-    await expect(page.getByRole('heading', { level: 2, name: '이렇게 써 보세요' })).toBeVisible();
+    // 제목·안내 줄은 랜딩에서 뺐다(2026-11-21 디자인 수정) — 구역 이름은 aria-label 로 남는다.
+    await expect(page.getByRole('region', { name: '이렇게 써 보세요' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: '이렇게 써 보세요' })).toHaveCount(0);
     // 데이터 띠 — 무엇으로 고르는지, 출처, 출처 표 버튼.
     await expect(page.getByText('경주 관광지·음식점 1,600여 곳, 공영주차 실시간, 날씨 예보로 골라 드려요')).toBeVisible();
     await expect(page.getByText('데이터 출처: ⓒ한국관광공사 · 경상북도 경주시 · 기상청').locator('visible=true')).toBeVisible();

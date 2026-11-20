@@ -153,15 +153,12 @@ export default function LoadingPage() {
   return (
     <div
       onClick={onRootTap}
-      className="relative flex min-h-[100dvh] flex-col items-center overflow-x-hidden bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 cursor-pointer lg:cursor-auto"
+      className="relative flex min-h-[100dvh] flex-col items-center overflow-x-hidden bg-hanji cursor-pointer lg:cursor-auto"
     >
       {/* 언어 선택 — 진입 즉시 외국인 관광객이 전환 가능(부모 onClick 이동 방지) */}
       <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
         <LanguageSwitcher />
       </div>
-
-      {/* 은은한 금빛 광원 (기존 콜드 blue 글로우 대체) */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-gold/15 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
       {/* 반딧불이 — 경주 여름밤의 은은한 금빛 점들이 천천히 떠다니며 숨쉬듯 밝아졌다 사그라든다.
           장식 전용(z-0·pointer-events-none), 위치·주기는 고정 배열(SSG 하이드레이션 안전),
@@ -219,26 +216,16 @@ export default function LoadingPage() {
         ))}
       </div>
 
-      {/* 하단 경주 노을 광원 */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[420px] h-[280px] bg-sunset-1/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
+      {/* 기와 돌담 — 첫 3초 안에 '경주'를 알리는 시각 시그니처(2026-11-21 디자이너 팀원 원화, 장식 전용 —
+          레이아웃·포인터 영향 없음). 원화는 16:9 전체 화면이고 위쪽은 한지색(#faf6ec ≈ hanji)이라 담장 띠만 잘라
+          바닥에 깐다(public/landing-wall.webp, 3840×604). 높이·야간 처리는 globals.css .landing-wall. */}
+      <div className="landing-wall pointer-events-none absolute inset-x-0 bottom-0 z-0" aria-hidden="true" />
 
-      {/* 대릉원 고분 능선 실루엣 — 첫 3초 안에 '경주'를 알리는 시각 시그니처(장식 전용, 레이아웃·포인터 영향 없음).
-          원경(옅은 jade) 위에 근경(짙은 jade)을 겹쳐 노을 광원이 능선을 역광으로 비추는 구도. */}
-      <svg
-        viewBox="0 0 1440 240"
-        preserveAspectRatio="xMidYMax slice"
-        className="absolute bottom-0 inset-x-0 w-full h-[26vh] min-h-[140px] pointer-events-none z-0"
-        aria-hidden="true"
-      >
-        <path d="M-80 240 Q 260 40 620 240 Z" fill="var(--color-jade)" fillOpacity="0.08" />
-        <path d="M520 240 Q 900 10 1300 240 Z" fill="var(--color-jade)" fillOpacity="0.08" />
-        <path d="M-200 240 Q 120 90 460 240 Z" fill="var(--color-jade)" fillOpacity="0.13" />
-        <path d="M880 240 Q 1240 70 1620 240 Z" fill="var(--color-jade)" fillOpacity="0.13" />
-      </svg>
-
-      {/* ── 폰·태블릿(<1024px) 첫 화면 ── 첫 그림은 300ms 옅게 떠오르기만 한다(예전처럼 1초 넘게 비워 두지 않는다). */}
+      {/* ── 폰·태블릿(<1024px) 첫 화면 ── 첫 그림은 300ms 옅게 떠오르기만 한다(예전처럼 1초 넘게 비워 두지 않는다).
+          아래 여백은 돌담 높이(.landing-wall — max(104px, 폭/6.36))만큼 비운다. 맨 아래 링크 줄이 기와 위에 겹치면
+          읽히지 않는다(360×640·영어에서 확인). 데스크톱은 겹치는 것이 불투명한 판(데이터 띠·바로가기)뿐이라 그대로 둔다. */}
       <div
-        className={`z-10 flex w-full flex-1 flex-col items-center justify-center px-6 pb-8 pt-14 text-center lg:hidden ${guideStyles.landingFade}`}
+        className={`z-10 flex w-full flex-1 flex-col items-center justify-center px-6 pb-[calc(max(104px,15.73vw)_+_12px)] pt-14 text-center lg:hidden ${guideStyles.landingFade}`}
       >
         {/* 길잡이 마스코트는 장식 전용이며 aria-hidden은 컴포넌트 내부에서 처리한다. 키가 낮은 화면(≤700px)에서는
             작아지고, 아주 낮은 화면(≤660px, 예: 360×640)에서는 자리를 '바로 시작'·축제 배너에 내준다. */}
@@ -247,12 +234,7 @@ export default function LoadingPage() {
           className="w-20 sm:w-24 shadow-[0_10px_28px_rgba(43,35,32,0.14)] [@media(max-height:700px)]:w-14 [@media(max-height:660px)]:hidden"
         />
 
-        {/* 서비스 지역 배지 */}
-        <span className="mt-3 inline-flex items-center px-3 py-1.5 rounded-full bg-gold/15 border border-gold/30 text-xs font-bold text-gold-deep">
-          {t('landing.badge')}
-        </span>
-
-        <h1 className="mt-3">
+        <h1 className="mt-4">
           <Image
             src="/nextspot-logo.png"
             alt="NextSpot"
@@ -298,17 +280,30 @@ export default function LoadingPage() {
         </ul>
 
         {/* '바로 시작'(게스트, 로그인 불필요) — 화면 탭/키 입력과 동일한 go() 재사용.
-            주 행동 한 가지 스타일 cta-primary(짙은 금→주칠, 흰 글자 4.5:1 이상 — 계획 B3 I86) + toss-pressable 눌림. */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            go();
-          }}
-          className="toss-pressable mt-6 inline-flex min-h-[52px] items-center gap-1.5 rounded-full cta-primary px-10 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
-        >
-          {t('landing.ctaStart')}
-          <ChevronRight size={20} aria-hidden />
-        </button>
+            주 행동 한 가지 스타일 cta-primary(짙은 금→주칠, 흰 글자 4.5:1 이상 — 계획 B3 I86) + toss-pressable 눌림.
+            로그인은 선택이지만 맨 아래 밑줄 글자로는 찾기 어려웠다 — 바로 옆의 단색 버튼(cta-secondary)으로 올렸다
+            (2026-11-21 디자인 수정). 게스트로 쌓은 저장·취향은 나중에 가입해도 그대로 승계된다(익명→정회원, uid 유지). */}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              go();
+            }}
+            className="toss-pressable inline-flex min-h-[52px] items-center justify-center rounded-full cta-primary px-9 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+          >
+            {t('landing.ctaStart')}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goLogin();
+            }}
+            className="toss-pressable inline-flex min-h-[52px] items-center justify-center rounded-full cta-secondary px-6 text-[15px] font-bold transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+          >
+            {t('landing.ctaLogin')}
+          </button>
+        </div>
 
         {/* 지금 경주에서 열리는 축제(TourAPI searchFestival2) — 진행 중일 때만 선다(없으면 자리째 숨는다). */}
         <div onClick={stopTap} className="mt-4 flex w-full justify-center empty:hidden">
@@ -329,29 +324,14 @@ export default function LoadingPage() {
           <span className="sr-only">{t('dataTab.footerHint')}</span>
         </button>
 
-        {/* 보조 CTA — 로그인은 선택이다. 기기 간 동기화를 원하는 사용자만 여기로 가고,
-            게스트로 쌓은 저장·취향은 나중에 가입해도 그대로 승계된다(익명→정회원 전환, uid 유지).
-            서비스 소개와 한 줄(데스크톱 배치와 같다) — 두 줄이면 출처·콘솔 줄이 첫 화면 밖으로 밀린다. */}
-        <div className="mt-1 flex flex-wrap items-center justify-center gap-x-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              goLogin();
-            }}
-            className="toss-pressable inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
-          >
-            {t('landing.ctaLogin')}
-          </button>
-          <span aria-hidden className="text-muk-soft">·</span>
-          <span ref={phoneTriggerRef} className="contents">
-            <GuideButton compact className="min-h-11 px-3" />
-          </span>
-        </div>
-
-        {/* 기능 5 입구 — 작은 글자 링크 한 줄(사장님 콘솔 · 관제 대시보드). 목적지는 역할로 갈린다
-            (lib/consoleLinks.ts — 게스트는 로그인 없이 보는 데모). */}
+        {/* 서비스 소개 + 기능 5 입구 — 작은 글자 링크 한 줄(서비스 소개 · 사장님 콘솔 · 관제 대시보드).
+            콘솔 목적지는 역할로 갈린다(lib/consoleLinks.ts — 게스트는 로그인 없이 보는 데모).
+            서비스 소개 버튼은 첫 방문 자동 노출이 프로그램적으로 누르는 대상이라(phoneTriggerRef) 지우지 않는다. */}
         <div onClick={stopTap} className="mt-1 flex flex-wrap items-center justify-center gap-x-1 text-[13px] font-semibold text-muk-soft">
+          <span ref={phoneTriggerRef} className="contents">
+            <GuideButton compact className="min-h-10 px-2" />
+          </span>
+          <span aria-hidden>·</span>
           <Link
             href={consoles.merchant}
             prefetch={false}
@@ -399,22 +379,28 @@ export default function LoadingPage() {
                   className="nextspot-logo-dark h-10 w-auto"
                 />
               </span>
-              <span className="inline-flex items-center rounded-full border border-gold/30 bg-gold/15 px-3 py-1.5 text-xs font-bold text-gold-deep">
-                {t('landing.badge')}
-              </span>
             </div>
           )}
           cta={(
-            <button
-              type="button"
-              onClick={go}
-              className="toss-pressable inline-flex min-h-[52px] items-center gap-1.5 rounded-full cta-primary px-10 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
-            >
-              {t('landing.ctaStart')}
-              <ChevronRight size={20} aria-hidden />
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={go}
+                className="toss-pressable inline-flex min-h-[52px] min-w-[150px] items-center justify-center rounded-full cta-primary px-10 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+              >
+                {t('landing.ctaStart')}
+              </button>
+              {/* 로그인(선택) — 맨 아래 밑줄 글자에서 '바로 시작' 옆 버튼으로(2026-11-21 디자인 수정). */}
+              <button
+                type="button"
+                onClick={goLogin}
+                className="toss-pressable inline-flex min-h-[52px] items-center justify-center rounded-full cta-secondary px-8 text-[16px] font-bold transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+              >
+                {t('landing.ctaLogin')}
+              </button>
+            </div>
           )}
-          aside={<FeatureShortcuts />}
+          aside={<FeatureShortcuts heading={false} />}
         >
           <div className="mt-3 empty:hidden">
             <FestivalBanner variant="banner" />
@@ -422,7 +408,7 @@ export default function LoadingPage() {
 
           {/* 데이터 띠 — 무엇으로 고르는지 한 줄 + 출처 + 출처 표(서비스 소개 '데이터' 절을 펼친 채로 연다).
               공공기관은 출처(ⓒ)로만 적는다 — 운영 주체처럼 쓰지 않는다. */}
-          <div className="mt-4 max-w-[560px] rounded-2xl border border-line bg-hanji-deep/80 px-4 py-3">
+          <div className="mt-4 max-w-[560px] rounded-2xl border border-line bg-hanji-deep px-4 py-3">
             <p className="flex items-start gap-2 text-[15px] font-semibold leading-snug text-muk [&:lang(ja)]:[word-break:auto-phrase]">
               <Database size={17} aria-hidden className="mt-0.5 shrink-0 text-gold-deep" />
               {t('featureMap.dataLine')}
@@ -437,22 +423,12 @@ export default function LoadingPage() {
                 {t('featureMap.dataMore')}
                 <ChevronRight size={14} aria-hidden />
               </button>
+              {/* 서비스 소개 — 맨 아래 따로 있던 줄을 이 띠 안으로(2026-11-21 디자인 수정: 띠도 소개를 여는데
+                  바로 아래에 같은 입구가 또 있었다). 출처 표 버튼이 프로그램적으로 누르는 대상(deskTriggerRef). */}
+              <span ref={deskTriggerRef} className="contents">
+                <GuideButton compact className="min-h-8 px-1.5" />
+              </span>
             </p>
-          </div>
-
-          {/* 로그인(선택) · 서비스 소개 */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-1 text-sm">
-            <button
-              type="button"
-              onClick={goLogin}
-              className="toss-pressable inline-flex min-h-11 items-center rounded-lg px-2 font-semibold text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
-            >
-              {t('landing.ctaLogin')}
-            </button>
-            <span aria-hidden className="text-muk-soft">·</span>
-            <span ref={deskTriggerRef} className="contents">
-              <GuideButton compact className="min-h-11 px-3" />
-            </span>
           </div>
         </GuideHero>
       </div>

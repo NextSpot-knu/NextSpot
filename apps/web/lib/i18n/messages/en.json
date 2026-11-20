@@ -252,7 +252,6 @@
   },
   "landing": {
     "tagline": "Skip the queue, see one more side of Gyeongju.",
-    "badge": "🏛️ Gyeongju · Gyeongsangbuk-do, Korea",
     "subline": "Get instant picks for calmer spots right now and a next stop matched to your taste.",
     "dataAttribution": "Data: ⓒ Korea Tourism Organization · Gyeongju City, Gyeongsangbuk-do · KMA",
     "ctaStart": "Start now",
@@ -1606,7 +1605,8 @@
       "desc": "Shops run time sales, and crowds spread across the area"
     },
     "dataLine": "Picked for you from 1,600+ Gyeongju sights and restaurants, live public parking and the weather forecast",
-    "dataMore": "Data sources in detail"
+    "dataMore": "Data sources in detail",
+    "go": "Go"
   },
   "adminShell": {
     "openMenu": "Open dashboard menu",
