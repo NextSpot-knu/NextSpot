@@ -38,6 +38,7 @@ import { creditedPhotoUrls, creditForDisplayedPhoto, merchantPhotoUrl } from '@/
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 import { PlacePhotoFallback } from '@/components/PlacePhotoFallback';
 import { placeVisual } from '@/lib/placeVisual';
+import { categoryPhotoUrl } from '@/lib/categoryPhoto';
 import { isCompactMapViewportNow, useCompactMapViewport } from '@/lib/useCompactMapViewport';
 
 // 이만큼(세로 px) 이상 움직여야 '밀기' 로 보고 뒤따르는 click 을 무시한다. 이보다 작게 흔들린 터치는
@@ -909,6 +910,8 @@ export function RecommendationCard({
   // 않는다(그 사진의 출처는 사진 아래 줄이 말한다 — 두 번째 저작권 표시로 읽히지 않게).
   const cardPhotoIsTourApi = !!cardImageUrl && !cardImageCredit && /(^|\.)visitkorea\.or\.kr\//i.test(cardImageUrl.replace(/^https?:\/\//, ''));
   const tileVisual = placeVisual(facility?.id ?? title, facilityType ?? facility?.type);
+  // 실사진이 없거나 다 깨진 음식점·카페는 업종 사진이 표지를 덮는다(PM 2026-11-25 — 가게 사진은 반드시).
+  const categoryCover = categoryPhotoUrl(facilityType ?? facility?.type, facility?.features);
 
   // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
   // 경로(apiClient keysToCamel 미적용 폴백 등)로 오든 방어적으로 camel/snake 이중 표기를 읽는다.
@@ -1471,15 +1474,16 @@ export function RecommendationCard({
 
       {/* 2. 사진 띠 — 접힌 카드에서 바로 보인다(I38). TourAPI 사진이면 'ⓒ한국관광공사' 표를 사진 위에, Wikimedia·경주시
           사진이면 그 사진의 출처 줄을 사진 아래에. 사진이 없거나 전부 깨지면 장소 표지(경주 문양 판)가 남는다. */}
-      {/* 저장 목록(/saved · showCompare 없음)은 사진이 있을 때만 — 사진 없는 저장 장소에 112px 표지를 새로 끼우지 않는다. */}
-      {(showCompare || cardImageUrls.length > 0) && (
+      {/* 저장 목록(/saved · showCompare 없음)은 사진이 있을 때만 — 실사진 또는 업종 사진(음식점·카페). 문양 판뿐인 관광지에는
+          112px 표지를 새로 끼우지 않는다. */}
+      {(showCompare || cardImageUrls.length > 0 || categoryCover !== null) && (
       <div>
         <div
           className={`rec-photo relative overflow-hidden rounded-2xl border border-line ${flashClass('photo')}`}
           data-testid="card-photo"
           data-refreshed={flashAttr('photo')}
         >
-          <PlacePhotoFallback className="absolute inset-0" visual={tileVisual} />
+          <PlacePhotoFallback className="absolute inset-0" visual={tileVisual} cover={categoryCover} />
           {cardImageUrl && (
             // TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용
             // eslint-disable-next-line @next/next/no-img-element

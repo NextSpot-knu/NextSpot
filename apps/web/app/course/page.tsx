@@ -35,6 +35,7 @@ import { displayWalkingMinutes } from "@/lib/recommender";
 import { isCityPhotoUrl, isWikimediaUrl, photoCandidates } from "@/lib/photoCredit";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual } from "@/lib/placeVisual";
+import { categoryPhotoUrl } from "@/lib/categoryPhoto";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -1693,7 +1694,11 @@ function StopRow({
             </div>
             {/* 56px 사진 — 없거나 깨지면 장소 표지(I38). */}
             <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
-              <PlacePhotoFallback visual={placeVisual(stop.facility.id, stop.facility.type)} className="absolute inset-0" />
+              <PlacePhotoFallback
+                visual={placeVisual(stop.facility.id, stop.facility.type)}
+                cover={categoryPhotoUrl(stop.facility.type, stop.facility.features)}
+                className="absolute inset-0"
+              />
               {photoUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img

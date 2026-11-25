@@ -88,8 +88,11 @@ const EMBLEM: Record<PlaceMotif, string> = {
 export function PlacePhotoFallback({
   visual,
   className = 'relative',
+  cover = null,
 }: {
   visual: PlaceVisual;
+  /** 업종 사진 주소(lib/categoryPhoto.ts 의 categoryPhotoUrl). 없으면 문양 판만. */
+  cover?: string | null;
   /** 자리·크기 — 기본은 relative(흐름 안). 사진 아래에 깔 때는 'absolute inset-0'. 내부 그림은 이 상자를 채운다. */
   className?: string;
 }) {
@@ -133,6 +136,15 @@ export function PlacePhotoFallback({
       <span className="absolute left-1/2 top-[54%] flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-hanji/90 ring-1 ring-current/40 shadow-[0_2px_10px_rgba(43,35,32,0.12)]">
         <Icon size={20} strokeWidth={1.8} data-tile-glyph />
       </span>
+      {/* ③ 업종 사진(음식점·카페, lib/categoryPhoto.ts) — 문양 판 위를 덮는다. <img> 가 아니라 배경 그림이다:
+          카드의 첫 <img> 는 실사진이라는 약속(대기 보드 테스트·출처 탐침)을 지킨다. 받기 전·실패 시에는 문양 판이 보인다. */}
+      {cover && (
+        <span
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url("${cover}")` }}
+          data-category-cover={cover}
+        />
+      )}
     </div>
   );
 }

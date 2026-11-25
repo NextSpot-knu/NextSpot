@@ -38,6 +38,7 @@ import { markTasteFeedback } from "@/lib/tasteBadge";
 // 사진이 없는 카드도 같은 높이의 장소 표지로 시작한다(I38).
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual } from "@/lib/placeVisual";
+import { categoryPhotoUrl } from "@/lib/categoryPhoto";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 import {
@@ -1662,7 +1663,11 @@ function RecommendContent() {
                       그 위로 드러난다. 정적 export 라 raw img(대기 보드 WaitingCardImage 와 동일 관례). */}
                   <div>
                     <div className="relative h-36 md:h-40 overflow-hidden rounded-xl border border-line">
-                      <PlacePhotoFallback visual={placeVisual(rec.facility.id, rec.facility.type)} className="absolute inset-0" />
+                      <PlacePhotoFallback
+                        visual={placeVisual(rec.facility.id, rec.facility.type)}
+                        cover={categoryPhotoUrl(rec.facility.type, recFeatures)}
+                        className="absolute inset-0"
+                      />
                       {photoUrl && (
                         // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
                         // eslint-disable-next-line @next/next/no-img-element

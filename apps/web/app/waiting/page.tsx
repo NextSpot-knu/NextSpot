@@ -71,6 +71,7 @@ import { TrailingNoteText } from "@/components/TrailingNoteText";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { SwipeDots } from "@/components/waiting/SwipeDots";
 import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
+import { categoryPhotoUrlFromTags, cuisineTagsOf } from "@/lib/categoryPhoto";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
 import { boardCrowdMembers, boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
 import { splitHeadlineValue } from "@/lib/headlineSplit";
@@ -117,6 +118,11 @@ function rowPhotoFeatures(row: Pick<BoardRow, "imageSource" | "cityPhoto">): Rec
   return { imageSource: row.imageSource, cityPhoto: row.cityPhoto ?? null };
 }
 
+/** 보드 행의 업종 사진 주소 — 행은 features 전체가 아니라 cuisineTags 만 들고 다닌다. */
+function boardRowCover(row: Pick<BoardRow, "type" | "cuisineTags">): string | null {
+  return categoryPhotoUrlFromTags(row.type, Array.isArray(row.cuisineTags) ? row.cuisineTags : []);
+}
+
 interface BoardRow {
   facilityId: string;
   name: string;
@@ -125,6 +131,8 @@ interface BoardRow {
   latitude?: number | null;
   longitude?: number | null;
   imageUrls: string[];
+  // features.cuisine_tags — 실사진이 없을 때 깔 업종 사진(lib/categoryPhoto)을 고른다. 옛 캐시 행에는 없다 — 그때는 유형으로.
+  cuisineTags?: string[];
   summary: string | null;
   // features.imageSource(API camel) 또는 image_source(snake) 원본 — Wikimedia 대체 사진의 작가·라이선스·원문 링크.
   imageSource: Record<string, unknown> | null;
@@ -190,6 +198,7 @@ function WaitingCardImage({
   imageUrl,
   name,
   visual,
+  cover,
   priority,
   loaded,
   onLoaded,
@@ -197,6 +206,8 @@ function WaitingCardImage({
 }: Pick<BoardRow, "name"> & {
   imageUrl: string | null;
   visual: PlaceVisual;
+  // 업종 사진(음식점·카페) — 실사진이 없거나 다 깨지면 표지를 덮는다.
+  cover: string | null;
   // 첫 섹터의 대표 3장 — 첫 화면에 보이므로 먼저(eager·high) 받는다. 나머지는 화면에 들어올 때(lazy).
   priority: boolean;
   // 부모가 기억하는 '이 URL 을 다 받았다'. 불리언이지만 부모는 URL 로 비교한다 — 후보가 바뀌면(깨진 사진 →
@@ -216,7 +227,7 @@ function WaitingCardImage({
 
   return (
     <div className="relative h-28 lg:h-32 w-full shrink-0 overflow-hidden border-b border-line">
-      <PlacePhotoFallback visual={visual} className="absolute inset-0" />
+      <PlacePhotoFallback visual={visual} cover={cover} className="absolute inset-0" />
       {imageUrl && (
         // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
         // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
@@ -587,6 +598,7 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
         ...[merchantPhotoUrl(rec.facility.features)].filter((url): url is string => !!url),
         ...photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
       ])),
+      cuisineTags: cuisineTagsOf(rec.facility.features),
       // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
       // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
       summary: overviewText || rec.facility.address?.trim() || null,
@@ -1291,6 +1303,7 @@ export default function WaitingBoardPage() {
                           imageUrl={photoUrl}
                           name={row.name}
                           visual={rowVisuals[idx]}
+                          cover={boardRowCover(row)}
                           priority={sectorIdx === 0}
                           loaded={photoLoaded}
                           onLoaded={(url) => markPhotoLoaded(row.facilityId, url)}
@@ -1350,7 +1363,7 @@ export default function WaitingBoardPage() {
                           className="group toss-pressable text-left w-full min-h-11 bg-white/90 border border-line rounded-2xl px-3.5 py-3 flex items-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white hover:shadow-[0_4px_16px_rgba(43,35,32,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
-                            <PlacePhotoFallback visual={placeVisual(row.facilityId, row.type)} className="absolute inset-0" />
+                            <PlacePhotoFallback visual={placeVisual(row.facilityId, row.type)} cover={boardRowCover(row)} className="absolute inset-0" />
                             {thumbUrl && (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
