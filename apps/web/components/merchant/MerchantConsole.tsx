@@ -49,6 +49,7 @@ import {
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
 import { MERCHANT_PHOTO_BUCKET, merchantPhotoUrl } from '@/lib/photoCredit';
+import { categoryPhotoUrl } from '@/lib/categoryPhoto';
 import {
   getMerchantFacility,
   clearMerchantFacility,
@@ -1556,6 +1557,8 @@ const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 function PhotoSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
   const demoToast = useConsoleDemoToast();
   const [photoPath, setPhotoPath] = useState<string | null>(null);
+  // 올린 사진이 없을 때 손님 카드에 대신 보이는 업종 사진 — 실사진(TourAPI·경주시)도 없는 가게만(lib/categoryPhoto).
+  const [categoryCover, setCategoryCover] = useState<string | null>(null);
   const [state, setState] = useState<AsyncState>(demo ? 'ready' : 'loading');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1567,13 +1570,17 @@ function PhotoSection({ facilityId, demo = false }: { facilityId: string; demo?:
       try {
         const { data, error } = await createPublicClient()
           .from('facilities')
-          .select('features')
+          .select('type, features, image_url, gallery_images')
           .eq('id', facilityId)
           .maybeSingle();
         if (error) throw error;
         const raw = (data?.features as Record<string, unknown> | null)?.merchant_photo as { path?: unknown } | undefined;
         if (!alive) return;
         setPhotoPath(typeof raw?.path === 'string' && raw.path ? raw.path : null);
+        const gallery = Array.isArray(data?.gallery_images) ? data.gallery_images : [];
+        const hasRealPhoto = (typeof data?.image_url === 'string' && data.image_url.trim() !== '')
+          || gallery.some((url: unknown) => typeof url === 'string' && url.trim() !== '');
+        setCategoryCover(hasRealPhoto ? null : categoryPhotoUrl(data?.type as string | undefined, data?.features as Record<string, unknown> | null));
         setState('ready');
       } catch {
         if (alive) setState('error');
@@ -1667,6 +1674,13 @@ function PhotoSection({ facilityId, demo = false }: { facilityId: string; demo?:
           <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-hanji-deep">
             {photoUrl ? (
               <img src={photoUrl} alt="지금 손님 카드에 보이는 가게 사진" className="h-full w-full object-cover" />
+            ) : categoryCover ? (
+              <>
+                <img src={categoryCover} alt="" className="h-full w-full object-cover" />
+                <p className="absolute inset-x-2 bottom-2 rounded-xl bg-black/60 px-3 py-2 text-[13px] font-bold leading-snug text-white">
+                  지금은 업종 대표 사진이 보여요. 가게 사진을 올리면 그 사진으로 바뀌어요.
+                </p>
+              </>
             ) : (
               <div className="flex h-full items-center justify-center text-sm font-bold text-muk-soft">아직 올린 사진이 없어요</div>
             )}

@@ -911,6 +911,7 @@ export function RecommendationCard({
   const cardPhotoIsTourApi = !!cardImageUrl && !cardImageCredit && /(^|\.)visitkorea\.or\.kr\//i.test(cardImageUrl.replace(/^https?:\/\//, ''));
   const tileVisual = placeVisual(facility?.id ?? title, facilityType ?? facility?.type);
   // 실사진이 없거나 다 깨진 음식점·카페는 업종 사진이 표지를 덮는다(PM 2026-11-25 — 가게 사진은 반드시).
+  // 실사진을 받는 중에는 깔지 않는다 — 다른 음식 사진이 먼저 떴다가 진짜 사진으로 바뀌지 않게(받는 동안은 문양 판).
   const categoryCover = categoryPhotoUrl(facilityType ?? facility?.type, facility?.features);
 
   // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
@@ -1483,7 +1484,7 @@ export function RecommendationCard({
           data-testid="card-photo"
           data-refreshed={flashAttr('photo')}
         >
-          <PlacePhotoFallback className="absolute inset-0" visual={tileVisual} cover={categoryCover} />
+          <PlacePhotoFallback className="absolute inset-0" visual={tileVisual} cover={cardImageUrl ? null : categoryCover} />
           {cardImageUrl && (
             // TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용
             // eslint-disable-next-line @next/next/no-img-element

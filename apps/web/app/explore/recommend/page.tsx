@@ -46,6 +46,7 @@ import {
   creditedPhotoUrls,
   creditForDisplayedPhoto,
   displayedPhotoUrl,
+  merchantPhotoUrl,
   photoCandidates,
   type PhotoCursor,
 } from "@/lib/photoCredit";
@@ -1579,7 +1580,11 @@ function RecommendContent() {
               // 사진 — 대표 사진부터 갤러리 순으로, 깨지면 다음 후보. 출처 없는 Wikimedia 사진·짝 없는 경주시 사진은
               // 후보에서 빠지고, 출처는 지금 보이는 사진이 그 사진일 때만(그리고 다 받은 뒤에만) 드러난다.
               // 후보가 없거나 다 깨지면 장소 표지가 그 자리를 그대로 채운다(I38) — 카드 높이가 들쭉날쭉하지 않다.
-              const photoUrls = creditedPhotoUrls(photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages), recFeatures);
+              // 사장님이 올린 가게 사진이 있으면 맨 앞(추천 카드·대기 보드와 같은 순서).
+              const photoUrls = creditedPhotoUrls(
+                photoCandidates(merchantPhotoUrl(recFeatures), [rec.facility.imageUrl, ...(rec.facility.galleryImages ?? [])]),
+                recFeatures,
+              );
               const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[rec.recommendationId]);
               const photoCredit = creditForDisplayedPhoto(photoUrl, recFeatures);
               const photoLoaded = photoUrl !== null && loadedPhotos[rec.recommendationId] === photoUrl;
@@ -1665,7 +1670,7 @@ function RecommendContent() {
                     <div className="relative h-36 md:h-40 overflow-hidden rounded-xl border border-line">
                       <PlacePhotoFallback
                         visual={placeVisual(rec.facility.id, rec.facility.type)}
-                        cover={categoryPhotoUrl(rec.facility.type, recFeatures)}
+                        cover={photoUrl ? null : categoryPhotoUrl(rec.facility.type, recFeatures)}
                         className="absolute inset-0"
                       />
                       {photoUrl && (

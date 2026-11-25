@@ -168,14 +168,15 @@ function measureTile(tile: Element) {
   };
 }
 
+// 문양 판이 그대로 보이는 것은 관광지·문화시설이다 — 음식점·카페는 그 위에 업종 사진이 깔린다(아래 테스트).
 test('waiting board: three photo-less cards show three different designed tiles, no image and no hole', async ({ page }) => {
   await mockBoard(page, [
-    { id: 'kakao-cafe-101', name: '이치니산도', type: 'cafe' },
-    { id: 'kakao-cafe-102', name: '스테이550', type: 'cafe' },
-    { id: 'kakao-cafe-103', name: '샬로우커피', type: 'cafe' },
+    { id: 'kakao-attr-101', name: '분황사', type: 'attraction' },
+    { id: 'kakao-attr-102', name: '오릉', type: 'attraction' },
+    { id: 'kakao-attr-103', name: '계림', type: 'attraction' },
   ]);
   await page.goto('/waiting');
-  const names = ['이치니산도', '스테이550', '샬로우커피'];
+  const names = ['분황사', '오릉', '계림'];
   await expect(cell(page, names[0])).toBeVisible({ timeout: 30_000 });
 
   const motifs: string[] = [];
@@ -184,7 +185,8 @@ test('waiting board: three photo-less cards show three different designed tiles,
     const c = cell(page, name);
     const tile = tileOf(c);
     await expect(tile).toBeVisible();
-    await expect(tile).toHaveAttribute('data-photo-fallback', 'cafe');
+    await expect(tile).toHaveAttribute('data-photo-fallback', 'attraction');
+    await expect(tile.locator('[data-category-cover]')).toHaveCount(0);
     // 표지는 인라인 SVG 뿐 — 사진(<img>)도, 깨진 그림도 없다. 카드의 첫 <img> 는 언제나 사진이다.
     await expect(c.locator('img')).toHaveCount(0);
     await expect(tile.locator('img')).toHaveCount(0);
@@ -201,6 +203,23 @@ test('waiting board: three photo-less cards show three different designed tiles,
   expect(shots[0].equals(shots[1]) || shots[1].equals(shots[2]) || shots[0].equals(shots[2])).toBe(false);
   // 장식이다 — 화면 읽기 프로그램에는 카드 이름만.
   for (const name of names) await expect(tileOf(cell(page, name))).toHaveAttribute('aria-hidden', 'true');
+});
+
+test('waiting board: photo-less shops show their category photo over the tile — never as an <img>', async ({ page }) => {
+  await mockBoard(page, [
+    { id: 'cat-cafe', name: '업종 카페', type: 'cafe' },
+    { id: 'cat-soup', name: '업종 국밥', type: 'restaurant', features: { cuisine_tags: ['한식', '국밥'] } },
+    { id: 'cat-photo', name: '사진 식당', type: 'restaurant', image_url: TOUR_PHOTO, features: { cuisine_tags: ['한식'] } },
+  ]);
+  await page.goto('/waiting');
+  await expect(cell(page, '업종 카페')).toBeVisible({ timeout: 30_000 });
+  await expect(tileOf(cell(page, '업종 카페')).locator('[data-category-cover]')).toHaveAttribute('data-category-cover', '/category/cafe.webp');
+  await expect(tileOf(cell(page, '업종 국밥')).locator('[data-category-cover]')).toHaveAttribute('data-category-cover', '/category/soup.webp');
+  // 업종 사진은 배경 그림이다 — 카드의 첫 <img> 는 언제나 실사진.
+  await expect(cell(page, '업종 카페').locator('img')).toHaveCount(0);
+  await expect(cell(page, '업종 국밥').locator('img')).toHaveCount(0);
+  // 실사진이 있는 가게에는 업종 사진을 깔지 않는다(받는 동안 다른 음식 사진이 먼저 뜨지 않게).
+  await expect(tileOf(cell(page, '사진 식당')).locator('[data-category-cover]')).toHaveCount(0);
 });
 
 for (const width of [320, 360]) {
@@ -382,15 +401,15 @@ test('waiting board: without minutes, a photo only moves ahead of a card showing
 
 darkTest('waiting board (dark, after 18:00): the tile is a visible panel, not a dark hole', async ({ page }) => {
   await mockBoard(page, [
-    { id: 'kakao-cafe-201', name: '대릉원 찻집', type: 'cafe' },
-    { id: 'kakao-cafe-202', name: '첨성대 커피', type: 'cafe' },
-    { id: 'kakao-cafe-203', name: '교촌 다방', type: 'cafe' },
+    { id: 'kakao-attr-201', name: '대릉원', type: 'attraction' },
+    { id: 'kakao-attr-202', name: '첨성대', type: 'attraction' },
+    { id: 'kakao-attr-203', name: '교촌마을', type: 'attraction' },
   ], { theme: 'dark' });
   await page.goto('/waiting');
-  await expect(cell(page, '대릉원 찻집')).toBeVisible({ timeout: 30_000 });
+  await expect(cell(page, '대릉원')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('html')).toHaveClass(/nextspot-dark/);
 
-  for (const name of ['대릉원 찻집', '첨성대 커피', '교촌 다방']) {
+  for (const name of ['대릉원', '첨성대', '교촌마을']) {
     const c = cell(page, name);
     const tile = tileOf(c);
     await expect(tile.locator('[data-tile-pattern]')).toBeVisible();

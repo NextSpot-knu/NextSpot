@@ -32,7 +32,7 @@ import { keepStrollerFriendlyCourse } from "@/lib/strollerSupport";
 import { displayableEstimate, formatEstimateTime } from "@/lib/congestionEstimate";
 import { displayWalkingMinutes } from "@/lib/recommender";
 // 정류지 56px 사진(TourAPI) — 없거나 깨지면 장소 표지(I38).
-import { isCityPhotoUrl, isWikimediaUrl, photoCandidates } from "@/lib/photoCredit";
+import { isCityPhotoUrl, isWikimediaUrl, merchantPhotoUrl, photoCandidates } from "@/lib/photoCredit";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual } from "@/lib/placeVisual";
 import { categoryPhotoUrl } from "@/lib/categoryPhoto";
@@ -1592,7 +1592,10 @@ function StopRow({
   const estCong = est ? congestion(est.level, busyAt) : null;
   const reasonId = `course-reason-${stop.facility.id}`;
   // 출처 줄을 달 자리가 없는 작은 사진이라 TourAPI 사진만(이 화면 아래 'ⓒ한국관광공사 TourAPI' 가 덮는다).
-  const photoUrls = uncreditedPhotoUrls(photoCandidates(stop.facility.imageUrl, stop.facility.galleryImages));
+  // 사장님이 올린 가게 사진이 있으면 맨 앞(출처 줄이 필요 없는 사진이다).
+  const photoUrls = uncreditedPhotoUrls(
+    photoCandidates(merchantPhotoUrl(stop.facility.features), [stop.facility.imageUrl, ...(stop.facility.galleryImages ?? [])]),
+  );
   const photoUrl = photoUrls[photoIdx] ?? null;
   const walkMinutes = typeof stop.travelMinutes === "number" && Number.isFinite(stop.travelMinutes)
     ? displayWalkingMinutes(stop.travelMinutes)
@@ -1696,7 +1699,7 @@ function StopRow({
             <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
               <PlacePhotoFallback
                 visual={placeVisual(stop.facility.id, stop.facility.type)}
-                cover={categoryPhotoUrl(stop.facility.type, stop.facility.features)}
+                cover={photoUrl ? null : categoryPhotoUrl(stop.facility.type, stop.facility.features)}
                 className="absolute inset-0"
               />
               {photoUrl && (

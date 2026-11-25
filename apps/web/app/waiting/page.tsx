@@ -1303,7 +1303,7 @@ export default function WaitingBoardPage() {
                           imageUrl={photoUrl}
                           name={row.name}
                           visual={rowVisuals[idx]}
-                          cover={boardRowCover(row)}
+                          cover={photoUrl ? null : boardRowCover(row)}
                           priority={sectorIdx === 0}
                           loaded={photoLoaded}
                           onLoaded={(url) => markPhotoLoaded(row.facilityId, url)}
@@ -1363,7 +1363,7 @@ export default function WaitingBoardPage() {
                           className="group toss-pressable text-left w-full min-h-11 bg-white/90 border border-line rounded-2xl px-3.5 py-3 flex items-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white hover:shadow-[0_4px_16px_rgba(43,35,32,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
-                            <PlacePhotoFallback visual={placeVisual(row.facilityId, row.type)} cover={boardRowCover(row)} className="absolute inset-0" />
+                            <PlacePhotoFallback visual={placeVisual(row.facilityId, row.type)} cover={thumbUrl ? null : boardRowCover(row)} className="absolute inset-0" />
                             {thumbUrl && (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
