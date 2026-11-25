@@ -38,6 +38,15 @@ import {
 } from '@/lib/demandPressure';
 import { toast } from 'sonner';
 import { MerchantPhotoReview } from '@/components/admin/MerchantPhotoReview';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useDemoToast } from '@/components/DemoBadge';
+import { useAdminDemo } from '@/lib/adminDemo';
+import {
+  DEMO_CATEGORY_SHARES,
+  DEMO_INFRASTRUCTURES,
+  DEMO_INGEST_REQUESTS,
+  demoChartData,
+} from '@/lib/demo/adminInfrastructure';
 
 // --- Types ---
 interface Infrastructure {
@@ -110,11 +119,14 @@ async function fetchEstimateLevels(): Promise<Map<string, number>> {
 }
 
 export default function InfrastructurePage() {
+  // 관제 데모(?demo=1): 고정값으로 그리고 백엔드·Supabase 를 부르지 않는다. 쓰기 버튼은 토스트만 띄운다.
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   const [facilities, setFacilities] = useState<Infrastructure[]>([]);
   const [selectedInfra, setSelectedInfra] = useState<Infrastructure | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [chartError, setChartError] = useState<string | null>(null); // 추이 조회 실패 ≠ 오늘 기록 없음
-  const [activeFilter, setActiveFilter] = useState('음식점');
+  const [activeFilter, setActiveFilter] = useState(demo ? '관광지' : '음식점');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(true);
@@ -158,6 +170,11 @@ export default function InfrastructurePage() {
   );
 
   const fetchIngestRequests = useCallback(async () => {
+    if (demo) {
+      setIngestRequests([...DEMO_INGEST_REQUESTS]);
+      setIngestStatus('ok');
+      return;
+    }
     setIngestStatus('loading');
     try {
       const data = await adminApi.get('/api/v1/search/ingest-requests?status=pending');
@@ -172,7 +189,7 @@ export default function InfrastructurePage() {
       setIngestRequests([]);
       setIngestStatus('failed');
     }
-  }, []);
+  }, [demo]);
 
   useEffect(() => {
     fetchIngestRequests();
@@ -181,6 +198,10 @@ export default function InfrastructurePage() {
   // 온보딩 선호 비율 — 화면당 1회. 서버가 10분 TTL 캐시를 들고 있어 재조회는 의미가 없고,
   // 이 값은 시설을 바꿔 가며 볼 때 계속 같다(시설별이 아니라 업종별 통계다).
   useEffect(() => {
+    if (demo) {
+      setCategoryShares(DEMO_CATEGORY_SHARES);
+      return;
+    }
     let alive = true;
     (async () => {
       try {
@@ -194,9 +215,13 @@ export default function InfrastructurePage() {
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [demo]);
 
   const approveIngestRequest = async (req: IngestRequest) => {
+    if (demo) {
+      demoToast();
+      return;
+    }
     setApprovingIngestId(req.id);
     try {
       await adminApi.post('/api/v1/search/ingest-requests/approve', { id: req.id });
@@ -260,6 +285,15 @@ export default function InfrastructurePage() {
   }, [supabase]);
 
   const fetchFacilities = useCallback(async (isSilent = false) => {
+    if (demo) {
+      const rows: Infrastructure[] = [...DEMO_INFRASTRUCTURES];
+      setError(null);
+      setCongestionError(null);
+      setFacilities(rows);
+      setSelectedInfra(prev => prev ?? rows.find(r => r.type === '관광지') ?? rows[0] ?? null);
+      setLoading(false);
+      return;
+    }
     if (!isSilent) setLoading(true);
     try {
       const [facilityRows, estimates] = await Promise.all([fetchAllFacilities(), loadEstimates()]);
@@ -322,7 +356,7 @@ export default function InfrastructurePage() {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [fetchAllFacilities, fetchLatestCongestion, loadEstimates]);
+  }, [demo, fetchAllFacilities, fetchLatestCongestion, loadEstimates]);
 
   const fetchChartData = useCallback(async (facilityId: string) => {
     try {
@@ -370,10 +404,16 @@ export default function InfrastructurePage() {
 
   // 2. 선택된 인프라 변경 시 차트 데이터 갱신
   useEffect(() => {
-    if (selectedInfra) {
-      fetchChartData(selectedInfra.id);
+    if (!selectedInfra) return;
+    if (demo) {
+      const c = selectedInfra.congestion;
+      const level = c.kind === 'observed' || c.kind === 'estimated' ? c.level : 0.4;
+      setChartData(demoChartData(selectedInfra.id, level));
+      setChartError(null);
+      return;
     }
-  }, [selectedInfra, fetchChartData]);
+    fetchChartData(selectedInfra.id);
+  }, [demo, selectedInfra, fetchChartData]);
 
   // 활성 유형 탭 + 검색어(이름/유형, 대소문자 무시) 클라이언트 필터.
   const searchLower = searchQuery.trim().toLowerCase();
@@ -429,6 +469,11 @@ export default function InfrastructurePage() {
   // Override 확정 — FastAPI(service_role)로 congestion_logs 에 수동 혼잡도 1행 기록 후 목록 무음 갱신.
   const submitOverride = async () => {
     if (!selectedInfra) return;
+    if (demo) {
+      demoToast();
+      setOverrideOpen(false);
+      return;
+    }
     const level = Math.min(1, Math.max(0, overrideLevel / 100));
     setOverrideSubmitting(true);
     try {
@@ -462,7 +507,10 @@ export default function InfrastructurePage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">장소 관리</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-hanok-ink">장소 관리</h2>
+            <AdminDemoChip />
+          </div>
           <div className="flex w-full lg:w-auto items-center gap-4 lg:gap-6">
             {/* 검색: 로드된 시설을 이름/유형으로 클라이언트 필터 */}
             <div className="relative flex-1 lg:flex-none">

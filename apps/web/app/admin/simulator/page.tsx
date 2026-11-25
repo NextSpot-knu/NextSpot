@@ -3,6 +3,7 @@
 import React from 'react';
 import SPOTSimulator from '@/components/admin/SPOTSimulator';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
 
 export default function SimulatorPage() {
   return (
@@ -15,7 +16,10 @@ export default function SimulatorPage() {
         {/* Top Header */}
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-hanok-ink">SPOT 시뮬레이터</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-hanok-ink">SPOT 시뮬레이터</h2>
+              <AdminDemoChip />
+            </div>
             <p className="text-xs text-hanok-muted mt-0.5">취향·이동시간·혜택 가중치를 바꿔 추천 점수가 어떻게 달라지는지 미리 봅니다</p>
           </div>
         </header>

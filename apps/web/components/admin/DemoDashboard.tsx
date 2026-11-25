@@ -93,7 +93,7 @@ export function AdminDemoDashboard() {
   return (
     // 모바일(심사 링크가 바로 여는 폭)에서는 사이드바가 접히고 문서 스크롤을 쓴다.
     // 데스크톱(lg~)은 기존 관제 레이아웃 그대로 — 화면 높이 고정 + 본문만 스크롤.
-    <div className="flex min-h-screen bg-hanok font-sans text-hanok-ink lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-screen flex-col bg-hanok font-sans text-hanok-ink lg:h-screen lg:flex-row lg:overflow-hidden">
       <AdminSidebar demo />
 
       <main ref={mainRef} className="flex min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">

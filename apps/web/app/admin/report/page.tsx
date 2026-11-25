@@ -25,6 +25,12 @@ import {
   Printer, BarChart3, Calendar, Satellite, Clock, Info,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { useDemoToast } from '@/components/DemoBadge';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useAdminDemo } from '@/lib/adminDemo';
+import {
+  buildDemoReportFreshness, buildDemoReportTrend, DEMO_REPORT_TODAY,
+} from '@/lib/demo/adminReport';
 import {
   formatGapLabel, formatGapNote, longestGap, summarizeSeries,
 } from '@/lib/adminSeriesGaps';
@@ -75,21 +81,21 @@ const SERIES_DASH = { congestion: undefined, accept: '7 4', estimate: '4 3' } as
 // ── 응답 타입 ────────────────────────────────────────────────────────────
 // GET /api/v1/admin/metrics/trend (admin.py get_metrics_trend) — admin-api 는 케이스 변환이 없어
 // 백엔드 snake_case 필드명을 그대로 받는다.
-interface TrendDay {
+export interface TrendDay {
   date: string; // 'YYYY-MM-DD' (KST)
   avg_congestion: number | null; // 로그 없는 날은 null(실측 0과 구분)
   samples: number;
   rec_total: number;
   rec_accepted: number;
 }
-interface TrendResponse {
+export interface TrendResponse {
   days: number;
   daily: TrendDay[];
   truncated: boolean;
 }
 
 // GET /api/v1/admin/dashboard/today (admin.py get_dashboard_today) — 이미 camelCase 로 내려온다.
-interface DashboardTodayResponse {
+export interface DashboardTodayResponse {
   hasLogs: boolean;
   avgCongestion: { value: number; changePercent: number } | null;
   anomalyCount: number | null;
@@ -132,6 +138,8 @@ function ValueOrState({ loading, error, value }: { loading: boolean; error: bool
 }
 
 export default function AdminReportPage() {
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   const [trend, setTrend] = useState<TrendResponse | null>(null);
   const [trendError, setTrendError] = useState(false);
   const [today, setToday] = useState<DashboardTodayResponse | null>(null);
@@ -146,6 +154,14 @@ export default function AdminReportPage() {
   const [generatedAt] = useState(() => new Date());
 
   useEffect(() => {
+    // 관제 데모(?demo=1)는 서버를 부르지 않는다 — 고정 합성값으로 바로 채운다.
+    if (demo) {
+      setTrend(buildDemoReportTrend(generatedAt));
+      setToday(DEMO_REPORT_TODAY);
+      setFreshness(buildDemoReportFreshness(generatedAt));
+      setLoading(false);
+      return;
+    }
     let active = true;
     (async () => {
       // 추정은 **별도 요청**이다(별도 엔드포인트). 몇 초가 걸리거나 죽어도 실측 KPI 응답은
@@ -180,7 +196,7 @@ export default function AdminReportPage() {
       setLoading(false); // adminApi/apiClient 모두 요청 타임아웃(8~25초)이 있어 유한하게 종료된다.
     })();
     return () => { active = false; };
-  }, []);
+  }, [demo, generatedAt]);
 
   // ── 30일 KPI 파생값 ──────────────────────────────────────────────────
   const kpi = useMemo(() => {
@@ -333,6 +349,7 @@ export default function AdminReportPage() {
           <div className="flex items-center gap-3">
             <BarChart3 className="text-gold-deep" size={22} />
             <h2 className="text-xl font-bold text-hanok-ink">분산정책 성과 리포트</h2>
+            <AdminDemoChip />
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -342,7 +359,8 @@ export default function AdminReportPage() {
             </div>
             <button
               type="button"
-              onClick={() => window.print()}
+              // 데모(예시 화면)는 인쇄본·PDF 를 만들지 않는다 — 머리글의 '예시 화면' 칩은 인쇄에서 빠져 종이에 표시가 남지 않는다.
+              onClick={() => (demo ? demoToast() : window.print())}
               className="flex items-center gap-2 px-4 py-2 bg-gold hover:bg-gold-deep text-hanok font-bold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
             >
               <Printer size={16} /> 리포트 인쇄 / PDF 저장

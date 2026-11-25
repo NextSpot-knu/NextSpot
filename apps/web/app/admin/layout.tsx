@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { useAccount, canEnterAdminConsole } from '@/lib/account';
 import { decideAdminGate } from '@/lib/adminGate';
 import { isDemoParam } from '@/lib/demoFixtures';
+import { AdminDemoContext, isAdminDemoPath, setAdminDemoActive } from '@/lib/adminDemo';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 정적 export 에서는 Next 미들웨어가 실행되지 않으므로, /admin/* 보호는
@@ -56,17 +57,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     } catch { /* 저장소 차단 — 기존 로더 경로 그대로 */ }
   }, []);
 
-  // 데모 플래그는 **대시보드 한 화면에만** 유효하다 — 다른 관제 화면은 데모 구현이 없어, 플래그가 살아
-  // 있으면 세션 없이 실화면을 그린다. 경로가 바뀔 때마다 다시 읽어, 쿼리가 떨어지면 플래그도 내린다.
-  // /admin(인덱스)은 쿼리를 들고 대시보드로 보내는 리다이렉트뿐이라 함께 통과시킨다 — 여기서 막으면
-  // 자식 페이지가 마운트되지 못해 /admin?demo=1 이 로그인 화면으로 떨어진다.
+  // 데모 플래그는 **데모 분기를 가진 화면에만** 유효하다(lib/adminDemo.ts ADMIN_DEMO_PATHS) — 분기가 없는
+  // 화면에서 플래그가 살아 있으면 세션 없이 실화면을 그린다. 경로가 바뀔 때마다 다시 읽어, 쿼리가 떨어지면
+  // 플래그도 내린다. /admin(인덱스)은 쿼리를 들고 대시보드로 보내는 리다이렉트뿐이라 함께 통과시킨다 —
+  // 여기서 막으면 자식 페이지가 마운트되지 못해 /admin?demo=1 이 로그인 화면으로 떨어진다.
   useEffect(() => {
-    let on = false;
-    try {
-      on = (pathname === '/admin/dashboard' || pathname === '/admin')
-        && isDemoParam(new URLSearchParams(window.location.search).get('demo'));
-    } catch { /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
-    setDemoCheck({ path: pathname, on });
+    const check = () => {
+      let on = false;
+      try {
+        on = isAdminDemoPath(pathname)
+          && isDemoParam(new URLSearchParams(window.location.search).get('demo'));
+      } catch { /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
+      setDemoCheck({ path: pathname, on });
+    };
+    check();
+    // 같은 경로에서 쿼리만 바뀌는 뒤로·앞으로(/admin/reports?demo=1 ↔ /admin/reports)는 pathname 이 그대로라
+    // 이펙트가 다시 돌지 않는다 — 판정이 남으면 실제 관리자가 고정값을 보고 관리자 API 안전망에 막힌다.
+    window.addEventListener('popstate', check);
+    return () => window.removeEventListener('popstate', check);
   }, [pathname]);
 
   // 마운트 후에만 localStorage 평가(서버 프리렌더/하이드레이션 불일치 방지).
@@ -103,8 +111,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // 로그인 페이지·데모·확인된 관리자는 통과. 캐시된 긍정 판정은 판정이 '부정으로 끝나기 전까지' 낙관
   // 렌더한다(서버에 닿지 못한 동안에도 콘솔을 유지) — 부정으로 끝나면 즉시 로더+리다이렉트로 떨어진다.
+  // 관리자 API 안전망은 자식의 첫 이펙트보다 먼저 켜져야 한다 — 렌더 중에 맞춘다(같은 값을 다시 써도 무해).
+  setAdminDemoActive(demo);
+
   let content: React.ReactNode;
-  if (gate.view === 'console') {
+  // 첫 마운트와 데모에서 나오는 이동에서는 이 경로의 데모 판정을 읽기 전에 화면을 그리지 않는다 — 캐시된 관리자
+  // 판정으로 낙관 렌더하면 데모 주소에서 실화면이 먼저 마운트돼 관리자 API 를 부르고, 데모 화면이 실주소에 한 번
+  // 그려진다. 실화면 사이의 이동(관리자 평소 동선)에는 로더를 끼우지 않는다(한 프레임이라도 사이드바째 깜빡인다).
+  const holdForDemoCheck = !demoChecked && (demoCheck.path === null || demoCheck.on);
+  if (gate.view === 'console' && holdForDemoCheck && !isLoginRoute) {
+    content = (
+      <div className="min-h-screen w-full flex items-center justify-center bg-hanok text-hanok-muted">
+        <Loader2 className="animate-spin" size={20} />
+      </div>
+    );
+  } else if (gate.view === 'console') {
     content = children;
   } else if (gate.view === 'server-unreachable') {
     // 서버가 잠시 응답하지 않아 권한을 확인하지 못했다 — 로그인을 다시 시키지 않는다(세션은 그대로다).
@@ -143,5 +164,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // `nextspot-admin` 은 globals.css 에서 단청 강조색(금·청록·주칠)을 한옥 웜다크 서페이스에
   // 맞춰 한 단계 밝히는 토큰 스코프다. `contents` 라 레이아웃 박스를 만들지 않으므로
   // 사이드바+본문 flex 구조에 영향이 없고, 커스텀 속성만 하위로 상속된다.
-  return <div className="contents nextspot-admin">{content}</div>;
+  return (
+    <AdminDemoContext.Provider value={demo}>
+      <div className="contents nextspot-admin">{content}</div>
+    </AdminDemoContext.Provider>
+  );
 }

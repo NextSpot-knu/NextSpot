@@ -8,18 +8,22 @@ import { signOutAdmin } from '@/lib/adminAuth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
 import { useDemoToast } from '@/components/DemoBadge';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { ADMIN_DEMO_PATHS, adminDemoHref, useAdminDemo } from '@/lib/adminDemo';
 
 // 심사 기간에는 메뉴에서 감추는 화면(PM 결정 4.14). '엔진 검증' 은 서울 데이터로 엔진을 대 보는 화면이라
 // 경주 관제의 메뉴에 서 있으면 첫인상이 서울이 된다. 화면 자체는 /admin/engine-validation 으로 그대로
 // 열린다(질의응답용 · 대시보드 맨 아래 링크). 심사가 끝나면 이 집합에서 빼기만 하면 메뉴로 돌아온다.
 const HIDDEN_FROM_MENU = new Set<string>(['/admin/engine-validation']);
 
-// demo=true 는 `/admin/dashboard?demo=1`(로그인 없는 읽기 전용 데모) 전용이다. 메뉴는 그대로
-// 보이되 **어디로도 이동하지 않는다** — 데모에는 세션이 없어서 다른 관제 화면은 전부 로그인
-// 게이트로 튕기고, 심사위원에게는 그게 '고장' 으로 읽힌다.
-// 대신 데모에는 버릴 세션이 없으므로 로그아웃 자리에 **로그인 게이트로 가는 길**을 둔다 —
+// 관제 데모(`?demo=1`, lib/adminDemo.ts): 메뉴는 데모로 열리는 화면(ADMIN_DEMO_PATHS)으로 **데모를 유지한 채**
+// 이동하고, 데모가 없는 화면만 토스트를 띄운다 — 세션이 없어 로그인 게이트로 튕기면 심사위원에게는 '고장' 으로 읽힌다.
+// 데모 판정은 관제 레이아웃의 컨텍스트에서 읽는다(demo prop 은 대시보드 데모 components/admin/DemoDashboard.tsx 가
+// 함께 넘긴다). 휴대폰 상단 바·메뉴 서랍은 데모에서도 그린다 — 다른 데모 화면으로 가는 길이 그것뿐이다.
+// 데모에는 버릴 세션이 없으므로 로그아웃 자리에 **로그인 게이트로 가는 길**을 둔다 —
 // 데모로 들어온 사람이 실제 계정으로 넘어갈 문이 없으면 이 화면은 일방통행이 된다.
-export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
+export function AdminSidebar({ demo: demoProp = false }: { demo?: boolean } = {}) {
+  const demoContext = useAdminDemo();
+  const demo = demoProp || demoContext;
   const pathname = usePathname();
   const router = useRouter();
   const t = useT();
@@ -81,14 +85,14 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
 
   const navItems = menuItems.map((item) => {
     const Icon = item.icon;
-    // 데모에서는 대시보드가 '현재 화면' 이고 나머지는 열 수 없다(이동 대신 토스트).
-    const isActive = demo ? item.path === '/admin/dashboard' : pathname === item.path;
+    const isActive = pathname === item.path || pathname === `${item.path}/`;
     const className = `flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-colors ${
       isActive
         ? 'bg-gold/10 text-gold-deep'
         : 'text-hanok-muted hover:bg-hanok-card font-medium'
     }`;
-    if (demo) {
+    // 데모가 없는 화면(개발자 콘솔 등)은 이동 대신 토스트.
+    if (demo && !ADMIN_DEMO_PATHS.has(item.path)) {
       return (
         <button key={item.path} type="button" onClick={demoToast} className={`${className} w-full text-left`}>
           <Icon size={20} />
@@ -99,7 +103,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
     return (
       <Link
         key={item.path}
-        href={item.path}
+        href={demo ? adminDemoHref(item.path) : item.path}
         onClick={closeDrawer}
         className={className}
         aria-current={isActive ? 'page' : undefined}
@@ -145,9 +149,8 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
   return (
     <>
       {/* 휴대폰 폭(lg 미만): 고정 폭 사이드바 대신 얇은 상단 바 + 메뉴 서랍. 256px 사이드바가 390px 화면의
-          3분의 2를 차지해 본문 표가 한 칸 40px 로 짓눌렸다(심사위원이 휴대폰으로 관제 계정을 열 수 있다).
-          데모는 자기 헤더에 나가는 길이 있어(DemoDashboard) 이 바를 그리지 않는다. */}
-      {!demo && (
+          3분의 2를 차지해 본문 표가 한 칸 40px 로 짓눌렸다(심사위원이 휴대폰으로 관제 계정을 열 수 있다). */}
+      {(
         <div className="lg:hidden flex h-14 flex-shrink-0 items-center justify-between border-b border-hanok-line bg-hanok-panel px-4 print:hidden">
           {brand}
           <button
@@ -164,7 +167,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
           </button>
         </div>
       )}
-      {!demo && drawerOpen && (
+      {drawerOpen && (
         <div
           id="admin-menu-drawer"
           role="dialog"

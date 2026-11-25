@@ -10,6 +10,7 @@
 
 import { createPublicClient } from "./supabase";
 import type { AdminFailureKind } from "./adminApiFailure";
+import { isAdminDemoActive } from "./adminDemo";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 25초.
@@ -83,6 +84,11 @@ export function adminApiKind(err: unknown): AdminFailureKind | null {
 }
 
 async function adminRequest(path: string, options: RequestInit = {}): Promise<any> {
+  // 관제 데모(?demo=1)는 관리자 API 를 부르지 않는다(lib/adminDemo.ts). 화면의 데모 분기가 빠져도 여기서 멈춘다 —
+  // 세션이 있는 관리자가 데모 주소를 열어도 쓰기가 실 DB 에 닿지 않는다.
+  if (isAdminDemoActive()) {
+    throw new AdminApiError("예시 화면에서는 관제 데이터를 불러오지 않아요.", "no-session");
+  }
   // 인증은 Supabase JWT 하나로 통일했다(RBAC P2-2). 백엔드가 이 토큰에서 users.role 을 읽어
   // admin/developer 인지 매 요청 확인한다 — 프런트 판정을 우회해도 API 는 403 을 돌려준다.
   const { data: { session } } = await createPublicClient().auth.getSession();

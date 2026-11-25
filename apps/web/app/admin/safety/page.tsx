@@ -6,7 +6,10 @@ import {
   MapPin, RefreshCw, SlidersHorizontal, TrendingUp, Users,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useDemoToast } from '@/components/DemoBadge';
 import { adminApi } from '@/lib/admin-api';
+import { useAdminDemo } from '@/lib/adminDemo';
 import { ADMIN_ALERT_LEVEL, ADMIN_WARN_LEVEL, levelPercent } from '@/lib/adminAlertLevels';
 import {
   kstClockLabel,
@@ -15,6 +18,7 @@ import {
   zoneSourceLine,
   type SafetyJudgement,
 } from '@/lib/adminSafetyView';
+import { demoSafetyStatus } from '@/lib/demo/adminSafety';
 import { errorMessage } from '@/lib/errors';
 import { usePolling } from '@/lib/usePolling';
 
@@ -49,7 +53,7 @@ const SAFETY_LOADER_STYLES = `
 }
 `;
 
-interface SafetyFacilityItem {
+export interface SafetyFacilityItem {
   facilityId: string;
   facilityName: string;
   facilityType: string;
@@ -61,7 +65,7 @@ interface SafetyFacilityItem {
   evidenceTier?: string | null;
 }
 
-interface SafetyZone {
+export interface SafetyZone {
   zoneId: string;
   zoneLabel: string;
   topFacilityId: string | null;
@@ -76,7 +80,7 @@ interface SafetyZone {
   sourceCounts?: Record<string, number>;
 }
 
-interface SafetySummary {
+export interface SafetySummary {
   alertZones: number;
   warnZones: number;
   normalZones: number;
@@ -85,7 +89,7 @@ interface SafetySummary {
   observedZones?: number;
 }
 
-interface SafetyStatusResponse {
+export interface SafetyStatusResponse {
   generatedAt: string;
   /** 'unavailable' = 최근 30분 안의 관측이 없다(판정 불가). 옛 서버는 이 키가 없다. */
   judgement?: 'available' | 'unavailable';
@@ -246,6 +250,8 @@ function UnavailablePanel({ judgement, nowMs }: { judgement: Extract<SafetyJudge
 }
 
 export default function SafetyPage() {
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   const [data, setData] = useState<SafetyStatusResponse | null>(null);
   // 응답을 받은 시각(ms) — 관측 나이('12분 전')의 기준. 렌더 중에 시계를 읽지 않는다(같은 응답은 같은 문구).
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
@@ -296,6 +302,14 @@ export default function SafetyPage() {
     const alertQ = (alertRef.current / 100).toFixed(2);
     const warnQ = (warnRef.current / 100).toFixed(2);
     lastQueryKeyRef.current = thresholdKey(alertRef.current, warnRef.current);
+    if (demo) {
+      // 데모 — 고정 합성값. 임계값만 반영하고 서버는 부르지 않는다.
+      setData(demoSafetyStatus(Date.now(), alertRef.current / 100, warnRef.current / 100));
+      setLoadedAt(Date.now());
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!isSilent) setLoading(true);
     try {
       const res: SafetyStatusResponse = await adminApi.get(
@@ -317,7 +331,7 @@ export default function SafetyPage() {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [fireAlertNotification]);
+  }, [fireAlertNotification, demo]);
 
   // 최초 로드 + 30초 자동 새로고침. 숨은 탭에서는 멈추고(돌아와서 30초가 지났으면 한 번 새로 고침),
   // '알림 받기' 가 켜져 있으면 숨은 탭에서도 계속 돈다 — 경보 증가 알림은 그 폴링이 감지한다.
@@ -334,6 +348,10 @@ export default function SafetyPage() {
   }, [alertPct, warnPct]);
 
   const requestNotifPermission = async () => {
+    if (demo) {
+      demoToast();
+      return;
+    }
     if (!notificationSupported()) return;
     if (notifEnabled) {
       setNotifEnabled(false);
@@ -385,10 +403,13 @@ export default function SafetyPage() {
         {/* Header */}
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
-              <AlertTriangle size={20} className="text-terracotta" />
-              인파 밀집 안전 경보
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
+                <AlertTriangle size={20} className="text-terracotta" />
+                인파 밀집 안전 경보
+              </h2>
+              <AdminDemoChip />
+            </div>
             <p className="text-xs text-hanok-muted mt-0.5">골목(존) 단위 조기경보 — B2G 관제</p>
           </div>
           <div className="flex max-lg:flex-wrap items-center gap-x-4 gap-y-2">

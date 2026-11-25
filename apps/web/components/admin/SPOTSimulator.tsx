@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '@/lib/api-client';
 import { SPOT_WEIGHTS } from 'shared-types';
+import { useAdminDemo } from '@/lib/adminDemo';
 
 // 기본 가중치는 공유 상수(packages/shared-types/spot.ts)에서 유도 — 백엔드 score.py 와 단일 정의점.
 // (이전 하드코딩 45:30:25 는 실제 엔진과 스왑·불일치 상태였음.)
@@ -17,12 +18,21 @@ const DEFAULT_WEIGHTS = {
 // (예전에는 벡터 원본 배열과 'Dim N' 툴팁을 그대로 노출해, 관제 화면에서 읽을 수 없는 숫자열이었다.)
 const PREFERENCE_AXIS_LABELS = ['음식점', '카페', '관광지', '문화시설', '맛·평점', '감성·인스타', '접근성', '한적함'];
 
+// 예시 취향 벡터 — 로그인 사용자의 벡터를 못 읽었을 때(데모 포함) 쓴다.
+const DEMO_USER_VECTOR = [0.45, 0.12, 0.35, 0.05, 0.61, 0.22, 0.10, 0.45];
+
 export default function SPOTSimulator() {
     // 슬라이더 및 입력 필드 동기화 상태 (기본값 = 공유 상수 유도)
     const [weights, setWeights] = useState({ ...DEFAULT_WEIGHTS });
     const [userVector, setUserVector] = useState<number[] | null>(null);
+    const demo = useAdminDemo();
 
     useEffect(() => {
+        // 관제 데모(?demo=1)는 서버를 부르지 않는다 — 예시 취향 벡터로 바로 그린다(아래 실패 폴백과 같은 값).
+        if (demo) {
+            setUserVector(DEMO_USER_VECTOR);
+            return;
+        }
         const fetchUserVector = async () => {
             try {
                 const data = await apiClient.get('/api/v1/users/me/vector');
@@ -32,11 +42,11 @@ export default function SPOTSimulator() {
             } catch (err) {
                 console.error("Failed to fetch user vector in simulator", err);
                 // Fallback mockup vector
-                setUserVector([0.45, 0.12, 0.35, 0.05, 0.61, 0.22, 0.10, 0.45]);
+                setUserVector(DEMO_USER_VECTOR);
             }
         };
         fetchUserVector();
-    }, []);
+    }, [demo]);
 
     // 1. 1000개의 모의 시설 데이터 정적 생성 (최초 1회만 연산)
     const mockFacilities = useMemo(() => {
@@ -160,7 +170,7 @@ export default function SPOTSimulator() {
                     </div>
 
                     <div className="mt-4 p-4 bg-hanok-panel text-hanok-ink rounded-lg border border-hanok-line">
-                        <h4 className="text-xs font-bold text-jade mb-2 uppercase tracking-wide">사용자 선호도 8축 (실시간)</h4>
+                        <h4 className="text-xs font-bold text-jade mb-2 uppercase tracking-wide">사용자 선호도 8축{demo ? ' (예시)' : ' (실시간)'}</h4>
                         {userVector ? (
                             <div className="grid grid-cols-8 gap-1 mt-1">
                                 {userVector.map((v, i) => (

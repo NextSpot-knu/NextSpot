@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { MERCHANT_PHOTO_BUCKET, merchantPhotoUrl } from '@/lib/photoCredit';
+import { useAdminDemo } from '@/lib/adminDemo';
+import { useDemoToast } from '@/components/DemoBadge';
+import { DEMO_MERCHANT_PHOTOS } from '@/lib/demo/adminInfrastructure';
 
 // 관제 — 사장님이 올린 가게 사진의 사후 관리(10-24 PM: 사진은 바로 공개, 문제 사진은 관리자가 내린다).
 // 사진이 있는 가게만 고른다(features->merchant_photo). 내리기 = clear_merchant_photo RPC(관리자 허용, 앞 경로를
@@ -13,13 +16,23 @@ interface PhotoRow {
   name: string;
   path: string;
   updatedAt: string | null;
+  /** 관제 데모 전용 — 로컬 정적 이미지 주소(있으면 스토리지 주소 대신 쓴다). */
+  demoUrl?: string;
 }
 
 export function MerchantPhotoReview() {
-  const [rows, setRows] = useState<PhotoRow[]>([]);
+  // 관제 데모는 Supabase 를 부르지 않는다. useAdminDemo 는 관제 데모 밖에서는 false 다.
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
+  const [rows, setRows] = useState<PhotoRow[]>(() =>
+    demo
+      ? DEMO_MERCHANT_PHOTOS.map((r) => ({ id: r.id, name: r.name, path: r.path, updatedAt: r.updatedAt, demoUrl: r.url }))
+      : [],
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (demo) return; // 데모 행은 아래 초기 state 로 이미 들어 있다.
     let alive = true;
     (async () => {
       const { data, error } = await createPublicClient()
@@ -42,9 +55,13 @@ export function MerchantPhotoReview() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [demo]);
 
   const takeDown = async (row: PhotoRow) => {
+    if (demo) {
+      demoToast();
+      return;
+    }
     setBusyId(row.id);
     const supabase = createPublicClient();
     try {
@@ -69,7 +86,7 @@ export function MerchantPhotoReview() {
       <p className="mt-1 text-xs text-hanok-muted">올리면 바로 손님 카드에 보여요. 문제 있는 사진은 여기서 내립니다.</p>
       <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {rows.map((row) => {
-          const url = merchantPhotoUrl({ merchant_photo: { path: row.path } });
+          const url = row.demoUrl ?? merchantPhotoUrl({ merchant_photo: { path: row.path } });
           return (
             <li key={row.id} className="overflow-hidden rounded-xl border border-hanok-line bg-hanok-card">
               {url && <img src={url} alt={`${row.name} 사장님 사진`} className="aspect-[4/3] w-full object-cover" loading="lazy" />}

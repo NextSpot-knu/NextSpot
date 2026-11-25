@@ -203,3 +203,87 @@ test.describe('admin demo dashboard', () => {
     await expectOneDemoChip(page);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 관제 데모의 나머지 화면 — 사이드바 메뉴마다 데모가 열린다(lib/adminDemo.ts ADMIN_DEMO_PATHS, PM 2026-11-25).
+// 예전에는 데모 사이드바의 다른 메뉴가 토스트만 띄워, 통계 리포트·SPOT 시뮬레이터 등이 '안 열리는' 것으로 읽혔다.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 데모가 부르면 안 되는 관리자 전용 조회(관리자 API 밖에 있는 것 포함). */
+function adminOnlyCalls(paths: string[]): string[] {
+  return paths.filter(
+    (p) =>
+      p.startsWith('/api/v1/admin/') ||
+      p.startsWith('/api/v1/merchant/') ||
+      p.startsWith('/api/v1/search/ingest-requests') ||
+      p.startsWith('/api/v1/preference-stats'),
+  );
+}
+
+/** 화면 · 머리글 제목 · 첫 화면에 보이는 고정값(lib/demo/*). */
+const ADMIN_DEMO_SCREENS: ReadonlyArray<{ path: string; menu: string; heading: string; fixture: string }> = [
+  { path: '/admin/infrastructure', menu: '장소 관리', heading: '장소 관리', fixture: '한옥 공방 체험관 D' },
+  { path: '/admin/simulator', menu: 'SPOT 시뮬레이터', heading: 'SPOT 시뮬레이터', fixture: '감성·인스타' },
+  { path: '/admin/reports', menu: '통계 리포트', heading: '통계 리포트', fixture: '+23%' },
+  { path: '/admin/safety', menu: '안전 경보', heading: '인파 밀집 안전 경보', fixture: '황리단길 카페거리 일대' },
+  { path: '/admin/report', menu: '성과 리포트', heading: '분산정책 성과 리포트', fixture: '29일 / 30일 (97%)' },
+  { path: '/admin/support', menu: '문의 관리', heading: '문의 관리', fixture: '관광객 김**' },
+  { path: '/admin/settings', menu: '시스템 설정', heading: '시스템 설정', fixture: '1,912개' },
+];
+
+test.describe('admin demo screens', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  for (const screen of ADMIN_DEMO_SCREENS) {
+    test(`${screen.path}?demo=1 renders fixtures without login and never calls admin APIs`, async ({ page }) => {
+      test.setTimeout(90_000);
+      const calls = recordApiCalls(page);
+      await stubDemoConsole(page);
+      await page.goto(`${screen.path}?demo=1`);
+
+      await expectOneDemoChip(page);
+      await expect(page).toHaveURL(new RegExp(`${screen.path}\\?demo=1$`));
+      await expect(page.getByText('권한 확인 중…')).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: screen.heading, level: 2 })).toBeVisible();
+      await expect(page.getByText(screen.fixture).first()).toBeVisible({ timeout: 20_000 });
+      // 데모 사이드바에서 지금 화면이 현재 메뉴로 표시된다.
+      await expect(page.locator('aside').getByRole('link', { name: screen.menu })).toHaveAttribute('aria-current', 'page');
+
+      expect(adminOnlyCalls(calls)).toEqual([]);
+    });
+  }
+
+  test('demo sidebar moves between demo screens and keeps the demo', async ({ page }) => {
+    test.setTimeout(90_000);
+    const calls = recordApiCalls(page);
+    await stubDemoConsole(page);
+    await page.goto('/admin/dashboard?demo=1');
+    await expectOneDemoChip(page);
+
+    const rail = page.locator('aside');
+    await rail.getByRole('link', { name: '통계 리포트' }).click();
+    await expect(page).toHaveURL(/\/admin\/reports\?demo=1$/, { timeout: 30_000 });
+    await expectOneDemoChip(page);
+
+    await rail.getByRole('link', { name: 'SPOT 시뮬레이터' }).click();
+    await expect(page).toHaveURL(/\/admin\/simulator\?demo=1$/, { timeout: 30_000 });
+    await expectOneDemoChip(page);
+
+    await rail.getByRole('link', { name: '관제 대시보드' }).click();
+    await expect(page).toHaveURL(/\/admin\/dashboard\?demo=1$/, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: '경주 관광 혼잡 종합 대시보드' })).toBeVisible();
+
+    expect(adminOnlyCalls(calls)).toEqual([]);
+  });
+
+  test('settings save in demo only toasts', async ({ page }) => {
+    test.setTimeout(90_000);
+    const calls = recordApiCalls(page);
+    await stubDemoConsole(page);
+    await page.goto('/admin/settings?demo=1');
+    await expectOneDemoChip(page);
+    await page.getByRole('button', { name: /변경사항 저장/ }).click();
+    await expect(page.getByText(NO_SAVE_TOAST).first()).toBeVisible();
+    expect(adminOnlyCalls(calls)).toEqual([]);
+  });
+});

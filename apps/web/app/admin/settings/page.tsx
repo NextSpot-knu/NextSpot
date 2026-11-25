@@ -10,6 +10,10 @@ import { createPublicClient } from '@/lib/supabase';
 import { adminApi, adminApiForbiddenDetail } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } from '@/lib/adminLoadState';
+import { useAdminDemo } from '@/lib/adminDemo';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useDemoToast } from '@/components/DemoBadge';
+import { DEMO_SETTINGS_ROW, demoSettingsStats, type SystemSettingsRow } from '@/lib/demo/adminSettings';
 
 // DB 통계(count)는 anon 읽기(facilities/congestion_logs 공개 유지), system_settings 읽기/쓰기는
 // 관리자 API(FastAPI service_role) 경유 — anon 은 RLS 로 거부된다(WS-A-6).
@@ -17,17 +21,9 @@ const supabase = createPublicClient();
 
 const DEFAULT_NOTICE = '경주 주요 관광지·맛집 혼잡 정보를 실시간으로 제공하고 있습니다.';
 
-/** GET /api/v1/admin/settings 응답 — system_settings 단일 행(snake_case, admin-api 는 케이스 변환 없음).
- *  행이 없으면 백엔드가 null 을 반환한다(마이그레이션 미적용 환경 = 'missing').
- *  필드별 typeof 가드가 있으므로 넓게 잡는다. */
-interface SystemSettingsRow {
-  maintenance_mode?: boolean | null;
-  notice_text?: string | null;
-  congestion_threshold?: number | null;
-  coldstart_weight?: number | null;
-}
-
 export default function SettingsPage() {
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   // 화면에 보이는 초기값은 어디까지나 **프런트 기본값**이다. 조회가 성공해야 서버 값으로 바뀐다.
   // 이 구분을 settingsLoad 가 들고 있다 — 이게 없으면 조회 실패가 '기본값' 으로 위장돼,
   // 관리자가 저장을 누르는 순간 읽지도 못한 실제 설정이 기본값으로 덮인다.
@@ -53,6 +49,11 @@ export default function SettingsPage() {
   const [saveMsg, setSaveMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   const loadStats = async () => {
+    if (demo) {
+      setStats(demoSettingsStats());
+      setStatsStatus('ok');
+      return;
+    }
     setStatsStatus('loading');
     try {
       // count(head:true)는 행을 받지 않아 매우 빠름. 3개 병렬.
@@ -87,7 +88,10 @@ export default function SettingsPage() {
     let active = true;
     (async () => {
       try {
-        const data: SystemSettingsRow | null = await adminApi.get('/api/v1/admin/settings');
+        // 데모: 고정 설정 행을 조회 성공과 같은 길로 채운다(요청 없음). 현황은 아래 loadStats 의 데모 분기가 채운다.
+        const data: SystemSettingsRow | null = demo
+          ? DEMO_SETTINGS_ROW
+          : await adminApi.get('/api/v1/admin/settings');
         if (!active) return;
         if (data) {
           const stored = {
@@ -116,7 +120,8 @@ export default function SettingsPage() {
       if (active) loadStats();
     })();
     return () => { active = false; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadStats 는 렌더마다 새로 만들어지는 함수라 의도적으로 제외(demo 만 의존)
+  }, [demo]);
 
   const saveGuard = settingsSaveGuard(settingsLoad, saving);
 
@@ -124,6 +129,10 @@ export default function SettingsPage() {
     // 조회 실패 상태의 저장은 눌러도 아무 일이 없어야 한다. 버튼 disabled 만 믿지 않는 이유는
     // 이 핸들러가 유일한 쓰기 경로이고, 여기서 막아야 어떤 경로로 호출돼도 안전하기 때문이다.
     if (!saveGuard.allowed) return;
+    if (demo) {
+      demoToast();
+      return;
+    }
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -172,7 +181,10 @@ export default function SettingsPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">시스템 설정</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-hanok-ink">시스템 설정</h2>
+            <AdminDemoChip />
+          </div>
           <div className="flex items-center gap-6">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />

@@ -13,6 +13,10 @@ import {
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
+import { useAdminDemo } from '@/lib/adminDemo';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useDemoToast } from '@/components/DemoBadge';
+import { DEMO_REPORT_AI_TREND, DEMO_REPORT_TABLE, DEMO_REPORT_WEEKLY } from '@/lib/demo/adminReports';
 import { adminApi, adminApiKind, adminApiStatus } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import { foldObservations, describeGrowth } from '@/lib/adminUsageIndex';
@@ -33,17 +37,17 @@ const supabase = createPublicClient();
 type CategoryKo = '음식점' | '카페' | '관광지' | '문화시설';
 
 /** 막대 차트 1행: 요일 + 카테고리별 관측 혼잡 지수(= (시설,30분)당 중앙값의 합) */
-type WeeklyRow = { day: string } & Record<CategoryKo, number>;
+export type WeeklyRow = { day: string } & Record<CategoryKo, number>;
 
 /** AI 수락 트렌드 1행(주차 버킷) */
-interface AiTrendRow {
+export interface AiTrendRow {
   date: string;
   수락: number;
   거절: number;
 }
 
 /** 카테고리 요약 표 1행 */
-interface CategoryTableRow {
+export interface CategoryTableRow {
   id: number;
   category: string;
   totalUsers: string;
@@ -179,6 +183,8 @@ async function fetchRecs28d(): Promise<RecsResult> {
 }
 
 export default function ReportsPage() {
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   const [weekly, setWeekly] = useState(EMPTY_WEEKLY);
   const [aiTrend, setAiTrend] = useState(EMPTY_AI);
   const [table, setTable] = useState<CategoryTableRow[]>(EMPTY_TABLE);
@@ -204,6 +210,22 @@ export default function ReportsPage() {
   useEffect(() => {
     let active = true;
     (async () => {
+      // 관제 데모(?demo=1)는 서버를 부르지 않는다 — 고정 예시값으로 바로 그린다.
+      if (demo) {
+        const now = Date.now();
+        setRangeLabel(`${fmtMD(new Date(now - 7 * 24 * 60 * 60 * 1000))} ~ ${fmtMD(new Date(now))} · 최근 7일`);
+        setWeekly(DEMO_REPORT_WEEKLY);
+        setAiTrend(DEMO_REPORT_AI_TREND);
+        setTable(DEMO_REPORT_TABLE);
+        setLogsStatus('ok');
+        setRecsStatus('ok');
+        setLogsFailure(null);
+        setRecsFailure(null);
+        setObservationGap(null);
+        setIsLive(true);
+        setLoading(false);
+        return;
+      }
       // 재조회 시작 — 이전 실패 안내를 남겨 두면 성공한 화면에 옛 경고가 붙는다.
       setLoading(true);
       setLogsStatus('loading');
@@ -386,7 +408,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [reloadKey]);
+  }, [reloadKey, demo]);
 
   const anyFailed = logsStatus === 'failed' || recsStatus === 'failed';
   const sourceState = reportSourceState({ loading, failed: anyFailed, live: isLive });
@@ -426,6 +448,7 @@ export default function ReportsPage() {
 
   // Excel(=CSV) 내보내기: 현재 표시 중인 데이터로 클라이언트에서 생성(엑셀 한글 BOM).
   const handleExcel = () => {
+    if (demo) { demoToast(); return; }
     try {
       const lines: string[] = [];
       if (estimateInUse) {
@@ -482,6 +505,7 @@ export default function ReportsPage() {
 
   // 브라우저 인쇄 → '대상: PDF로 저장' 으로 PDF 추출(별도 서버 불필요).
   const handlePdf = () => {
+    if (demo) { demoToast(); return; }
     if (typeof window !== 'undefined') window.print();
   };
 
@@ -497,7 +521,10 @@ export default function ReportsPage() {
       <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden print:h-auto print:overflow-visible print:bg-white">
         {/* Top Header */}
         <header className="print:hidden lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">통계 리포트</h2>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <h2 className="text-xl font-bold text-hanok-ink">통계 리포트</h2>
+            <AdminDemoChip />
+          </div>
           <div className="flex items-center gap-6">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
@@ -524,7 +551,9 @@ export default function ReportsPage() {
                 <span className="text-sm font-semibold text-hanok-ink">{rangeLabel}</span>
               </div>
               {/* 데이터 출처 배지. 갱신 대기 상태를 '수집 중' 으로 뭉개면 관리자는 '이번 주엔
-                  아무 일도 없었구나' 로 읽는다 — 상태를 따로 적고 색도 따로 쓴다. */}
+                  아무 일도 없었구나' 로 읽는다 — 상태를 따로 적고 색도 따로 쓴다.
+                  데모(예시 화면)에서는 그리지 않는다 — 고정값 옆에 'DB 실시간 반영' 이 서면 거짓말이 된다. */}
+              {!demo && (
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${
                   sourceState === 'live'
@@ -537,6 +566,7 @@ export default function ReportsPage() {
                 {sourceState === 'failed' || sourceState === 'partial' ? <AlertCircle size={13} /> : <Database size={13} />}
                 {reportSourceLabel(sourceState)}
               </span>
+              )}
               {/* 화면 전체가 추정으로 그려지고 있다는 사실을 맨 위에서도 한 번 말한다
                   (차트·표 옆 배지와 중복이지만, 어느 쪽을 먼저 보든 놓치지 않게). */}
               {estimateInUse && <EstimateBadge label="추정 지표로 표시 중" />}

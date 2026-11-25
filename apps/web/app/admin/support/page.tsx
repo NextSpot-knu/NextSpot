@@ -7,6 +7,10 @@ import {
 import { toast } from 'sonner';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
+import { useAdminDemo } from '@/lib/adminDemo';
+import { AdminDemoChip } from '@/components/admin/AdminDemoChip';
+import { useDemoToast } from '@/components/DemoBadge';
+import { demoInquiries } from '@/lib/demo/adminSupport';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
 
 interface Ticket {
@@ -28,7 +32,7 @@ interface Ticket {
  *  status 는 DB CHECK(new/in_progress/resolved)와 동일 집합.
  *  reply_body/replied_at 은 20260907091000 마이그레이션이 추가한 컬럼이라, 적용 전 DB 에서는
  *  아예 키가 없다(백엔드는 select('*') 이므로 오류가 아니라 '없음' 으로 온다). */
-interface InquiryRow {
+export interface InquiryRow {
   id: string;
   user_id: string | null;
   user_name: string | null;
@@ -84,7 +88,25 @@ function formatDateTime(dateString: string) {
   }
 }
 
+function mapInquiry(item: InquiryRow): Ticket {
+  return {
+    id: item.id,
+    user: item.user_name || '익명 사용자',
+    userId: item.user_id ?? null,
+    type: item.type || '기타 문의',
+    title: item.title || '제목 없음',
+    content: item.content || '내용 없음',
+    status: item.status || 'new',
+    time: formatRelativeTime(item.created_at),
+    // 빈 문자열은 '답변 없음' 과 같이 취급한다 — 빈 답변 카드를 그리면 답한 것처럼 보인다.
+    replyBody: item.reply_body?.trim() ? item.reply_body : null,
+    repliedAt: item.replied_at ?? null,
+  };
+}
+
 export default function SupportPage() {
+  const demo = useAdminDemo();
+  const demoToast = useDemoToast();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -97,24 +119,21 @@ export default function SupportPage() {
 
   // Fetch inquiries from Supabase
   useEffect(() => {
+    // 관제 데모(?demo=1)는 서버를 부르지 않는다 — 예시 문의로 바로 그린다.
+    if (demo) {
+      const rows = demoInquiries().map(mapInquiry);
+      setTickets(rows);
+      setSelectedTicket(rows[0] ?? null);
+      setLoadStatus('ok');
+      return;
+    }
+
     async function fetchTickets() {
       try {
         // 문의는 PII(user_name/content) — RLS 강화로 anon 열람이 막혀 관리자 API 경유로만 읽는다(WS-A-6).
         const data: InquiryRow[] = await adminApi.get('/api/v1/admin/inquiries');
 
-        const mappedTickets: Ticket[] = (data || []).map((item: InquiryRow) => ({
-          id: item.id,
-          user: item.user_name || '익명 사용자',
-          userId: item.user_id ?? null,
-          type: item.type || '기타 문의',
-          title: item.title || '제목 없음',
-          content: item.content || '내용 없음',
-          status: item.status || 'new',
-          time: formatRelativeTime(item.created_at),
-          // 빈 문자열은 '답변 없음' 과 같이 취급한다 — 빈 답변 카드를 그리면 답한 것처럼 보인다.
-          replyBody: item.reply_body?.trim() ? item.reply_body : null,
-          repliedAt: item.replied_at ?? null,
-        }));
+        const mappedTickets: Ticket[] = (data || []).map(mapInquiry);
         setTickets(mappedTickets);
         setSelectedTicket(mappedTickets[0] ?? null);
         setLoadStatus('ok');
@@ -130,7 +149,7 @@ export default function SupportPage() {
     }
 
     fetchTickets();
-  }, []);
+  }, [demo]);
 
   // 답변 저장 + 처리 완료.
   //
@@ -145,6 +164,10 @@ export default function SupportPage() {
   // 판단하지 않는 것이 이 수정의 핵심이다 — 그 판단이 틀렸던 게 원래 결함이었다.
   const handleReply = async () => {
     if (!selectedTicket || isSending) return;
+    if (demo) {
+      demoToast();
+      return;
+    }
     const body = replyText.trim();
 
     setIsSending(true);
@@ -217,7 +240,10 @@ export default function SupportPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">문의 관리</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-hanok-ink">문의 관리</h2>
+            <AdminDemoChip />
+          </div>
           <div className="flex w-full lg:w-auto items-center gap-4 lg:gap-6">
             <div className="relative flex-1 lg:flex-none">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
