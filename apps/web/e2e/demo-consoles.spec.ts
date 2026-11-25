@@ -222,7 +222,7 @@ function adminOnlyCalls(paths: string[]): string[] {
 
 /** 화면 · 머리글 제목 · 첫 화면에 보이는 고정값(lib/demo/*). */
 const ADMIN_DEMO_SCREENS: ReadonlyArray<{ path: string; menu: string; heading: string; fixture: string }> = [
-  { path: '/admin/infrastructure', menu: '장소 관리', heading: '장소 관리', fixture: '한옥 공방 체험관 D' },
+  { path: '/admin/infrastructure', menu: '장소 관리', heading: '장소 관리', fixture: '돌담길 다도 체험관' },
   { path: '/admin/simulator', menu: 'SPOT 시뮬레이터', heading: 'SPOT 시뮬레이터', fixture: '감성·인스타' },
   { path: '/admin/reports', menu: '통계 리포트', heading: '통계 리포트', fixture: '+23%' },
   { path: '/admin/safety', menu: '안전 경보', heading: '인파 밀집 안전 경보', fixture: '황리단길 카페거리 일대' },
@@ -274,6 +274,21 @@ test.describe('admin demo screens', () => {
     await expect(page.getByRole('heading', { name: '경주 관광 혼잡 종합 대시보드' })).toBeVisible();
 
     expect(adminOnlyCalls(calls)).toEqual([]);
+  });
+
+  test('infrastructure demo shows owner-uploaded shop photos, not category stand-ins', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubDemoConsole(page);
+    await page.goto('/admin/infrastructure?demo=1');
+    await expectOneDemoChip(page);
+    const queue = page.getByTestId('admin-merchant-photos');
+    await expect(queue.getByText('사장님이 올린 가게 사진 5장')).toBeVisible({ timeout: 20_000 });
+    const photos = queue.locator('img');
+    await expect(photos).toHaveCount(5);
+    // 업종 사진(public/category — 사진 없는 가게의 표지)을 사장님 사진처럼 쓰지 않는다.
+    for (const src of await photos.evaluateAll((imgs) => imgs.map((img) => img.getAttribute('src') ?? ''))) {
+      expect(src).toMatch(/^\/demo\/merchant\/[a-z-]+\.webp$/);
+    }
   });
 
   test('settings save in demo only toasts', async ({ page }) => {

@@ -1,5 +1,6 @@
 // 관제 '장소 관리' 데모(/admin/infrastructure?demo=1) 고정값 — 백엔드·Supabase 를 부르지 않는다.
-// 규칙은 lib/adminDemo.ts 머리말과 같다. 값은 결정적이다(난수·현재 시각 없음). 업체 이름은 일반 명칭이다.
+// 규칙은 lib/adminDemo.ts 머리말과 같다. 값은 결정적이다(난수·현재 시각 없음).
+// 가게 이름은 지어낸 상호다 — 'A·B' 를 붙인 이름은 한눈에 가짜로 읽혀 바꿨다(2026-11-25, 경주에서 같은 상호 검색 결과 없음).
 
 import type { CategoryCode, CategoryShares } from '@/lib/demandPressure';
 import type { FacilityCongestion } from '@/lib/adminMetricState';
@@ -72,20 +73,20 @@ export const DEMO_INFRASTRUCTURES: readonly DemoInfrastructure[] = [
   place(6, '교촌마을', 'attraction', { kind: 'estimated', level: 0.22 }, 700),
   place(7, '분황사', 'attraction', { kind: 'observed', level: 0.14 }, 400),
   place(8, '국립경주박물관', 'culture', { kind: 'observed', level: 0.58 }, 1500),
-  place(9, '신라 공예 체험관 A', 'culture', { kind: 'estimated', level: 0.27 }, 120),
-  place(10, '한옥 찻집 A', 'cafe', { kind: 'observed', level: 0.88 }, 60, 53),
-  place(11, '한옥 찻집 B', 'cafe', { kind: 'observed', level: 0.52 }, 45),
-  place(12, '골목 로스터리 C', 'cafe', { kind: 'estimated', level: 0.31 }, 38),
-  place(13, '한식당 A', 'restaurant', { kind: 'observed', level: 0.91 }, 80, 73),
-  place(14, '쌈밥 식당 B', 'restaurant', { kind: 'observed', level: 0.61 }, 70),
-  place(15, '분식집 C', 'restaurant', { kind: 'estimated', level: 0.19 }, 32),
+  place(9, '골목 도예 공방', 'culture', { kind: 'estimated', level: 0.27 }, 120),
+  place(10, '기와마루 찻집', 'cafe', { kind: 'observed', level: 0.88 }, 60, 53),
+  place(11, '서까래 커피', 'cafe', { kind: 'observed', level: 0.52 }, 45),
+  place(12, '담장 아래 베이커리', 'cafe', { kind: 'estimated', level: 0.31 }, 38),
+  place(13, '돌담 쌈밥', 'restaurant', { kind: 'observed', level: 0.91 }, 80, 73),
+  place(14, '골목 손칼국수', 'restaurant', { kind: 'observed', level: 0.61 }, 70),
+  place(15, '노을 분식', 'restaurant', { kind: 'estimated', level: 0.19 }, 32),
 ];
 
 export const DEMO_INGEST_REQUESTS: readonly DemoIngestRequest[] = [
   {
     id: 'demo-ingest-1',
     contentid: '2950001',
-    name: '한옥 공방 체험관 D',
+    name: '돌담길 다도 체험관',
     content_type_id: 12,
     status: 'pending',
     created_at: '2026-11-24T05:12:00.000Z',
@@ -107,13 +108,49 @@ export const DEMO_CATEGORY_SHARES: CategoryShares = {
   shares: { restaurant: 0.34, cafe: 0.22, attraction: 0.31, culture: 0.13 },
 };
 
+// 사장님이 올린 가게 사진 검토 대기열 — 가게마다 한 장(가게 사진은 시설당 하나다). 사장님이 휴대폰으로 찍어 올린 듯한
+// 실사진: 외관·실내·대표 메뉴. 업종 사진(public/category — 사진 없는 가게의 표지)과 겹치지 않는다.
+// 파일은 public/demo/merchant/*.webp(960×720). 원본 Unsplash License(상업 이용 가능, 출처 표기 의무 없음):
+//   seokkarae-interior  unsplash.com/photos/1GDMoT1J8VU (rawkkim)       한옥 카페 실내 서까래
+//   giwamaru-tea        unsplash.com/photos/3hRRT4qztzs (Na visky)      찻잔·다관
+//   damjang-cake        unsplash.com/photos/VhSHmz_9Cc4 (Minku Kang)    딸기 케이크 진열
+//   golmok-kalguksu     unsplash.com/photos/vCfQOMDW8R0 (note thanun)   칼국수·김치
+//   doldam-front        unsplash.com/photos/rTOIH6XHrwY (Minku Kang)    한옥 외관(간판 글자는 지웠다 — 실존 상호)
 export const DEMO_MERCHANT_PHOTOS: readonly DemoMerchantPhoto[] = [
   {
+    id: '0a1b2c11-demo-gyeongju',
+    name: '서까래 커피',
+    path: 'demo/seokkarae-interior.webp',
+    updatedAt: '2026-11-25T01:10:00.000Z',
+    url: '/demo/merchant/seokkarae-interior.webp',
+  },
+  {
+    id: '0a1b2c14-demo-gyeongju',
+    name: '골목 손칼국수',
+    path: 'demo/golmok-kalguksu.webp',
+    updatedAt: '2026-11-24T09:32:00.000Z',
+    url: '/demo/merchant/golmok-kalguksu.webp',
+  },
+  {
+    id: '0a1b2c12-demo-gyeongju',
+    name: '담장 아래 베이커리',
+    path: 'demo/damjang-cake.webp',
+    updatedAt: '2026-11-24T02:05:00.000Z',
+    url: '/demo/merchant/damjang-cake.webp',
+  },
+  {
+    id: '0a1b2c13-demo-gyeongju',
+    name: '돌담 쌈밥',
+    path: 'demo/doldam-front.webp',
+    updatedAt: '2026-11-23T07:48:00.000Z',
+    url: '/demo/merchant/doldam-front.webp',
+  },
+  {
     id: '0a1b2c10-demo-gyeongju',
-    name: '한옥 찻집 A',
-    path: 'demo/cafe.webp',
-    updatedAt: '2026-11-24T02:30:00.000Z',
-    url: '/category/cafe.webp',
+    name: '기와마루 찻집',
+    path: 'demo/giwamaru-tea.webp',
+    updatedAt: '2026-11-22T05:20:00.000Z',
+    url: '/demo/merchant/giwamaru-tea.webp',
   },
 ];
 
