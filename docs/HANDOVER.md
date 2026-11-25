@@ -295,6 +295,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-11-25 — 가게 사진은 반드시 — 경주시 사진 켜기 + 사진 없는 음식점·카페에 업종 사진 표지
+
+- 도구·브랜치: Claude Code / `feat/category-photo`(main `fac2df3` 위)
+- 커밋: 웹 1건 + 이 기록
+- 한 것: 운영 DB 실측 음식점·카페 1,748곳 중 1,690곳이 사진 0장(카카오로 찾은 1,675곳은 카카오 API 가 사진을 주지 않아 전부). ① Repository Variable `GYEONGJU_CITY_PHOTO_ENABLED=true`(09-29 승인분, 웹 출처 '사진: 경주시'는 이미 배포돼 있었다) + 수동 적재 1회 → 경주시 사진 44곳 추가(`city_photo_added: 44`). ② 실사진(사장님·TourAPI·경주시)이 없거나 다 깨지면 업종 사진(20종, `public/category/*.webp` 약 1MB, Unsplash·Pexels 라이선스 — 출처 표기 의무 없음, 원본 목록은 `lib/categoryPhoto.ts` 끝)을 `PlacePhotoFallback` 의 배경 그림(`cover`, `<img>` 아님)으로 깐다. 업종은 `features.cuisine_tags`, 없으면 유형. 다섯 자리 모두(추천 카드·탐색 추천·대기 보드 카드·썸네일·코스). 관광지·문화시설은 그대로.
+- 동작 변화: 업종 사진은 실사진 후보가 아니다 — 대기 보드 '같은 대기면 사진 있는 곳 먼저'·출처 판정은 그대로 실사진만 본다. 저장 목록의 음식점·카페 카드에 표지가 생긴다(전에는 사진 없으면 표지 없음). '카카오맵에서 사진 보기' 버튼은 그대로.
+- 검증: `lib/categoryPhoto.test.ts`(로컬) · 나머지 web 게이트·e2e 는 PR CI.
+- 다음·미결: 실제 가게 사진을 늘리려면 Google Places 사진(유료·저장 제한) 검토는 사용자 결정 대기(이번엔 보류).
+- 사람 작업: 없음.
+
 ## 2026-11-21 — 첫 화면 디자인 수정(디자이너 팀원) — 기와 돌담 배경 · 로그인 버튼 · 문구 정리
 
 - 도구·브랜치: Claude Code / `rejudge`(main `4301c2f` 위) — 같은 커밋을 `yunseong` 에도 cherry-pick(디자인 수정은 영구 반영)
@@ -355,20 +365,6 @@ from checks order by seq;
 - 검증: api ruff · pytest 3028 · OpenAPI 스냅샷(필드 삭제 없음) · web lint(0 error)·typecheck·test 117·build · check-docs · 스키마 파리티. CI e2e 는 `5af16c7` 에서 사장님 화면 key 중복으로 2건 실패 → `97bc930` 에서 고침(로컬 CI 조건 42건 통과).
 - 다음·미결: main 반영은 사용자 지시 뒤 KST 밤, **API(Render 수동 배포) 먼저 · 웹 바로 뒤**. 보류: P0-2(D3) · P0-6(D8) · P1-3(서울 — Q1~Q8 답 받음, Q2·Q6 수정안 확인과 S0 A~D 결과 뒤 S1) · P2·P3. 후속 목록은 §7.
 - 사람 작업: 모두의 창업 조항 서면 확인(위 "사람 작업 대기" 첫 줄 — 로컬 트랙 2R 마감 · 사업자등록 의무 확인 포함).
-
-## 2026-10-31 — 제품 평가·다음 작업 계획 + 서울 테스트베드 이해 정리(검토 대기)
-
-- 도구·브랜치: Claude Code / `yunseong`(`e8b64ed` 위)
-- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
-- 한 것: 사용자 요청으로 공모전 이후 할 일을 정리했다.
-  - 평가 기준: 2026 공고문 원본 배점(가점 2종·PT 상위 5팀 포함)에 다른 대회(범정부 공공데이터·AI 창업, 병무청 합동, 서울시 빅데이터, 예비관광벤처, 혁신제품)와 품질 프레임워크(Nielsen·ISO 25010·KRDS·KWCAG·UNWTO·ETIS)를 더했다.
-  - 평가: 관광객·사장님·기관·공통 관점을 각각 다른 검토 에이전트가 코드 근거로 채점했고, 핵심 주장은 메인 세션이 다시 확인했다.
-  - 결과: [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md)(평균 관광객 2.6 · 사장님 2.1 · 기관 2.0 · 공통 3.0, Phase 0~3, 결정 D1~D7).
-  - 서울 건은 문서·코드만 읽고 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(검토 대기)로 정리했다. 요지: 지금까지는 추정기 검증이고, '분산 알고리즘 유효성'은 새 평가 층(분산 결정 재생)이 필요하다. 질문 10개가 있다.
-  - 색인의 `CONGESTION_ENGINE_PLAN.md` '초안' 표기를 바로잡았다.
-- 검증: check-docs. 일요일 휴무 오판은 `open_status_at_arrival` 직접 실행으로 재현했다(위 "알려진 이슈").
-- 다음·미결: 사용자 검토 뒤 Phase 0(일요일 휴무 버그 · 게스트 방문 확인 체감 혼잡 · 운영 시나리오 값 제거 · 안전 '판정 불가' · 문구 정리)부터.
-- 사람 작업: Phase 0-7 의 세 건(`JWT_SECRET` 시크릿 · Render Deploy Hook · 서울 수집 점검 SQL)은 이미 "사람 작업 대기"에 있는 항목이다.
 
 ## 기록 규칙
 
